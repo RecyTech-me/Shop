@@ -1,1 +1,5 @@
-secrets.php
+node_modules/
+.env
+storage/*.db
+storage/*.db-*
+*.log

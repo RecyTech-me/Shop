@@ -1,0 +1,133 @@
+<%- include("../partials/head", { title }) %>
+<%- include("../partials/header") %>
+<%- include("../partials/flash") %>
+
+<main class="shell section-stack">
+    <section class="section-block">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Administration</p>
+                <h1>Paramètres de la boutique</h1>
+            </div>
+            <a href="/admin" class="button button-secondary">Retour</a>
+        </div>
+
+        <form action="/admin/settings" method="post" class="admin-form-grid">
+            <label>
+                Nom de la boutique
+                <input type="text" name="store_name" value="<%= settings.store_name %>" required>
+            </label>
+
+            <label>
+                Email de contact
+                <input type="email" name="support_email" value="<%= settings.support_email %>" required>
+            </label>
+
+            <label class="full-span">
+                Adresse
+                <input type="text" name="support_address" value="<%= settings.support_address %>" required>
+            </label>
+
+            <label class="full-span">
+                Tagline
+                <input type="text" name="tagline" value="<%= settings.tagline %>" required>
+            </label>
+
+            <label class="full-span">
+                Titre hero
+                <input type="text" name="hero_title" value="<%= settings.hero_title %>" required>
+            </label>
+
+            <label class="full-span">
+                Texte hero
+                <textarea name="hero_text" rows="4"><%= settings.hero_text %></textarea>
+            </label>
+
+            <label class="full-span">
+                Note livraison / retrait
+                <textarea name="shipping_note" rows="4"><%= settings.shipping_note %></textarea>
+            </label>
+
+            <div class="full-span settings-subsection">
+                <h2>Coordonnées bancaires</h2>
+                <p class="muted">Ces informations seront affichées après une commande payée par virement bancaire.</p>
+            </div>
+
+            <label>
+                Titulaire du compte
+                <input type="text" name="bank_account_holder" value="<%= settings.bank_account_holder %>">
+            </label>
+
+            <label>
+                Banque
+                <input type="text" name="bank_name" value="<%= settings.bank_name %>">
+            </label>
+
+            <label>
+                Numéro du compte
+                <input type="text" name="bank_account_number" value="<%= settings.bank_account_number %>">
+            </label>
+
+            <label>
+                BIC
+                <input type="text" name="bank_bic" value="<%= settings.bank_bic %>">
+            </label>
+
+            <label class="full-span">
+                IBAN
+                <input type="text" name="bank_iban" value="<%= settings.bank_iban %>">
+            </label>
+
+            <div class="full-span settings-subsection">
+                <h2>E-mail SMTP</h2>
+                <p class="muted">Utilisé pour envoyer des e-mails aux clients directement depuis l'administration des commandes.</p>
+            </div>
+
+            <label>
+                Serveur SMTP
+                <input type="text" name="smtp_host" value="<%= settings.smtp_host %>" placeholder="smtp.votre-domaine.ch">
+            </label>
+
+            <label>
+                Port SMTP
+                <input type="number" name="smtp_port" value="<%= settings.smtp_port %>" min="1" max="65535" placeholder="587">
+            </label>
+
+            <label>
+                Utilisateur SMTP
+                <input type="text" name="smtp_username" value="<%= settings.smtp_username %>">
+            </label>
+
+            <label>
+                Mot de passe SMTP
+                <input type="password" name="smtp_password" value="<%= settings.smtp_password %>">
+            </label>
+
+            <label>
+                Nom expéditeur
+                <input type="text" name="smtp_from_name" value="<%= settings.smtp_from_name %>" placeholder="RecyTech">
+            </label>
+
+            <label>
+                E-mail expéditeur
+                <input type="email" name="smtp_from_email" value="<%= settings.smtp_from_email %>" placeholder="contact@recytech.me">
+            </label>
+
+            <label class="full-span">
+                E-mail de notification des commandes
+                <input type="email" name="order_notification_email" value="<%= settings.order_notification_email %>" placeholder="team@recytech.me">
+            </label>
+
+            <label class="checkbox-field full-span">
+                <input type="checkbox" name="smtp_secure" value="1" <%= settings.smtp_secure === "1" ? "checked" : "" %>>
+                <span>Utiliser une connexion sécurisée implicite (souvent requis pour le port 465)</span>
+            </label>
+
+            <div class="full-span form-actions">
+                <button type="submit" class="button">Enregistrer</button>
+            </div>
+        </form>
+    </section>
+</main>
+
+<%- include("../partials/footer") %>

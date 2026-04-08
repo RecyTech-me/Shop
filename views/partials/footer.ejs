@@ -1,0 +1,72 @@
+<% if (showFooter !== false) { %>
+    <footer class="site-footer">
+        <div class="footer-panel">
+            <div class="footer-grid">
+                <div class="footer-column footer-brand">
+                    <h3>RecyTech</h3>
+                    <p><%= settings.tagline %></p>
+                    <div class="footer-social-links">
+                        <a href="https://www.instagram.com/recytech.me" target="_blank" rel="noopener noreferrer" aria-label="Instagram">
+                            <svg class="footer-social-icon" aria-hidden="true">
+                                <use href="/static/images/icons.svg#icon-instagram"></use>
+                            </svg>
+                        </a>
+                        <a href="https://github.com/RecyLife/Website" target="_blank" rel="noopener noreferrer" aria-label="GitHub">
+                            <svg class="footer-social-icon" aria-hidden="true">
+                                <use href="/static/images/icons.svg#icon-github"></use>
+                            </svg>
+                        </a>
+                        <a href="/conditions-generales-de-vente" aria-label="Documents">
+                            <svg class="footer-social-icon" aria-hidden="true">
+                                <use href="/static/images/icons.svg#icon-file-alt"></use>
+                            </svg>
+                        </a>
+                    </div>
+                </div>
+                <div class="footer-column">
+                    <h3>Informations</h3>
+                    <nav class="footer-links" aria-label="Informations légales">
+                        <a href="/politique-confidentialite">Politique de confidentialité</a>
+                        <a href="/conditions-generales-de-vente">Conditions générales de vente</a>
+                        <a href="/remboursements-retours">Politique en matière de remboursements et de retours</a>
+                    </nav>
+                </div>
+                <div class="footer-column">
+                    <h3>Nous contacter</h3>
+                    <div class="footer-contact-list">
+                        <p class="footer-contact-item">
+                            <svg class="footer-icon" aria-hidden="true">
+                                <use href="/static/images/icons.svg#icon-map-marker-alt"></use>
+                            </svg>
+                            <span><%= settings.support_address %></span>
+                        </p>
+                        <p class="footer-contact-item">
+                            <svg class="footer-icon" aria-hidden="true">
+                                <use href="/static/images/icons.svg#icon-envelope"></use>
+                            </svg>
+                            <span><%= settings.support_email %></span>
+                        </p>
+                    </div>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; <%= new Date().getFullYear() %> RecyTech. Tous droits réservés.</p>
+            </div>
+        </div>
+    </footer>
+<% } %>
+<div class="confirm-modal" data-confirm-modal hidden>
+    <div class="confirm-modal-backdrop" data-confirm-close></div>
+    <div class="confirm-modal-panel" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title">
+        <p class="eyebrow">Confirmation</p>
+        <h2 id="confirm-modal-title" data-confirm-title>Confirmer l'action</h2>
+        <p class="confirm-modal-copy" data-confirm-message>Cette action est irréversible.</p>
+        <div class="confirm-modal-actions">
+            <button type="button" class="button button-secondary" data-confirm-cancel>Annuler</button>
+            <button type="button" class="button" data-confirm-submit>Confirmer</button>
+        </div>
+    </div>
+</div>
+<script src="/static/scripts/main.js" defer></script>
+</body>
+</html>

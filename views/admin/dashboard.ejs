@@ -1,0 +1,145 @@
+<%- include("../partials/head", { title }) %>
+<%- include("../partials/header") %>
+<%- include("../partials/flash") %>
+
+<main class="shell section-stack">
+    <section class="section-heading">
+        <div>
+            <p class="eyebrow">Administration</p>
+            <h1>Tableau de bord</h1>
+        </div>
+        <div class="admin-actions">
+            <a href="/admin/account" class="button button-secondary">Mon compte</a>
+            <% if (currentAdmin?.role === "superadmin") { %>
+                <a href="/admin/admins" class="button button-secondary">Gérer les admins</a>
+            <% } %>
+            <a href="/admin/settings" class="button button-secondary">Paramètres</a>
+            <form action="/admin/logout" method="post">
+                <button class="button button-ghost" type="submit">Se déconnecter</button>
+            </form>
+        </div>
+    </section>
+
+    <section class="admin-stat-grid">
+        <article class="admin-stat-card">
+            <span>Produits</span>
+            <strong><%= stats.products %></strong>
+        </article>
+        <article class="admin-stat-card">
+            <span>Publiés</span>
+            <strong><%= stats.publishedProducts %></strong>
+        </article>
+        <article class="admin-stat-card">
+            <span>Commandes payées</span>
+            <strong><%= stats.paidOrders %></strong>
+        </article>
+        <article class="admin-stat-card">
+            <span>Chiffre d'affaires</span>
+            <strong><%= formatMoney(stats.revenueCents) %></strong>
+        </article>
+    </section>
+
+    <section class="section-block">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Catalogue</p>
+                <h2>Produits</h2>
+            </div>
+            <a href="/admin/products/new" class="button">Ajouter un produit</a>
+        </div>
+
+        <% if (!products.length) { %>
+            <div class="empty-state compact">
+                <p>Aucun produit pour l'instant.</p>
+            </div>
+        <% } else { %>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Nom</th>
+                            <th>Prix</th>
+                            <th>Stock</th>
+                            <th>État</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <% products.forEach((product) => { %>
+                            <tr>
+                                <td><%= product.name %></td>
+                                <td><%= formatMoney(product.price_cents, product.currency) %></td>
+                                <td><%= product.inventory %></td>
+                                <td><%= product.published ? "Publié" : "Brouillon" %></td>
+                                <td class="order-actions-cell">
+                                    <div class="row-actions">
+                                        <a href="/admin/products/<%= product.id %>/edit">Modifier</a>
+                                        <form
+                                            action="/admin/products/<%= product.id %>/delete"
+                                            method="post"
+                                            data-confirm-form
+                                            data-confirm-title="Supprimer le produit"
+                                            data-confirm-message="Ce produit sera supprimé définitivement. Cette action est irréversible."
+                                            data-confirm-submit="Supprimer"
+                                        >
+                                            <button type="submit">Supprimer</button>
+                                        </form>
+                                    </div>
+                                </td>
+                            </tr>
+                        <% }) %>
+                    </tbody>
+                </table>
+            </div>
+        <% } %>
+    </section>
+
+    <section class="section-block">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Commandes</p>
+                <h2>Dernières commandes</h2>
+            </div>
+            <a href="/admin/orders" class="button button-secondary">Voir toutes les commandes</a>
+        </div>
+
+        <% if (!recentOrders.length) { %>
+            <div class="empty-state compact">
+                <p>Aucune commande enregistrée pour l'instant.</p>
+            </div>
+        <% } else { %>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Numéro</th>
+                            <th>Provider</th>
+                            <th>Client</th>
+                            <th>Montant</th>
+                            <th>Statut</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <% recentOrders.forEach((order) => { %>
+                            <tr>
+                                <td><%= order.order_number %></td>
+                                <td><%= order.provider %></td>
+                                <td><%= order.customer_name %></td>
+                                <td><%= formatMoney(order.amount_cents, order.currency) %></td>
+                                <td><%= getOrderStatusLabel(order.status) %></td>
+                                <td class="order-actions-cell">
+                                    <div class="row-actions">
+                                        <a href="/admin/orders/<%= order.id %>">Ouvrir</a>
+                                    </div>
+                                </td>
+                            </tr>
+                        <% }) %>
+                    </tbody>
+                </table>
+            </div>
+        <% } %>
+    </section>
+</main>
+
+<%- include("../partials/footer") %>

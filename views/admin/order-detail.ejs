@@ -1,0 +1,193 @@
+<%- include("../partials/head", { title }) %>
+<%- include("../partials/header") %>
+<%- include("../partials/flash") %>
+
+<main class="shell section-stack">
+    <section class="section-heading">
+        <div>
+            <p class="eyebrow">Commande</p>
+            <h1><%= order.order_number %></h1>
+        </div>
+        <div class="admin-actions">
+            <a href="/admin/orders" class="button button-secondary">Retour aux commandes</a>
+            <a href="<%= contactMailto %>" class="button button-secondary">Ouvrir dans la messagerie</a>
+            <% if (contact.phone) { %>
+                <a href="tel:<%= contact.phone.replace(/\s+/g, '') %>" class="button button-secondary">Appeler le client</a>
+            <% } %>
+            <form
+                action="/admin/orders/<%= order.id %>/delete"
+                method="post"
+                class="inline-danger-form"
+                data-confirm-form
+                data-confirm-title="Supprimer la commande"
+                data-confirm-message="Cette commande sera supprimée définitivement. Cette action est irréversible."
+                data-confirm-submit="Supprimer"
+            >
+                <button type="submit" class="button button-ghost">Supprimer la commande</button>
+            </form>
+        </div>
+    </section>
+
+    <section class="admin-order-layout">
+        <div class="section-block admin-order-main">
+            <div class="admin-order-summary-grid">
+                <article class="detail-panel">
+                    <p class="eyebrow">Statut</p>
+                    <h2><span class="chip chip-<%= getOrderStatusTone(order.status) %>"><%= getOrderStatusLabel(order.status) %></span></h2>
+                    <p class="muted">Créée le <%= formatDateTime(order.created_at) %></p>
+                    <p class="muted">Dernière mise à jour le <%= formatDateTime(order.updated_at) %></p>
+                </article>
+                <article class="detail-panel">
+                    <p class="eyebrow">Paiement</p>
+                    <h2><%= formatMoney(order.amount_cents, order.currency) %></h2>
+                    <p class="muted">Provider : <%= order.provider %></p>
+                    <% if (order.provider_reference) { %>
+                        <p class="muted provider-reference">Référence provider : <%= order.provider_reference %></p>
+                    <% } %>
+                </article>
+            </div>
+
+            <article class="section-block">
+                <div class="section-heading">
+                    <div>
+                        <p class="eyebrow">Traitement</p>
+                        <h2>Gestion de la commande</h2>
+                    </div>
+                </div>
+
+                <form action="/admin/orders/<%= order.id %>/update" method="post" class="admin-form-grid">
+                    <label>
+                        Statut
+                        <select name="status">
+                            <% orderStatusOptions.forEach((option) => { %>
+                                <option value="<%= option.value %>" <%= order.status === option.value ? "selected" : "" %>><%= option.label %></option>
+                            <% }) %>
+                        </select>
+                    </label>
+
+                    <label>
+                        Transporteur
+                        <input type="text" name="carrier" value="<%= admin.carrier || '' %>" placeholder="La Poste, DHL, retrait...">
+                    </label>
+
+                    <label>
+                        Numéro de suivi
+                        <input type="text" name="tracking_number" value="<%= admin.tracking_number || '' %>" placeholder="Code de suivi">
+                    </label>
+
+                    <label>
+                        Retrait / rendez-vous
+                        <input type="text" name="pickup_details" value="<%= admin.pickup_details || '' %>" placeholder="Date, heure, lieu, personne">
+                    </label>
+
+                    <label class="full-span">
+                        Note visible pour le client
+                        <textarea name="customer_note" rows="3"><%= admin.customer_note || '' %></textarea>
+                    </label>
+
+                    <label class="full-span">
+                        Note de préparation / fulfillment
+                        <textarea name="fulfillment_note" rows="4"><%= admin.fulfillment_note || '' %></textarea>
+                    </label>
+
+                    <label class="full-span">
+                        Note interne
+                        <textarea name="internal_note" rows="5"><%= admin.internal_note || '' %></textarea>
+                    </label>
+
+                    <div class="full-span form-actions">
+                        <button type="submit" class="button">Enregistrer les changements</button>
+                    </div>
+                </form>
+            </article>
+
+            <article class="section-block">
+                <div class="section-heading">
+                    <div>
+                        <p class="eyebrow">Contenu</p>
+                        <h2>Articles commandés</h2>
+                    </div>
+                </div>
+                <div class="admin-order-items">
+                    <% order.items.forEach((item) => { %>
+                        <article class="detail-panel admin-order-item">
+                            <div>
+                                <strong><%= item.name %></strong>
+                                <p class="muted">Quantité : <%= item.quantity %></p>
+                                <% if (item.selected_options?.length) { %>
+                                    <ul class="cart-option-list">
+                                        <% item.selected_options.forEach((option) => { %>
+                                            <li><strong><%= option.name %> :</strong> <%= option.value %></li>
+                                        <% }) %>
+                                    </ul>
+                                <% } %>
+                            </div>
+                            <strong><%= formatMoney(item.line_total_cents, order.currency) %></strong>
+                        </article>
+                    <% }) %>
+                </div>
+            </article>
+        </div>
+
+        <aside class="admin-order-side">
+            <article class="detail-panel">
+                <p class="eyebrow">Client</p>
+                <h2><%= order.customer_name %></h2>
+                <p><a href="mailto:<%= order.customer_email %>"><%= order.customer_email %></a></p>
+                <% if (contact.phone) { %>
+                    <p><a href="tel:<%= contact.phone.replace(/\s+/g, '') %>"><%= contact.phone %></a></p>
+                <% } %>
+            </article>
+
+            <% if (contact.shippingLines.length) { %>
+                <article class="detail-panel">
+                    <p class="eyebrow">Livraison</p>
+                    <h2><%= order.metadata?.delivery?.label || "Adresse de livraison" %></h2>
+                    <% contact.shippingLines.forEach((line) => { %>
+                        <p><%= line %></p>
+                    <% }) %>
+                </article>
+            <% } %>
+
+            <% if (contact.billingLines.length) { %>
+                <article class="detail-panel">
+                    <p class="eyebrow">Facturation</p>
+                    <h2>Adresse de facturation</h2>
+                    <% contact.billingLines.forEach((line) => { %>
+                        <p><%= line %></p>
+                    <% }) %>
+                </article>
+            <% } %>
+
+            <article class="section-block">
+                <div class="section-heading">
+                    <div>
+                        <p class="eyebrow">E-mail</p>
+                        <h2>Envoyer au client</h2>
+                    </div>
+                </div>
+
+                <% if (!mailConfigured) { %>
+                    <p class="muted">L'envoi direct n'est pas configuré. Renseignez le SMTP dans les paramètres de la boutique.</p>
+                    <div class="form-actions">
+                        <a href="/admin/settings" class="button button-secondary">Configurer le SMTP</a>
+                    </div>
+                <% } else { %>
+                    <form action="/admin/orders/<%= order.id %>/send-email" method="post" class="form-stack">
+                        <label>
+                            Sujet
+                            <input type="text" name="subject" value="<%= defaultEmailSubject %>" required>
+                        </label>
+                        <label>
+                            Message
+                            <textarea name="message" rows="8" required><%= defaultEmailMessage %></textarea>
+                        </label>
+                        <button type="submit" class="button">Envoyer l'e-mail</button>
+                    </form>
+                <% } %>
+            </article>
+        </aside>
+    </section>
+</main>
+
+<%- include("../partials/footer") %>

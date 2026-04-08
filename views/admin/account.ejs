@@ -1,0 +1,46 @@
+<%- include("../partials/head", { title }) %>
+<%- include("../partials/header") %>
+<%- include("../partials/flash") %>
+
+<main class="shell section-stack">
+    <section class="section-block">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Administration</p>
+                <h1>Mon compte</h1>
+            </div>
+            <a href="/admin" class="button button-secondary">Retour</a>
+        </div>
+
+        <form action="/admin/account" method="post" class="admin-form-grid">
+            <label>
+                Nom d'utilisateur
+                <input type="text" name="username" value="<%= currentAdmin.username %>" autocomplete="username" required>
+                <small>Ce nom est utilisé pour vous connecter à l'administration.</small>
+            </label>
+
+            <label class="full-span">
+                Mot de passe actuel
+                <input type="password" name="current_password" autocomplete="current-password">
+                <small>Requis uniquement si vous changez le nom d'utilisateur ou le mot de passe.</small>
+            </label>
+
+            <label>
+                Nouveau mot de passe
+                <input type="password" name="password" autocomplete="new-password">
+                <small>Laissez vide pour conserver le mot de passe actuel.</small>
+            </label>
+
+            <label>
+                Confirmer le nouveau mot de passe
+                <input type="password" name="password_confirm" autocomplete="new-password">
+            </label>
+
+            <div class="full-span form-actions">
+                <button type="submit" class="button">Enregistrer</button>
+            </div>
+        </form>
+    </section>
+</main>
+
+<%- include("../partials/footer") %>

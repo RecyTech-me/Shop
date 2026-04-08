@@ -1,0 +1,54 @@
+<header class="site-header">
+    <% if (currentAdmin) { %>
+        <div class="admin-bar">
+            <div class="shell admin-bar-shell">
+                <div class="admin-bar-copy">
+                    <strong>Connecté en admin</strong>
+                    <span><%= currentAdmin.username %> · <%= getAdminRoleLabel(currentAdmin.role) %></span>
+                </div>
+                <div class="admin-bar-actions">
+                    <a href="/">Voir la boutique</a>
+                    <a href="/admin">Tableau de bord</a>
+                    <a href="/admin/account">Mon compte</a>
+                    <a href="/admin/orders">Commandes</a>
+                    <% if (currentAdmin.role === "superadmin") { %>
+                        <a href="/admin/admins">Admins</a>
+                    <% } %>
+                    <a href="/admin/products/new">Ajouter un produit</a>
+                    <a href="/admin/settings">Paramètres</a>
+                    <form action="/admin/logout" method="post">
+                        <button type="submit">Se déconnecter</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    <% } %>
+    <div class="shell header-shell">
+        <a href="/" class="brand">
+            <img src="/static/images/recytech-logo.svg" alt="RecyTech">
+            <span><%= settings.store_name %></span>
+        </a>
+        <nav class="site-nav">
+            <a href="/" class="<%= currentPath === '/' ? 'active' : '' %>">Boutique</a>
+            <a href="/cart" class="<%= currentPath === '/cart' ? 'active' : '' %>">
+                <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M3 4h2l2.1 9.2A2 2 0 0 0 9.05 15H18a2 2 0 0 0 1.94-1.5L21 8H7"></path>
+                    <circle cx="10" cy="19" r="1.75"></circle>
+                    <circle cx="17" cy="19" r="1.75"></circle>
+                </svg>
+                <span>Panier (<%= cart.itemCount %>)</span>
+            </a>
+            <% if (currentAdmin) { %>
+                <a href="/admin" class="<%= currentPath.startsWith('/admin') ? 'active' : '' %>">Admin</a>
+            <% } else { %>
+                <a href="/admin/login" class="<%= currentPath === '/admin/login' ? 'active' : '' %>">
+                    <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Z"></path>
+                        <path d="M4 20a8 8 0 0 1 16 0"></path>
+                    </svg>
+                    <span>Connexion</span>
+                </a>
+            <% } %>
+        </nav>
+    </div>
+</header>

@@ -1,0 +1,65 @@
+<%- include("../partials/head", { title }) %>
+<%- include("../partials/header") %>
+<%- include("../partials/flash") %>
+
+<main class="shell section-stack">
+    <section class="section-block">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Administration</p>
+                <h1><%= adminUser ? `Modifier ${adminUser.username}` : "Nouvel administrateur" %></h1>
+            </div>
+            <a href="/admin/admins" class="button button-secondary">Retour</a>
+        </div>
+
+        <form action="<%= formAction %>" method="post" class="admin-form-grid">
+            <label>
+                Nom d'utilisateur
+                <input type="text" name="username" value="<%= adminUser?.username || '' %>" required>
+            </label>
+
+            <label>
+                Rôle
+                <select name="role" required>
+                    <% roleOptions.forEach((option) => { %>
+                        <option value="<%= option.value %>" <%= (adminUser?.role || "admin") === option.value ? "selected" : "" %>><%= option.label %></option>
+                    <% }) %>
+                </select>
+            </label>
+
+            <label class="full-span">
+                <%= adminUser ? "Nouveau mot de passe" : "Mot de passe" %>
+                <input type="password" name="password" <%= adminUser ? "" : "required" %>>
+                <% if (adminUser) { %>
+                    <small>Laissez vide pour conserver le mot de passe actuel.</small>
+                <% } %>
+            </label>
+
+            <div class="full-span form-actions">
+                <button type="submit" class="button"><%= adminUser ? "Enregistrer" : "Créer l'administrateur" %></button>
+            </div>
+        </form>
+
+        <% if (adminUser) { %>
+            <div class="form-actions section-actions-top">
+                <% if (adminUser.id === currentAdminId) { %>
+                    <p class="muted">Vous modifiez votre propre compte.</p>
+                <% } else { %>
+                    <form
+                        action="/admin/admins/<%= adminUser.id %>/delete"
+                        method="post"
+                        class="inline-danger-form"
+                        data-confirm-form
+                        data-confirm-title="Supprimer l'administrateur"
+                        data-confirm-message="Cet administrateur perdra l'accès au back-office. Cette action est irréversible."
+                        data-confirm-submit="Supprimer"
+                    >
+                        <button type="submit" class="button button-ghost">Supprimer l'administrateur</button>
+                    </form>
+                <% } %>
+            </div>
+        <% } %>
+    </section>
+</main>
+
+<%- include("../partials/footer") %>

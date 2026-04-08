@@ -1,0 +1,88 @@
+<%- include("partials/head", { title }) %>
+<%- include("partials/header") %>
+<%- include("partials/flash") %>
+
+<section class="hero">
+    <div class="shell hero-grid">
+        <div class="hero-copy">
+            <p class="eyebrow">Boutique solidaire RecyTech</p>
+            <h1><%= settings.hero_title %></h1>
+            <p class="hero-text"><%= settings.hero_text %></p>
+            <div class="hero-actions">
+                <a href="#catalogue" class="button">Voir les produits</a>
+                <a href="/cart" class="button button-secondary">Voir le panier</a>
+            </div>
+            <ul class="hero-points">
+                <li>Linux préinstallé sur les machines compatibles</li>
+                <li>Paiement par carte, virement ou bitcoin</li>
+                <li>Bitcoin accepte en Lightning ou en onchain</li>
+            </ul>
+        </div>
+        <div class="hero-panel">
+            <div class="hero-card">
+                <p class="hero-card-label">Informations utiles</p>
+                <h2>Achat simple et local</h2>
+                <p>Chaque appareil publié dans la boutique est préparé pour être remis rapidement, avec un prix clair et un stock visible.</p>
+                <div class="hero-card-meta">
+                    <span><strong><%= products.length %></strong> produit(s) publié(s)</span>
+                    <span><strong><%= featuredProducts.length %></strong> en avant</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<main class="shell section-stack">
+    <section class="section-block" id="catalogue">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Catalogue</p>
+                <h2>Matériel disponible</h2>
+            </div>
+        </div>
+
+        <% if (!products.length) { %>
+            <div class="empty-state">
+                <h3>Le catalogue sera bientôt disponible.</h3>
+                <p>Les premiers ordinateurs et accessoires sont en cours d'ajout.</p>
+                <a href="/" class="button">Revenir à l'accueil</a>
+            </div>
+        <% } else { %>
+            <div class="product-grid catalogue-grid">
+                <% products.forEach((product) => { %>
+                    <article class="product-card catalogue-card">
+                        <a href="/products/<%= product.slug %>" class="product-thumb catalogue-thumb" aria-label="<%= product.name %>">
+                            <% if (product.image_url) { %>
+                                <img src="<%= product.image_url %>" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.hidden=true;this.nextElementSibling.hidden=false;this.parentElement.classList.add('catalogue-thumb-empty');">
+                                <span class="catalogue-thumb-fallback" hidden><%= product.name %></span>
+                            <% } else { %>
+                                <span class="catalogue-thumb-fallback"><%= product.name %></span>
+                            <% } %>
+                        </a>
+                        <div class="product-body catalogue-body">
+                            <div class="product-meta">
+                                <% if (product.featured) { %>
+                                    <span class="chip">A la une</span>
+                                <% } %>
+                                <span class="chip chip-muted"><%= product.inventory %> en stock</span>
+                            </div>
+                            <h3><a href="/products/<%= product.slug %>"><%= product.name %></a></h3>
+                            <div class="product-footer catalogue-footer">
+                                <strong class="catalogue-price"><%= formatMoney(product.price_cents, product.currency) %></strong>
+                                <% if (product.inventory > 0) { %>
+                                    <div class="catalogue-action">
+                                        <a href="/products/<%= product.slug %>" class="button button-block">Voir plus</a>
+                                    </div>
+                                <% } else { %>
+                                    <span class="chip chip-muted">Rupture</span>
+                                <% } %>
+                            </div>
+                        </div>
+                    </article>
+                <% }) %>
+            </div>
+        <% } %>
+    </section>
+</main>
+
+<%- include("partials/footer") %>

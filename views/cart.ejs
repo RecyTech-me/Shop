@@ -1,0 +1,91 @@
+<%- include("partials/head", { title }) %>
+<%- include("partials/header") %>
+<%- include("partials/flash") %>
+
+<main class="shell section-stack">
+    <section class="section-block">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Panier</p>
+                <h1>Votre sélection</h1>
+            </div>
+        </div>
+
+        <% if (!cart.items.length) { %>
+            <div class="empty-state">
+                <h3>Votre panier est vide.</h3>
+                <p>Retournez au catalogue pour ajouter un produit.</p>
+                <a href="/" class="button">Retour à la boutique</a>
+            </div>
+        <% } else { %>
+            <div class="cart-layout">
+                <div class="cart-items">
+                    <% cart.items.forEach((item) => { %>
+                        <article class="cart-item">
+                            <div class="cart-item-media">
+                                <div class="cart-thumb">
+                                    <% if (item.image_url) { %>
+                                        <img
+                                            src="<%= item.image_url %>"
+                                            alt=""
+                                            loading="lazy"
+                                            referrerpolicy="no-referrer"
+                                            onerror="this.hidden=true;this.nextElementSibling.hidden=false;this.parentElement.classList.add('cart-thumb-empty');"
+                                        >
+                                        <span hidden>RecyTech</span>
+                                    <% } else { %>
+                                        <span>RecyTech</span>
+                                    <% } %>
+                                </div>
+                            </div>
+                            <div class="cart-copy">
+                                <h2><a href="/products/<%= item.slug %>"><%= item.name %></a></h2>
+                                <% if (item.short_description) { %>
+                                    <p><%= item.short_description %></p>
+                                <% } %>
+                                <% if (item.selected_options?.length) { %>
+                                    <ul class="cart-option-list">
+                                        <% item.selected_options.forEach((option) => { %>
+                                            <li><strong><%= option.name %> :</strong> <%= option.value %></li>
+                                        <% }) %>
+                                    </ul>
+                                <% } %>
+                                <strong class="cart-price"><%= formatMoney(item.unit_price_cents) %></strong>
+                            </div>
+                            <div class="cart-item-actions">
+                                <form action="/cart/update" method="post" class="cart-inline-form">
+                                    <input type="hidden" name="product_id" value="<%= item.product_id %>">
+                                    <input type="hidden" name="item_key" value="<%= item.item_key %>">
+                                    <label>
+                                        Quantité
+                                        <input type="number" name="quantity" value="<%= item.quantity %>" min="1" max="<%= Math.max(item.inventory, 1) %>">
+                                    </label>
+                                    <button class="button button-secondary button-small" type="submit">Mettre à jour</button>
+                                </form>
+                                <form action="/cart/remove" method="post">
+                                    <input type="hidden" name="item_key" value="<%= item.item_key %>">
+                                    <button class="button button-ghost button-small" type="submit">Retirer</button>
+                                </form>
+                            </div>
+                        </article>
+                    <% }) %>
+                </div>
+                <aside class="summary-card">
+                    <h2>Résumé</h2>
+                    <div class="summary-row">
+                        <span>Sous-total</span>
+                        <strong><%= formatMoney(cart.subtotalCents) %></strong>
+                    </div>
+                    <div class="summary-row">
+                        <span>Livraison</span>
+                        <strong>À définir</strong>
+                    </div>
+                    <p class="muted"><%= settings.shipping_note %></p>
+                    <a href="/checkout" class="button button-block">Passer au paiement</a>
+                </aside>
+            </div>
+        <% } %>
+    </section>
+</main>
+
+<%- include("partials/footer") %>
