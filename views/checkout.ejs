@@ -1,0 +1,268 @@
+<%- include("partials/head", { title }) %>
+<%- include("partials/header") %>
+<%- include("partials/flash") %>
+
+<main class="shell section-stack">
+    <section class="checkout-layout">
+        <div class="section-block">
+            <div class="section-heading">
+                <div>
+                    <p class="eyebrow">Paiement</p>
+                    <h1>Finaliser la commande</h1>
+                </div>
+            </div>
+
+            <form
+                action="/checkout"
+                method="post"
+                class="checkout-form"
+                data-stripe-publishable-key="<%= paymentConfig.stripePublishableKey || '' %>"
+                data-stripe-intent-url="/checkout/stripe/intent"
+                data-stripe-prepare-url="/checkout/stripe/prepare"
+            >
+                <div class="checkout-group">
+                    <h2>Coordonnées</h2>
+                    <div class="checkout-grid checkout-grid-two">
+                        <label class="checkout-grid-full">
+                            Adresse e-mail
+                            <input type="email" name="customer_email" value="<%= checkoutForm.customer_email %>" required>
+                        </label>
+                        <label>
+                            Prénom
+                            <input type="text" name="customer_first_name" value="<%= checkoutForm.customer_first_name %>" required>
+                        </label>
+                        <label>
+                            Nom
+                            <input type="text" name="customer_last_name" value="<%= checkoutForm.customer_last_name %>" required>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="checkout-group">
+                    <h2>Livraison</h2>
+                    <div class="choice-grid choice-grid-two delivery-options">
+                        <label class="choice-card choice-card-radio delivery-card">
+                            <input type="radio" name="delivery_method" value="ship" <%= checkoutForm.delivery_method === "ship" ? "checked" : "" %>>
+                            <span class="choice-surface">
+                                <span class="choice-icon" aria-hidden="true">
+                                    <svg viewBox="0 0 36 36" role="presentation">
+                                        <path d="M4 9h16v12H4z" />
+                                        <path d="M20 14h6l4 4v3h-10z" />
+                                        <circle cx="11" cy="24" r="2" />
+                                        <circle cx="25" cy="24" r="2" />
+                                    </svg>
+                                </span>
+                                <span class="choice-card-copy">
+                                    <strong>Expédier</strong>
+                                    <small>Livraison à domicile</small>
+                                </span>
+                                <span class="choice-indicator" aria-hidden="true"></span>
+                            </span>
+                        </label>
+                        <label class="choice-card choice-card-radio delivery-card">
+                            <input type="radio" name="delivery_method" value="pickup" <%= checkoutForm.delivery_method === "pickup" ? "checked" : "" %>>
+                            <span class="choice-surface">
+                                <span class="choice-icon" aria-hidden="true">
+                                    <svg viewBox="0 0 36 36" role="presentation">
+                                        <path d="M5 11h26" />
+                                        <path d="M8 11V8h20v3" />
+                                        <path d="M7 11h22v14H7z" />
+                                        <path d="M14 25v-6h8v6" />
+                                    </svg>
+                                </span>
+                                <span class="choice-card-copy">
+                                    <strong>Retrait</strong>
+                                    <small>RecyTech Center</small>
+                                </span>
+                                <span class="choice-indicator" aria-hidden="true"></span>
+                            </span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="checkout-group checkout-section" data-checkout-section="pickup" <%= checkoutForm.delivery_method === "pickup" ? "" : "hidden" %>>
+                    <h2>Lieu de retrait</h2>
+                    <div class="pickup-info">
+                        <strong>RecyTech</strong>
+                        <p>Rue Louis-Favre 62, 2017 Boudry</p>
+                        <p>Nous vous contacterons pour programmer un rendez-vous de retrait.</p>
+                    </div>
+                </div>
+
+                <div class="checkout-group checkout-section" data-checkout-section="shipping" <%= checkoutForm.delivery_method === "ship" ? "" : "hidden" %>>
+                    <h2>Adresse de livraison</h2>
+                    <div class="checkout-grid checkout-grid-two">
+                        <label class="checkout-grid-full">
+                            Pays/Région
+                            <input type="text" name="shipping_country" value="<%= checkoutForm.shipping_country %>" required>
+                        </label>
+                        <label class="checkout-grid-full">
+                            Adresse
+                            <input type="text" name="shipping_address1" value="<%= checkoutForm.shipping_address1 %>">
+                        </label>
+                        <label>
+                            Code postal
+                            <input type="text" name="shipping_postal_code" value="<%= checkoutForm.shipping_postal_code %>">
+                        </label>
+                        <label>
+                            Ville
+                            <input type="text" name="shipping_city" value="<%= checkoutForm.shipping_city %>">
+                        </label>
+                        <label>
+                            Canton
+                            <input type="text" name="shipping_region" value="<%= checkoutForm.shipping_region %>">
+                        </label>
+                        <label>
+                            <span class="field-label">
+                                Téléphone
+                                <small>(optionnel)</small>
+                            </span>
+                            <input type="text" name="shipping_phone" value="<%= checkoutForm.shipping_phone %>">
+                        </label>
+                    </div>
+                </div>
+
+                <div class="checkout-group">
+                    <label class="choice-card choice-card-checkbox checkbox-line checkbox-line-top checkout-section" data-checkout-section="billing-toggle" <%= checkoutForm.delivery_method === "ship" ? "" : "hidden" %>>
+                        <input type="checkbox" name="billing_same_as_shipping" value="1" <%= checkoutForm.billing_same_as_shipping === "1" ? "checked" : "" %>>
+                        <span class="choice-surface">
+                            <span class="choice-indicator" aria-hidden="true"></span>
+                            <span class="choice-card-copy">
+                                <strong>Adresse de facturation identique</strong>
+                                <small>Réutiliser l'adresse de livraison</small>
+                            </span>
+                        </span>
+                    </label>
+
+                    <div class="checkout-group checkout-section" data-checkout-section="billing" <%= checkoutForm.delivery_method === "pickup" || checkoutForm.billing_same_as_shipping === "0" ? "" : "hidden" %>>
+                        <h2>Adresse de facturation</h2>
+                        <div class="checkout-grid checkout-grid-two">
+                        <label class="checkout-grid-full">
+                            Pays/Région
+                            <input type="text" name="billing_country" value="<%= checkoutForm.billing_country %>">
+                        </label>
+                        <label>
+                            Prénom
+                            <input type="text" name="billing_first_name" value="<%= checkoutForm.billing_first_name %>">
+                        </label>
+                        <label>
+                            Nom
+                            <input type="text" name="billing_last_name" value="<%= checkoutForm.billing_last_name %>">
+                        </label>
+                        <label class="checkout-grid-full">
+                            Adresse
+                            <input type="text" name="billing_address1" value="<%= checkoutForm.billing_address1 %>">
+                        </label>
+                        <label>
+                            Code postal
+                            <input type="text" name="billing_postal_code" value="<%= checkoutForm.billing_postal_code %>">
+                        </label>
+                        <label>
+                            Ville
+                            <input type="text" name="billing_city" value="<%= checkoutForm.billing_city %>">
+                        </label>
+                        <label>
+                            Canton
+                            <input type="text" name="billing_region" value="<%= checkoutForm.billing_region %>">
+                        </label>
+                        <label>
+                            <span class="field-label">
+                                Téléphone
+                                <small>(optionnel)</small>
+                            </span>
+                            <input type="text" name="billing_phone" value="<%= checkoutForm.billing_phone %>">
+                        </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="checkout-group">
+                    <h2>Options de paiement</h2>
+                    <div class="choice-stack">
+                        <label class="choice-card choice-card-radio <%= paymentConfig.stripeEnabled ? '' : 'choice-card-disabled' %>">
+                            <input type="radio" name="payment_method" value="card" <%= checkoutForm.payment_method === "card" ? "checked" : "" %> <%= paymentConfig.stripeEnabled ? "" : "disabled" %>>
+                            <span class="choice-surface">
+                                <span class="choice-card-copy">
+                                    <strong>Carte de crédit/débit</strong>
+                                </span>
+                                <span class="choice-indicator" aria-hidden="true"></span>
+                            </span>
+                        </label>
+                        <div
+                            class="checkout-section"
+                            data-checkout-section="card-payment"
+                            <%= checkoutForm.payment_method === "card" && paymentConfig.stripeEnabled ? "" : "hidden" %>
+                        >
+                            <div class="stripe-card-panel">
+                                <div class="stripe-card-copy">
+                                    <strong>Paiement sécurisé par Stripe</strong>
+                                    <p>Saisissez votre carte directement ici, sans quitter la page.</p>
+                                </div>
+                                <div id="stripe-payment-message" class="stripe-payment-message" hidden></div>
+                                <div id="stripe-payment-element" class="stripe-payment-element">
+                                    <p class="muted">Le formulaire de carte va se charger ici.</p>
+                                </div>
+                            </div>
+                        </div>
+                        <label class="choice-card choice-card-radio">
+                            <input type="radio" name="payment_method" value="transfer" <%= checkoutForm.payment_method === "transfer" ? "checked" : "" %>>
+                            <span class="choice-surface">
+                                <span class="choice-card-copy">
+                                    <strong>Virement bancaire</strong>
+                                </span>
+                                <span class="choice-indicator" aria-hidden="true"></span>
+                            </span>
+                        </label>
+                        <label class="choice-card choice-card-radio <%= paymentConfig.btcpayEnabled ? '' : 'choice-card-disabled' %>">
+                            <input type="radio" name="payment_method" value="bitcoin" <%= checkoutForm.payment_method === "bitcoin" ? "checked" : "" %> <%= paymentConfig.btcpayEnabled ? "" : "disabled" %>>
+                            <span class="choice-surface">
+                                <span class="choice-card-copy">
+                                    <strong>Bitcoin</strong>
+                                    <small>Lightning ou onchain</small>
+                                </span>
+                                <span class="choice-indicator" aria-hidden="true"></span>
+                            </span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="checkout-group">
+                    <label>
+                        Ajouter une note à votre commande
+                        <textarea name="order_note" rows="4"><%= checkoutForm.order_note %></textarea>
+                    </label>
+                </div>
+
+                <div class="checkout-actions">
+                    <a href="/cart" class="button button-secondary">Retour au panier</a>
+                    <button type="submit" class="button">Commander</button>
+                </div>
+            </form>
+        </div>
+
+        <aside class="summary-card">
+            <h2>Commande</h2>
+            <% cart.items.forEach((item) => { %>
+                <div class="summary-row">
+                    <span><%= item.name %> x <%= item.quantity %></span>
+                    <strong><%= formatMoney(item.line_total_cents) %></strong>
+                </div>
+            <% }) %>
+            <hr>
+            <div class="summary-row">
+                <span>Livraison</span>
+                <strong id="checkout-shipping-price" data-price-pickup="<%= shippingOptions.pickup.priceCents %>" data-price-ship="<%= shippingOptions.ship.priceCents %>"><%= formatMoney(shippingCostCents) %></strong>
+            </div>
+            <div class="summary-row">
+                <span>Total</span>
+                <strong id="checkout-order-total" data-subtotal="<%= cart.subtotalCents %>"><%= formatMoney(orderTotalCents) %></strong>
+            </div>
+        </aside>
+    </section>
+</main>
+
+<% if (paymentConfig.stripeEnabled) { %>
+    <script src="https://js.stripe.com/v3/"></script>
+<% } %>
+
+<%- include("partials/footer") %>

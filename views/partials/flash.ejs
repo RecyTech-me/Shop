@@ -1,0 +1,10 @@
+<% if (flash) { %>
+    <div class="shell flash-shell">
+        <div class="flash flash-<%= flash.type %>">
+            <span><%= flash.message %></span>
+            <% if (flash.actionHref && flash.actionLabel) { %>
+                <a href="<%= flash.actionHref %>" class="flash-action"><%= flash.actionLabel %></a>
+            <% } %>
+        </div>
+    </div>
+<% } %>

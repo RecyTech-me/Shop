@@ -1,0 +1,93 @@
+<%- include("../partials/head", { title }) %>
+<%- include("../partials/header") %>
+<%- include("../partials/flash") %>
+
+<main class="shell section-stack">
+    <section class="section-heading">
+        <div>
+            <p class="eyebrow">Administration</p>
+            <h1>Commandes</h1>
+        </div>
+        <div class="admin-actions">
+            <a href="/admin" class="button button-secondary">Retour au tableau de bord</a>
+        </div>
+    </section>
+
+    <section class="section-block">
+        <form action="/admin/orders" method="get" class="admin-order-filters">
+            <label>
+                Recherche
+                <input type="text" name="q" value="<%= filters.query %>" placeholder="Numéro, client, e-mail">
+            </label>
+            <label>
+                Statut
+                <select name="status">
+                    <option value="">Tous</option>
+                    <% orderStatusOptions.forEach((option) => { %>
+                        <option value="<%= option.value %>" <%= filters.status === option.value ? "selected" : "" %>><%= option.label %></option>
+                    <% }) %>
+                </select>
+            </label>
+            <div class="form-actions">
+                <button type="submit" class="button">Filtrer</button>
+                <a href="/admin/orders" class="button button-secondary">Réinitialiser</a>
+            </div>
+        </form>
+    </section>
+
+    <section class="section-block">
+        <% if (!orders.length) { %>
+            <div class="empty-state compact">
+                <p>Aucune commande ne correspond à ces filtres.</p>
+            </div>
+        <% } else { %>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Numéro</th>
+                            <th>Date</th>
+                            <th>Client</th>
+                            <th>Paiement</th>
+                            <th>Montant</th>
+                            <th>Statut</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <% orders.forEach((order) => { %>
+                            <tr>
+                                <td><strong><%= order.order_number %></strong></td>
+                                <td><%= formatDateTime(order.created_at) %></td>
+                                <td>
+                                    <div><%= order.customer_name %></div>
+                                    <div class="muted"><%= order.customer_email %></div>
+                                </td>
+                                <td><%= order.provider %></td>
+                                <td><%= formatMoney(order.amount_cents, order.currency) %></td>
+                                <td><span class="chip chip-<%= getOrderStatusTone(order.status) %>"><%= getOrderStatusLabel(order.status) %></span></td>
+                                <td class="order-actions-cell">
+                                    <div class="row-actions">
+                                        <a href="/admin/orders/<%= order.id %>">Gérer</a>
+                                        <form
+                                            action="/admin/orders/<%= order.id %>/delete"
+                                            method="post"
+                                            data-confirm-form
+                                            data-confirm-title="Supprimer la commande"
+                                            data-confirm-message="Cette commande sera supprimée définitivement. Cette action est irréversible."
+                                            data-confirm-submit="Supprimer"
+                                        >
+                                            <button type="submit">Supprimer</button>
+                                        </form>
+                                    </div>
+                                </td>
+                            </tr>
+                        <% }) %>
+                    </tbody>
+                </table>
+            </div>
+        <% } %>
+    </section>
+</main>
+
+<%- include("../partials/footer") %>

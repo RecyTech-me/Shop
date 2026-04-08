@@ -1,0 +1,69 @@
+<%- include("partials/head", { title }) %>
+<%- include("partials/header") %>
+<%- include("partials/flash") %>
+
+<main class="shell section-stack">
+    <section class="section-block status-card">
+        <p class="eyebrow">Commande</p>
+        <h1>Paiement traité</h1>
+
+        <% if (order) { %>
+            <p>Commande <strong><%= order.order_number %></strong> pour <strong><%= formatMoney(order.amount_cents, order.currency) %></strong>.</p>
+            <p>Statut actuel: <strong><%= order.status %></strong>.</p>
+            <p>Client: <%= order.customer_name %> - <%= order.customer_email %></p>
+            <% if (order.provider === "transfer") { %>
+                <p>Le virement bancaire doit maintenant être effectué. Utilisez la référence <strong><%= order.order_number %></strong> lors du paiement.</p>
+            <% } %>
+            <% if (order.metadata?.delivery) { %>
+                <p>Livraison: <%= order.metadata.delivery.label %>.</p>
+            <% } %>
+        <% } else { %>
+            <p>Le paiement est revenu avec succès, mais aucun ordre local n'a été retrouvé. Vérifiez le provider avant de mettre en production.</p>
+        <% } %>
+
+        <div class="hero-actions">
+            <a href="/" class="button">Retour à la boutique</a>
+        </div>
+    </section>
+
+    <% if (order?.provider === "transfer") { %>
+        <% const hasBankDetails = settings.bank_account_holder || settings.bank_name || settings.bank_account_number || settings.bank_iban || settings.bank_bic; %>
+        <section class="section-block">
+            <div class="section-heading">
+                <div>
+                    <p class="eyebrow">Virement bancaire</p>
+                    <h2>Nos coordonnées bancaires</h2>
+                </div>
+            </div>
+
+            <% if (hasBankDetails) { %>
+                <div class="detail-panel bank-details">
+                    <p class="muted">Merci d'indiquer la référence <strong><%= order.order_number %></strong> dans le motif du virement.</p>
+                    <% if (settings.bank_account_holder) { %>
+                        <p><strong>Titulaire:</strong> <%= settings.bank_account_holder %></p>
+                    <% } %>
+                    <% if (settings.bank_name) { %>
+                        <p><strong>Banque:</strong> <%= settings.bank_name %></p>
+                    <% } %>
+                    <% if (settings.bank_account_number) { %>
+                        <p><strong>Numéro du compte:</strong> <%= settings.bank_account_number %></p>
+                    <% } %>
+                    <% if (settings.bank_iban) { %>
+                        <p><strong>IBAN:</strong> <%= settings.bank_iban %></p>
+                    <% } %>
+                    <% if (settings.bank_bic) { %>
+                        <p><strong>BIC:</strong> <%= settings.bank_bic %></p>
+                    <% } %>
+                    <p><strong>Montant:</strong> <%= formatMoney(order.amount_cents, order.currency) %></p>
+                </div>
+            <% } else { %>
+                <div class="detail-panel bank-details">
+                    <p>Les coordonnées bancaires ne sont pas encore configurées.</p>
+                    <p>Contact: <strong><%= settings.support_email %></strong></p>
+                </div>
+            <% } %>
+        </section>
+    <% } %>
+</main>
+
+<%- include("partials/footer") %>

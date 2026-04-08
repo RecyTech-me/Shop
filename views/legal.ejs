@@ -1,0 +1,35 @@
+<%- include("partials/head", { title }) %>
+<%- include("partials/header") %>
+<%- include("partials/flash") %>
+
+<main class="shell section-stack">
+    <section class="section-block">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Informations</p>
+                <h1><%= page.heading %></h1>
+            </div>
+            <p class="section-copy"><%= page.intro %></p>
+        </div>
+
+        <div class="legal-stack">
+            <% page.sections.forEach((section) => { %>
+                <article class="detail-panel legal-section">
+                    <h2><%= section.title %></h2>
+                    <% section.paragraphs.forEach((paragraph) => { %>
+                        <p><%= paragraph %></p>
+                    <% }) %>
+                    <% if (section.bullets?.length) { %>
+                        <ul class="legal-list">
+                            <% section.bullets.forEach((bullet) => { %>
+                                <li><%= bullet %></li>
+                            <% }) %>
+                        </ul>
+                    <% } %>
+                </article>
+            <% }) %>
+        </div>
+    </section>
+</main>
+
+<%- include("partials/footer") %>

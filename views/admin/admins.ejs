@@ -1,0 +1,66 @@
+<%- include("../partials/head", { title }) %>
+<%- include("../partials/header") %>
+<%- include("../partials/flash") %>
+
+<main class="shell section-stack">
+    <section class="section-heading">
+        <div>
+            <p class="eyebrow">Administration</p>
+            <h1>Administrateurs</h1>
+        </div>
+        <div class="admin-actions">
+            <a href="/admin/admins/new" class="button">Créer un admin</a>
+            <a href="/admin" class="button button-secondary">Retour au tableau de bord</a>
+        </div>
+    </section>
+
+    <section class="section-block">
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Utilisateur</th>
+                        <th>Rôle</th>
+                        <th>Créé le</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <% admins.forEach((adminUser) => { %>
+                        <tr>
+                            <td>
+                                <strong><%= adminUser.username %></strong>
+                                <% if (adminUser.id === currentAdmin.id) { %>
+                                    <div class="muted">Compte actuel</div>
+                                <% } %>
+                            </td>
+                            <td>
+                                <span class="chip chip-<%= adminUser.role === 'superadmin' ? 'info' : 'muted' %>"><%= getAdminRoleLabel(adminUser.role) %></span>
+                            </td>
+                            <td><%= formatDateTime(adminUser.created_at) %></td>
+                            <td class="order-actions-cell">
+                                <div class="row-actions">
+                                    <a href="/admin/admins/<%= adminUser.id %>/edit">Modifier</a>
+                                    <% if (adminUser.id !== currentAdmin.id && !(adminUser.role === "superadmin" && superadminCount <= 1)) { %>
+                                        <form
+                                            action="/admin/admins/<%= adminUser.id %>/delete"
+                                            method="post"
+                                            data-confirm-form
+                                            data-confirm-title="Supprimer l'administrateur"
+                                            data-confirm-message="Cet administrateur perdra l'accès au back-office. Cette action est irréversible."
+                                            data-confirm-submit="Supprimer"
+                                        >
+                                            <button type="submit">Supprimer</button>
+                                        </form>
+                                    <% } %>
+                                </div>
+                            </td>
+                        </tr>
+                    <% }) %>
+                </tbody>
+            </table>
+        </div>
+    </section>
+</main>
+
+<%- include("../partials/footer") %>

@@ -1,0 +1,117 @@
+<%- include("partials/head", { title }) %>
+<%- include("partials/header") %>
+<%- include("partials/flash") %>
+
+<main class="shell section-stack">
+    <section class="product-layout">
+        <div class="product-gallery" data-product-gallery>
+            <div class="product-visual product-visual-large product-gallery-main">
+                <% if (product.gallery_images.length) { %>
+                    <img
+                        src="<%= product.gallery_images[0] %>"
+                        alt="<%= product.name %>"
+                        class="product-gallery-main-image"
+                        data-product-gallery-main
+                    >
+                <% } else { %>
+                    <span>RecyTech</span>
+                <% } %>
+            </div>
+
+            <% if (product.gallery_images.length > 1) { %>
+                <div class="product-gallery-thumbs">
+                    <% product.gallery_images.forEach((imageUrl, index) => { %>
+                        <button
+                            type="button"
+                            class="product-gallery-thumb <%= index === 0 ? 'is-active' : '' %>"
+                            data-gallery-image="<%= imageUrl %>"
+                            data-gallery-alt="<%= product.name %>"
+                            aria-label="Voir l'image <%= index + 1 %> de <%= product.name %>"
+                        >
+                            <img src="<%= imageUrl %>" alt="" loading="lazy" referrerpolicy="no-referrer">
+                        </button>
+                    <% }) %>
+                </div>
+            <% } %>
+        </div>
+
+        <div class="product-detail">
+            <p class="eyebrow">Produit</p>
+            <h1><%= product.name %></h1>
+            <p class="price-large"><%= formatMoney(product.price_cents, product.currency) %></p>
+            <p class="product-intro"><%= product.short_description %></p>
+
+            <div class="detail-panel product-highlight-list">
+                <p><strong>Stock :</strong> <%= product.inventory %> unité(s)</p>
+                <p><strong>Retrait / livraison :</strong> <%= settings.shipping_note %></p>
+            </div>
+
+            <form
+                action="/cart/add"
+                method="post"
+                class="product-purchase-form"
+                data-product-configurator
+                data-valid-configurations="<%= JSON.stringify(product.valid_configurations || []) %>"
+            >
+                <input type="hidden" name="product_id" value="<%= product.id %>">
+                <input type="hidden" name="redirect_to" value="/products/<%= product.slug %>">
+
+                <% if (product.option_groups.length) { %>
+                    <div class="product-option-stack">
+                        <% product.option_groups.forEach((group, index) => { %>
+                            <label>
+                                <%= group.name %>
+                                <select
+                                    name="selected_option_<%= index %>"
+                                    data-option-group="<%= group.name %>"
+                                    <%= product.inventory <= 0 ? "disabled" : "" %>
+                                    required
+                                >
+                                    <option value="">Choisir une option</option>
+                                    <% group.values.forEach((value) => { %>
+                                        <option value="<%= value %>"><%= value %></option>
+                                    <% }) %>
+                                </select>
+                            </label>
+                        <% }) %>
+                    </div>
+
+                    <p class="product-option-message" data-product-configurator-message hidden></p>
+                <% } %>
+
+                <div class="product-purchase-row">
+                    <label>
+                        Quantité
+                        <input type="number" min="1" max="<%= Math.max(product.inventory, 1) %>" name="quantity" value="1" <%= product.inventory <= 0 ? "disabled" : "" %>>
+                    </label>
+                    <button class="button" type="submit" <%= product.inventory <= 0 ? "disabled" : "" %>>
+                        <%= product.inventory > 0 ? "Ajouter au panier" : "Rupture de stock" %>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </section>
+
+    <section class="product-sections">
+        <article class="long-copy product-description-panel">
+            <h2>Description</h2>
+            <p class="product-description"><%= product.description || "À compléter depuis l'administration." %></p>
+        </article>
+
+        <% if (product.info_rows.length) { %>
+            <article class="detail-panel product-info-panel">
+                <h2>Informations complémentaires</h2>
+                <div class="product-info-table">
+                    <% product.info_rows.forEach((row) => { %>
+                        <div class="product-info-row">
+                            <strong><%= row.label %></strong>
+                            <span><%= row.value %></span>
+                        </div>
+                    <% }) %>
+                </div>
+            </article>
+        <% } %>
+    </section>
+</main>
+
+<%- include("partials/footer") %>

@@ -1,0 +1,20 @@
+<%- include("partials/head", { title }) %>
+<%- include("partials/header") %>
+<%- include("partials/flash") %>
+
+<main class="shell section-stack">
+    <section class="section-block status-card">
+        <p class="eyebrow">Paiement</p>
+        <h1>Paiement annulé</h1>
+        <p>Le panier est conservé. Vous pouvez relancer un paiement ou revenir à la boutique.</p>
+        <% if (order) { %>
+            <p>Commande concernée : <strong><%= order.order_number %></strong>.</p>
+        <% } %>
+        <div class="hero-actions">
+            <a href="/checkout" class="button">Réessayer</a>
+            <a href="/cart" class="button button-secondary">Retour au panier</a>
+        </div>
+    </section>
+</main>
+
+<%- include("partials/footer") %>

@@ -1,0 +1,22 @@
+<%- include("../partials/head", { title }) %>
+<%- include("../partials/header") %>
+<%- include("../partials/flash") %>
+
+<main class="shell section-stack">
+    <section class="auth-card">
+        <p class="eyebrow">Administration</p>
+        <h1>Connexion</h1>
+        <p>Le premier compte est créé au démarrage avec `ADMIN_USERNAME` et `ADMIN_PASSWORD`.</p>
+        <form action="/admin/login" method="post" class="form-stack">
+            <label>Nom d'utilisateur
+                <input type="text" name="username" required>
+            </label>
+            <label>Mot de passe
+                <input type="password" name="password" required>
+            </label>
+            <button type="submit" class="button button-block">Se connecter</button>
+        </form>
+    </section>
+</main>
+
+<%- include("../partials/footer") %>

@@ -1,0 +1,1975 @@
+require("dotenv").config({ path: require("path").join(__dirname, ".env") });
+
+const path = require("path");
+const crypto = require("crypto");
+const express = require("express");
+const session = require("express-session");
+const nodemailer = require("nodemailer");
+const Stripe = require("stripe");
+const { verifyPassword } = require("./lib/auth");
+const {
+    initializeDatabase,
+    getSettings,
+    saveSettings,
+    createProduct,
+    updateProduct,
+    deleteProduct,
+    listPublishedProducts,
+    listFeaturedProducts,
+    listAdminProducts,
+    getProductBySlug,
+    getProductById,
+    getAdminByUsername,
+    getAdminById,
+    listAdmins,
+    countAdminsByRole,
+    createAdmin: createAdminUser,
+    updateAdmin: updateAdminUser,
+    deleteAdmin: deleteAdminUser,
+    getDashboardStats,
+    createOrder,
+    getOrderById,
+    getOrderByNumber,
+    getOrderByProviderReference,
+    updateOrderProviderReference,
+    updateOrderStatus,
+    updateOrderRecord,
+    markOrderPaid,
+    listRecentOrders,
+    listOrders,
+    deleteOrder,
+} = require("./lib/db");
+
+const env = process.env;
+const app = express();
+const databasePath = path.join(__dirname, "storage", "shop.db");
+const db = initializeDatabase(databasePath, env);
+const stripe = env.STRIPE_SECRET_KEY ? new Stripe(env.STRIPE_SECRET_KEY) : null;
+const stripePublishableKey = env.STRIPE_PUBLISHABLE_KEY || "";
+
+app.set("view engine", "ejs");
+app.set("views", path.join(__dirname, "views"));
+app.use("/static", express.static(path.join(__dirname, "public")));
+
+function formatMoney(cents, currency = "CHF") {
+    return new Intl.NumberFormat("fr-CH", {
+        style: "currency",
+        currency,
+        maximumFractionDigits: 2,
+    }).format((cents || 0) / 100);
+}
+
+const SHIPPING_OPTIONS = {
+    ship: {
+        key: "ship",
+        label: "La Poste",
+        priceCents: 1150,
+    },
+    pickup: {
+        key: "pickup",
+        label: "Retrait au RecyTech Center",
+        priceCents: 0,
+    },
+};
+
+const ORDER_STATUS_OPTIONS = [
+    { value: "pending", label: "En attente" },
+    { value: "awaiting_transfer", label: "En attente du virement" },
+    { value: "paid", label: "Payée" },
+    { value: "processing", label: "En préparation" },
+    { value: "ready_for_pickup", label: "Prête au retrait" },
+    { value: "shipped", label: "Expédiée" },
+    { value: "completed", label: "Terminée" },
+    { value: "cancelled", label: "Annulée" },
+    { value: "failed", label: "Échouée" },
+    { value: "refunded", label: "Remboursée" },
+];
+
+const ADMIN_ROLE_OPTIONS = [
+    { value: "admin", label: "Admin" },
+    { value: "superadmin", label: "Superadmin" },
+];
+
+function getOrderStatusLabel(status) {
+    return ORDER_STATUS_OPTIONS.find((option) => option.value === status)?.label || status;
+}
+
+function getOrderStatusTone(status) {
+    if (["paid", "completed", "ready_for_pickup"].includes(status)) {
+        return "success";
+    }
+
+    if (["cancelled", "failed", "refunded"].includes(status)) {
+        return "danger";
+    }
+
+    if (["processing", "shipped"].includes(status)) {
+        return "info";
+    }
+
+    return "muted";
+}
+
+function getAdminRoleLabel(role) {
+    return ADMIN_ROLE_OPTIONS.find((option) => option.value === role)?.label || role;
+}
+
+function formatDateTime(value) {
+    if (!value) {
+        return "";
+    }
+
+    return new Intl.DateTimeFormat("fr-CH", {
+        dateStyle: "medium",
+        timeStyle: "short",
+    }).format(new Date(value));
+}
+
+function getLegalPages(settings) {
+    const supportEmail = settings.support_email || "contact@recytech.me";
+    const supportAddress = settings.support_address || "Rue Louis-Favre 62, 2017 Boudry";
+
+    return {
+        "politique-confidentialite": {
+            title: "Politique de confidentialité",
+            heading: "Politique de confidentialité",
+            intro: "Cette politique décrit les données traitées par la boutique RecyTech, les finalités de traitement et les droits des personnes concernées.",
+            sections: [
+                {
+                    title: "Responsable du traitement",
+                    paragraphs: [
+                        `Le responsable du traitement des données personnelles collectées via la boutique est RecyTech, joignable à l'adresse ${supportAddress} et par e-mail à ${supportEmail}.`,
+                        "Cette politique s'applique aux données traitées lors de la consultation du site, de l'utilisation du panier, de la validation d'une commande et des échanges de support liés à la boutique.",
+                    ],
+                    bullets: [],
+                },
+                {
+                    title: "Ce que nous collectons et stockons",
+                    paragraphs: [
+                        "Pendant votre visite et lors d'une commande, nous collectons uniquement les informations nécessaires au fonctionnement de la boutique et à l'exécution du contrat.",
+                        "Le site ne propose actuellement ni compte client, ni commentaires publics, ni système d'avis. Il ne stocke pas non plus les données complètes de carte bancaire sur ses propres serveurs.",
+                    ],
+                    bullets: [
+                        "le contenu du panier et certaines préférences de commande, au moyen d'une session technique et de cookies strictement nécessaires au fonctionnement du site",
+                        "les coordonnées de contact et de commande : nom, e-mail, adresses de facturation et de livraison, téléphone si vous le fournissez, notes de commande",
+                        "les détails de commande : produits commandés, mode de livraison, mode de paiement, montant, numéro de commande et statut de paiement",
+                        "les références techniques transmises par les prestataires de paiement lorsque vous choisissez Stripe, BTCPay ou le virement bancaire",
+                    ],
+                },
+                {
+                    title: "Pourquoi nous utilisons ces données",
+                    paragraphs: [
+                        "Nous utilisons ces données pour traiter la commande, organiser la livraison ou le retrait, enregistrer le paiement, émettre une facture ou un récapitulatif de commande, répondre aux demandes de support et respecter nos obligations administratives et comptables.",
+                        "Les données de session et de panier servent également à maintenir l'état du panier et à mémoriser temporairement les informations saisies dans le formulaire de commande.",
+                    ],
+                    bullets: [
+                        "traitement et suivi des commandes",
+                        "gestion des paiements et prévention des abus ou erreurs de paiement",
+                        "organisation de l'expédition ou du retrait",
+                        "service client, remboursement et gestion des retours",
+                        "respect des obligations légales, fiscales et comptables",
+                    ],
+                },
+                {
+                    title: "Partage avec des tiers",
+                    paragraphs: [
+                        "Nous ne vendons pas vos données personnelles. Nous les communiquons uniquement lorsque cela est nécessaire à l'exploitation de la boutique ou imposé par la loi.",
+                        "Selon le mode de paiement choisi, certaines données peuvent être transmises à nos prestataires de paiement, à des prestataires logistiques ou à notre infrastructure d'envoi d'e-mails afin de permettre l'exécution de la commande et le suivi client.",
+                    ],
+                    bullets: [
+                        "prestataires de paiement, notamment Stripe pour le paiement par carte et BTCPay pour le paiement bitcoin",
+                        "prestataires de livraison ou transporteurs lorsque vous choisissez une expédition",
+                        "prestataire SMTP ou infrastructure d'envoi d'e-mails lorsqu'un message relatif à la commande vous est adressé depuis l'administration de la boutique",
+                        "autorités ou conseillers lorsque la loi l'exige ou lorsqu'il faut faire valoir ou défendre des droits",
+                    ],
+                },
+                {
+                    title: "Cookies et technologies similaires",
+                    paragraphs: [
+                        "La boutique utilise des cookies et une session technique strictement nécessaires afin de faire fonctionner le panier, conserver temporairement vos informations de commande et sécuriser la navigation.",
+                        "À la date de publication de cette politique, la boutique n'utilise pas de cookies publicitaires ni de suivi marketing tiers sur son front principal.",
+                    ],
+                    bullets: [],
+                },
+                {
+                    title: "Durée de conservation",
+                    paragraphs: [
+                        "Les données de session et de panier sont conservées temporairement pendant la navigation ou jusqu'à expiration de la session.",
+                        "Les informations de commande et de facturation sont conservées aussi longtemps que nécessaire pour le traitement de la commande puis pendant la durée requise par les obligations légales applicables, notamment comptables et fiscales.",
+                        "À ce jour, RecyTech prévoit une conservation pouvant aller jusqu'à 10 ans pour les documents et données de commande utiles à la comptabilité et à la défense des droits.",
+                    ],
+                    bullets: [],
+                },
+                {
+                    title: "Vos droits",
+                    paragraphs: [
+                        "Conformément au droit suisse applicable, vous pouvez notamment demander l'accès à vos données personnelles, leur rectification et, lorsque les conditions légales sont réunies, leur suppression ou la limitation de certains traitements.",
+                        `Pour exercer vos droits ou poser une question relative à la protection des données, contactez RecyTech à ${supportEmail}.`,
+                    ],
+                    bullets: [
+                        "droit d'accès aux données traitées",
+                        "droit de rectification des données inexactes",
+                        "droit de demander la suppression dans la mesure compatible avec les obligations légales de conservation",
+                        "droit d'obtenir des informations sur les destinataires de vos données et, le cas échéant, sur certains transferts à l'étranger",
+                    ],
+                },
+            ],
+        },
+        "conditions-generales-de-vente": {
+            title: "Conditions générales de vente",
+            heading: "Conditions générales de vente",
+            intro: "Les présentes conditions générales de vente s'appliquent aux ventes effectuées via la boutique RecyTech.",
+            sections: [
+                {
+                    title: "Identité du vendeur et champ d'application",
+                    paragraphs: [
+                        `Le site shop.recytech.me est exploité par RecyTech, joignable à ${supportAddress} et par e-mail à ${supportEmail}.`,
+                        "Les présentes conditions s'appliquent à toute commande passée sur la boutique par un client privé ou professionnel, sauf accord écrit contraire.",
+                    ],
+                    bullets: [],
+                },
+                {
+                    title: "Produits, disponibilité et informations",
+                    paragraphs: [
+                        "Les produits proposés sont présentés avec leur dénomination, leur état, leur prix et, lorsque l'information est disponible, leur stock. Les photographies et descriptions ont une valeur informative et ne constituent pas une garantie absolue d'identité parfaite.",
+                        "Les produits sont vendus dans la limite des stocks disponibles. En cas d'indisponibilité ou d'erreur manifeste, RecyTech peut contacter l'acheteur afin de proposer une solution appropriée, y compris le remboursement.",
+                    ],
+                    bullets: [],
+                },
+                {
+                    title: "Commande et conclusion du contrat",
+                    paragraphs: [
+                        "Le client sélectionne les produits, vérifie son panier, renseigne les informations demandées puis valide sa commande. Le site permet de corriger les erreurs de saisie avant l'envoi final de la commande.",
+                        "Après validation, un récapitulatif de commande est affiché et la commande est enregistrée dans le système de la boutique. Le contrat est conclu lorsque RecyTech accepte la commande, notamment par l'enregistrement de celle-ci et, le cas échéant, par l'encaissement ou le traitement du paiement.",
+                    ],
+                    bullets: [],
+                },
+                {
+                    title: "Prix et paiement",
+                    paragraphs: [
+                        "Les prix sont indiqués en CHF, sauf mention contraire. Les frais de livraison ou de retrait payants sont affichés avant validation définitive de la commande.",
+                        "Le paiement peut être effectué selon les options rendues disponibles sur le site au moment de la commande, en particulier par carte bancaire, bitcoin ou virement bancaire.",
+                        "Lorsque le paiement est traité par un prestataire externe, les conditions et contrôles du prestataire concernent également la transaction.",
+                    ],
+                    bullets: [],
+                },
+                {
+                    title: "Livraison et retrait",
+                    paragraphs: [
+                        "Les produits sont remis soit par expédition, soit par retrait selon les options proposées au moment de la commande.",
+                        "Les délais de livraison ou de mise à disposition sont indicatifs, sauf engagement écrit contraire. L'acheteur doit vérifier l'état apparent du colis et signaler sans délai tout dommage ou toute erreur de livraison.",
+                    ],
+                    bullets: [],
+                },
+                {
+                    title: "Garantie et réclamations",
+                    paragraphs: [
+                        "L'acheteur doit signaler les défauts constatés dès que possible après la réception. Les droits légaux en matière de défauts restent réservés dans la mesure du droit applicable.",
+                        "Pour les appareils d'occasion ou reconditionnés, RecyTech prévoit une garantie contractuelle de 12 mois, sous réserve des exclusions mentionnées dans la présente politique et des droits légaux impératifs.",
+                        "La garantie ne couvre pas les dommages liés à une mauvaise utilisation, à une intervention non autorisée, à l'usure normale ou à une utilisation contraire aux instructions du produit.",
+                    ],
+                    bullets: [],
+                },
+                {
+                    title: "Retours, remboursements et droit applicable",
+                    paragraphs: [
+                        "La politique de retours et de remboursements de RecyTech est décrite dans la page dédiée. Sauf engagement commercial contraire de RecyTech, le droit suisse ne prévoit pas de droit général de révocation pour les achats en ligne.",
+                        "Les présentes conditions sont soumises au droit suisse. Le for juridique impératif demeure réservé ; à défaut, les tribunaux compétents du canton de Neuchâtel sont compétents.",
+                    ],
+                    bullets: [],
+                },
+            ],
+        },
+        "remboursements-retours": {
+            title: "Politique de remboursements et de retours",
+            heading: "Politique de remboursements et de retours",
+            intro: "Cette politique décrit les conditions commerciales appliquées par RecyTech en matière de retours, d'échanges et de remboursements.",
+            sections: [
+                {
+                    title: "Aperçu",
+                    paragraphs: [
+                        "RecyTech propose à titre commercial une politique de retour de 30 jours à compter de la réception du produit, sous réserve des conditions ci-dessous.",
+                        "Cette politique commerciale complète les droits légaux éventuellement applicables ; elle ne doit pas être comprise comme l'existence d'un droit général de révocation prévu automatiquement par le droit suisse pour tout achat en ligne.",
+                    ],
+                    bullets: [],
+                },
+                {
+                    title: "Conditions de retour",
+                    paragraphs: [
+                        "Pour être éligible à un retour standard, l'article doit être restitué dans un état compatible avec une revente ou un contrôle technique raisonnable, avec ses accessoires essentiels et, si possible, son emballage d'origine.",
+                        "Le client doit fournir une preuve d'achat ou le numero de commande correspondant.",
+                    ],
+                    bullets: [
+                        "les articles endommagés après la livraison en raison d'une mauvaise utilisation peuvent être refusés",
+                        "les retours annoncés après le délai commercial de 30 jours peuvent être refusés hors cas de garantie ou d'obligation légale",
+                        "les produits explicitement exclus de reprise au moment de la vente ne sont pas repris, sauf défaut couvert",
+                    ],
+                },
+                {
+                    title: "Produits défectueux ou non conformes",
+                    paragraphs: [
+                        "Si le produit est défectueux, incomplet ou non conforme à la commande, le client doit contacter RecyTech sans délai avec une description du problème et, dans la mesure du possible, des photographies.",
+                        "Dans ces cas, RecyTech examinera si une réparation, un remplacement, une réduction de prix ou un remboursement est approprié selon les circonstances et le droit applicable.",
+                    ],
+                    bullets: [],
+                },
+                {
+                    title: "Frais de retour et remboursement",
+                    paragraphs: [
+                        "Sauf erreur de RecyTech ou produit défectueux reconnu, les frais de retour sont à la charge du client.",
+                        "Une fois le retour reçu et contrôlé, RecyTech informe le client de l'acceptation ou du refus du remboursement. En cas d'acceptation, le remboursement est effectué sur le moyen de paiement approprié ou selon une autre modalité convenue.",
+                        "Les frais d'expédition initiaux ne sont remboursés que si la loi l'impose ou si RecyTech en décide autrement dans le cas concret.",
+                    ],
+                    bullets: [],
+                },
+                {
+                    title: "Échanges et contact",
+                    paragraphs: [
+                        "Les échanges sont traités au cas par cas selon la disponibilité du stock. Lorsqu'un produit identique n'est plus disponible, RecyTech peut proposer une alternative ou un remboursement.",
+                        `Pour toute question relative à un retour, un remboursement ou une garantie, contactez RecyTech à ${supportEmail} ou à l'adresse ${supportAddress}.`,
+                    ],
+                    bullets: [],
+                },
+            ],
+        },
+    };
+}
+
+function baseUrl(req) {
+    return env.BASE_URL || `${req.protocol}://${req.get("host")}`;
+}
+
+function setFlash(req, type, message, options = {}) {
+    req.session.flash = { type, message, ...options };
+}
+
+function getFlash(req) {
+    const flash = req.session.flash || null;
+    delete req.session.flash;
+    return flash;
+}
+
+function paymentState() {
+    return {
+        stripeEnabled: Boolean(stripe && stripePublishableKey),
+        stripePublishableKey,
+        btcpayEnabled: Boolean(env.BTCPAY_SERVER_URL && env.BTCPAY_STORE_ID && env.BTCPAY_API_KEY),
+        transferEnabled: true,
+    };
+}
+
+function mapBtcpayStatus(status) {
+    const normalized = String(status || "").toLowerCase();
+    if (
+        ["settled", "processing", "complete", "confirmed", "paid"].includes(normalized) ||
+        normalized.includes("settled") ||
+        normalized.includes("confirmed") ||
+        normalized.includes("paid")
+    ) {
+        return "paid";
+    }
+    if (["invalid", "expired"].includes(normalized) || normalized.includes("expired") || normalized.includes("invalid")) {
+        return "failed";
+    }
+    return "pending";
+}
+
+function getCartItems(req) {
+    return Array.isArray(req.session.cart) ? req.session.cart : [];
+}
+
+function setCartItems(req, items) {
+    req.session.cart = items;
+}
+
+function buildCart(req) {
+    const rawItems = getCartItems(req);
+    const items = [];
+
+    for (const rawItem of rawItems) {
+        const product = getProductById(db, rawItem.productId);
+        if (!product || !product.published) {
+            continue;
+        }
+
+        const quantity = product.inventory > 0 ? Math.min(Math.max(1, rawItem.quantity), product.inventory) : Math.max(1, rawItem.quantity);
+        const selectedOptions = Array.isArray(rawItem.selectedOptions)
+            ? rawItem.selectedOptions
+                .map((option) => ({
+                    name: normalizeText(option?.name),
+                    value: normalizeText(option?.value),
+                }))
+                .filter((option) => option.name && option.value)
+            : [];
+
+        items.push({
+            product_id: product.id,
+            item_key: rawItem.itemKey || `${product.id}:${JSON.stringify(selectedOptions)}`,
+            slug: product.slug,
+            name: product.name,
+            short_description: product.short_description,
+            image_url: product.image_url,
+            selected_options: selectedOptions,
+            quantity,
+            unit_price_cents: product.price_cents,
+            line_total_cents: product.price_cents * quantity,
+            inventory: product.inventory,
+        });
+    }
+
+    const subtotalCents = items.reduce((sum, item) => sum + item.line_total_cents, 0);
+
+    return {
+        items,
+        subtotalCents,
+        itemCount: items.reduce((sum, item) => sum + item.quantity, 0),
+    };
+}
+
+function getDefaultCheckoutForm() {
+    return {
+        customer_email: "",
+        customer_first_name: "",
+        customer_last_name: "",
+        delivery_method: "ship",
+        pickup_location: "recytech-center",
+        shipping_country: "Suisse",
+        shipping_address1: "",
+        shipping_postal_code: "",
+        shipping_city: "",
+        shipping_region: "Neuchâtel",
+        shipping_phone: "",
+        billing_same_as_shipping: "1",
+        billing_country: "Suisse",
+        billing_first_name: "",
+        billing_last_name: "",
+        billing_address1: "",
+        billing_postal_code: "",
+        billing_city: "",
+        billing_region: "Neuchâtel",
+        billing_phone: "",
+        payment_method: "bitcoin",
+        order_note: "",
+    };
+}
+
+function getCheckoutForm(req) {
+    return {
+        ...getDefaultCheckoutForm(),
+        ...(req.session.checkoutForm || {}),
+    };
+}
+
+function buildCheckoutDraft(values, currentForm = getDefaultCheckoutForm()) {
+    const draft = {
+        ...currentForm,
+    };
+
+    const textFields = [
+        "customer_email",
+        "customer_first_name",
+        "customer_last_name",
+        "pickup_location",
+        "shipping_country",
+        "shipping_address1",
+        "shipping_postal_code",
+        "shipping_city",
+        "shipping_region",
+        "shipping_phone",
+        "billing_country",
+        "billing_first_name",
+        "billing_last_name",
+        "billing_address1",
+        "billing_postal_code",
+        "billing_city",
+        "billing_region",
+        "billing_phone",
+        "order_note",
+    ];
+
+    for (const field of textFields) {
+        if (values[field] !== undefined) {
+            draft[field] = normalizeText(values[field]);
+        }
+    }
+
+    if (["ship", "pickup"].includes(values.delivery_method)) {
+        draft.delivery_method = values.delivery_method;
+    }
+
+    if (["card", "transfer", "bitcoin"].includes(values.payment_method)) {
+        draft.payment_method = values.payment_method;
+    }
+
+    if (values.billing_same_as_shipping !== undefined) {
+        draft.billing_same_as_shipping = values.billing_same_as_shipping === "1" ? "1" : "0";
+    }
+
+    return draft;
+}
+
+function setCheckoutForm(req, values) {
+    req.session.checkoutForm = values;
+}
+
+function clearCheckoutForm(req) {
+    delete req.session.checkoutForm;
+}
+
+function getStripeDraft(req) {
+    return req.session.stripeDraft || null;
+}
+
+function setStripeDraft(req, draft) {
+    req.session.stripeDraft = draft;
+}
+
+function clearStripeDraft(req) {
+    delete req.session.stripeDraft;
+}
+
+function makeCartItemKey(productId, selectedOptions = []) {
+    return `${productId}:${JSON.stringify(selectedOptions)}`;
+}
+
+function upsertCartItem(req, productId, quantity, selectedOptions = []) {
+    const cart = getCartItems(req);
+    const nextQuantity = Math.max(1, quantity);
+    const itemKey = makeCartItemKey(productId, selectedOptions);
+    const existing = cart.find((item) => (item.itemKey || makeCartItemKey(item.productId, item.selectedOptions || [])) === itemKey);
+
+    if (existing) {
+        existing.quantity = nextQuantity;
+    } else {
+        cart.push({ productId, quantity: nextQuantity, selectedOptions, itemKey });
+    }
+
+    setCartItems(req, cart);
+}
+
+function removeCartItem(req, itemKey) {
+    setCartItems(
+        req,
+        getCartItems(req).filter((item) => (item.itemKey || makeCartItemKey(item.productId, item.selectedOptions || [])) !== itemKey)
+    );
+}
+
+function requireAdmin(req, res, next) {
+    const currentAdmin = req.currentAdmin || (req.session.adminId ? getAdminById(db, req.session.adminId) : null);
+    if (!currentAdmin) {
+        req.session.adminId = null;
+        return res.redirect("/admin/login");
+    }
+
+    req.currentAdmin = currentAdmin;
+    res.locals.currentAdmin = currentAdmin;
+    next();
+}
+
+function requireSuperadmin(req, res, next) {
+    const currentAdmin = req.currentAdmin || (req.session.adminId ? getAdminById(db, req.session.adminId) : null);
+    if (!currentAdmin) {
+        req.session.adminId = null;
+        return res.redirect("/admin/login");
+    }
+
+    if (currentAdmin.role !== "superadmin") {
+        setFlash(req, "error", "Accès réservé aux superadmins.");
+        return saveSessionAndRedirect(req, res, "/admin");
+    }
+
+    req.currentAdmin = currentAdmin;
+    res.locals.currentAdmin = currentAdmin;
+    next();
+}
+
+async function createBtcpayInvoice(order, req) {
+    const response = await fetch(
+        `${env.BTCPAY_SERVER_URL.replace(/\/$/, "")}/api/v1/stores/${env.BTCPAY_STORE_ID}/invoices`,
+        {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: `token ${env.BTCPAY_API_KEY}`,
+            },
+            body: JSON.stringify({
+                amount: order.amount_cents / 100,
+                currency: order.currency,
+                metadata: {
+                    orderId: order.order_number,
+                    source: "recytech-shop-prototype",
+                },
+                checkout: {
+                    redirectURL: `${baseUrl(req)}/checkout/success?provider=btcpay&order=${encodeURIComponent(order.order_number)}`,
+                    redirectAutomatically: true,
+                },
+            }),
+        }
+    );
+
+    if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`BTCPay invoice creation failed: ${response.status} ${text}`);
+    }
+
+    return response.json();
+}
+
+async function fetchBtcpayInvoice(invoiceId) {
+    const response = await fetch(
+        `${env.BTCPAY_SERVER_URL.replace(/\/$/, "")}/api/v1/stores/${env.BTCPAY_STORE_ID}/invoices/${invoiceId}`,
+        {
+            headers: {
+                Authorization: `token ${env.BTCPAY_API_KEY}`,
+            },
+        }
+    );
+
+    if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`BTCPay invoice fetch failed: ${response.status} ${text}`);
+    }
+
+    return response.json();
+}
+
+function render(res, view, options = {}) {
+    res.render(view, {
+        formatMoney,
+        formatDateTime,
+        getOrderStatusLabel,
+        getOrderStatusTone,
+        getAdminRoleLabel,
+        ...options,
+    });
+}
+
+function saveSessionAndRedirect(req, res, location) {
+    req.session.save(() => {
+        res.redirect(location);
+    });
+}
+
+function normalizeText(value) {
+    return String(value || "").trim();
+}
+
+function readAdminUserInput(values, options = {}) {
+    const username = normalizeText(values.username);
+    const role = normalizeText(values.role) || "admin";
+    const password = String(values.password || "").trim();
+
+    if (!username) {
+        throw new Error("Le nom d'utilisateur est obligatoire.");
+    }
+
+    if (!ADMIN_ROLE_OPTIONS.some((option) => option.value === role)) {
+        throw new Error("Rôle administrateur invalide.");
+    }
+
+    if (options.requirePassword && !password) {
+        throw new Error("Le mot de passe est obligatoire.");
+    }
+
+    return {
+        username,
+        role,
+        password,
+    };
+}
+
+function readAdminAccountInput(values, currentAdmin) {
+    const username = normalizeText(values.username);
+    const currentPassword = String(values.current_password || "").trim();
+    const password = String(values.password || "").trim();
+    const passwordConfirm = String(values.password_confirm || "").trim();
+
+    if (!username) {
+        throw new Error("Le nom d'utilisateur est obligatoire.");
+    }
+
+    if (password && password !== passwordConfirm) {
+        throw new Error("La confirmation du nouveau mot de passe ne correspond pas.");
+    }
+
+    const usernameChanged = username !== currentAdmin.username;
+    const passwordChanged = Boolean(password);
+
+    if ((usernameChanged || passwordChanged) && !currentPassword) {
+        throw new Error("Le mot de passe actuel est requis pour modifier vos identifiants.");
+    }
+
+    return {
+        username,
+        currentPassword,
+        password,
+        usernameChanged,
+        passwordChanged,
+    };
+}
+
+function formatAddressLines(parts) {
+    return parts.map(normalizeText).filter(Boolean);
+}
+
+function getOrderContactSnapshot(order) {
+    const checkout = order.metadata?.checkout || {};
+    const shippingLines = formatAddressLines([
+        `${checkout.shipping_first_name || checkout.customer_first_name || ""} ${checkout.shipping_last_name || checkout.customer_last_name || ""}`.trim(),
+        checkout.shipping_address1,
+        [checkout.shipping_postal_code, checkout.shipping_city].filter(Boolean).join(" "),
+        checkout.shipping_region,
+        checkout.shipping_country,
+    ]);
+    const billingLines = formatAddressLines([
+        `${checkout.billing_first_name || ""} ${checkout.billing_last_name || ""}`.trim(),
+        checkout.billing_address1,
+        [checkout.billing_postal_code, checkout.billing_city].filter(Boolean).join(" "),
+        checkout.billing_region,
+        checkout.billing_country,
+    ]);
+    const phone = checkout.shipping_phone || checkout.billing_phone || "";
+
+    return {
+        checkout,
+        phone,
+        shippingLines,
+        billingLines,
+    };
+}
+
+function buildOrderMailto(order, subjectPrefix = "Commande") {
+    const subject = `${subjectPrefix} ${order.order_number}`;
+    const body = [
+        `Bonjour ${order.customer_name},`,
+        "",
+        `Nous vous contactons au sujet de votre commande ${order.order_number}.`,
+        "",
+        "Bien à vous,",
+        "RecyTech",
+    ].join("\n");
+
+    return `mailto:${encodeURIComponent(order.customer_email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
+
+function toBoolean(value) {
+    return ["1", "true", "yes", "on"].includes(String(value || "").trim().toLowerCase());
+}
+
+function parseInteger(value, fallback) {
+    const parsed = Number.parseInt(String(value || "").trim(), 10);
+    return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function getMailSettings(settings) {
+    return {
+        host: normalizeText(settings.smtp_host || env.SMTP_HOST),
+        port: parseInteger(settings.smtp_port || env.SMTP_PORT, 587),
+        secure: toBoolean(settings.smtp_secure || env.SMTP_SECURE),
+        username: normalizeText(settings.smtp_username || env.SMTP_USERNAME),
+        password: String(settings.smtp_password || env.SMTP_PASSWORD || "").trim(),
+        fromName: normalizeText(settings.smtp_from_name || env.SMTP_FROM_NAME || settings.store_name || "RecyTech"),
+        fromEmail: normalizeText(settings.smtp_from_email || env.SMTP_FROM_EMAIL || settings.support_email),
+    };
+}
+
+function getMailConfigError(settings) {
+    const config = getMailSettings(settings);
+
+    if (!config.host) {
+        return "Serveur SMTP manquant.";
+    }
+
+    if (!config.port) {
+        return "Port SMTP invalide.";
+    }
+
+    if (!config.fromEmail) {
+        return "Adresse expéditeur manquante.";
+    }
+
+    if ((config.username && !config.password) || (!config.username && config.password)) {
+        return "Les identifiants SMTP sont incomplets.";
+    }
+
+    return "";
+}
+
+function isMailConfigured(settings) {
+    return !getMailConfigError(settings);
+}
+
+function escapeHtml(value) {
+    return String(value || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+}
+
+function formatEmailHtml(text) {
+    return String(text || "")
+        .split(/\n{2,}/)
+        .map((paragraph) => `<p>${escapeHtml(paragraph).replace(/\n/g, "<br>")}</p>`)
+        .join("");
+}
+
+function buildOrderEmailDraft(order) {
+    return {
+        subject: `Commande ${order.order_number}`,
+        message: [
+            `Bonjour ${order.customer_name},`,
+            "",
+            `Nous vous contactons au sujet de votre commande ${order.order_number}.`,
+            "",
+            "Bien à vous,",
+            "RecyTech",
+        ].join("\n"),
+    };
+}
+
+function getOrderNotificationRecipient(settings) {
+    return normalizeText(settings.order_notification_email || env.ORDER_NOTIFICATION_EMAIL || "team@recytech.me");
+}
+
+function formatOrderNotificationItems(order) {
+    return (order.items || []).map((item) => {
+        const optionText = Array.isArray(item.selected_options) && item.selected_options.length
+            ? ` (${item.selected_options.map((option) => `${option.name}: ${option.value}`).join(", ")})`
+            : "";
+        return `- ${item.quantity} x ${item.name}${optionText} : ${formatMoney(item.line_total_cents || (item.unit_price_cents * item.quantity), order.currency)}`;
+    }).join("\n");
+}
+
+function buildNewOrderNotification(order) {
+    const contact = getOrderContactSnapshot(order);
+    const delivery = order.metadata?.delivery || {};
+    const deliveryLabel = delivery.label || (delivery.method === "ship" ? "Expédition" : "Retrait");
+    const additions = Array.isArray(order.metadata?.additions) ? order.metadata.additions : [];
+    const additionsText = additions.length
+        ? additions.map((line) => `- ${line.label} : ${formatMoney(line.amount_cents, order.currency)}`).join("\n")
+        : "Aucun supplément";
+    const adminUrl = `${env.BASE_URL || ""}/admin/orders/${order.id}`;
+
+    return {
+        subject: `Nouvelle commande ${order.order_number}`,
+        text: [
+            "Une nouvelle commande a été enregistrée sur la boutique RecyTech.",
+            "",
+            `Numéro : ${order.order_number}`,
+            `Date : ${formatDateTime(order.created_at)}`,
+            `Client : ${order.customer_name}`,
+            `E-mail : ${order.customer_email}`,
+            contact.phone ? `Téléphone : ${contact.phone}` : null,
+            `Paiement : ${order.provider}`,
+            `Statut : ${getOrderStatusLabel(order.status)}`,
+            `Total : ${formatMoney(order.amount_cents, order.currency)}`,
+            `Livraison : ${deliveryLabel}`,
+            "",
+            "Articles :",
+            formatOrderNotificationItems(order) || "- Aucun article",
+            "",
+            "Suppléments :",
+            additionsText,
+            contact.shippingLines.length ? "" : null,
+            contact.shippingLines.length ? "Adresse de livraison :" : null,
+            ...(contact.shippingLines.length ? contact.shippingLines : []),
+            contact.billingLines.length ? "" : null,
+            contact.billingLines.length ? "Adresse de facturation :" : null,
+            ...(contact.billingLines.length ? contact.billingLines : []),
+            adminUrl.startsWith("http") ? "" : null,
+            adminUrl.startsWith("http") ? `Administration : ${adminUrl}` : null,
+        ].filter(Boolean).join("\n"),
+    };
+}
+
+async function sendStoreEmail(settings, message) {
+    const configError = getMailConfigError(settings);
+    if (configError) {
+        throw new Error(configError);
+    }
+
+    const config = getMailSettings(settings);
+    const transporter = nodemailer.createTransport({
+        host: config.host,
+        port: config.port,
+        secure: config.secure,
+        auth: config.username ? { user: config.username, pass: config.password } : undefined,
+    });
+
+    return transporter.sendMail({
+        from: {
+            name: config.fromName,
+            address: config.fromEmail,
+        },
+        replyTo: settings.support_email || config.fromEmail,
+        to: message.to,
+        subject: message.subject,
+        text: message.text,
+        html: formatEmailHtml(message.text),
+    });
+}
+
+async function sendNewOrderNotification(order) {
+    const settings = getSettings(db);
+    const recipient = getOrderNotificationRecipient(settings);
+
+    if (!recipient || !isMailConfigured(settings)) {
+        return;
+    }
+
+    const notification = buildNewOrderNotification(order);
+    await sendStoreEmail(settings, {
+        to: recipient,
+        subject: notification.subject,
+        text: notification.text,
+    });
+}
+
+function getOrderAdminData(order) {
+    return order.metadata?.admin || {};
+}
+
+function readSelectedProductOptions(product, body) {
+    const groups = Array.isArray(product.option_groups) ? product.option_groups : [];
+
+    const selectedOptions = groups.map((group, index) => {
+        const value = normalizeText(body[`selected_option_${index}`]);
+        if (!group.values.includes(value)) {
+            throw new Error(`Veuillez choisir une option valide pour « ${group.name} ».`);
+        }
+
+        return {
+            name: group.name,
+            value,
+        };
+    });
+
+    if (Array.isArray(product.valid_configurations) && product.valid_configurations.length) {
+        const isAllowed = product.valid_configurations.some((configuration) =>
+            configuration.every((selection, index) =>
+                selection.name === selectedOptions[index]?.name &&
+                selection.value === selectedOptions[index]?.value
+            )
+        );
+
+        if (!isAllowed) {
+            throw new Error("Cette combinaison d'options n'est pas disponible.");
+        }
+    }
+
+    return selectedOptions;
+}
+
+function getCartSignature(cart) {
+    return cart.items.map((item) => `${item.product_id}:${item.quantity}`).join("|");
+}
+
+function validateCheckoutInput(values) {
+    const billingSameAsShipping =
+        values.billing_same_as_shipping === "1" ||
+        values.billing_same_as_shipping === 1 ||
+        values.billing_same_as_shipping === true;
+
+    const form = {
+        customer_email: normalizeText(values.customer_email),
+        customer_first_name: normalizeText(values.customer_first_name),
+        customer_last_name: normalizeText(values.customer_last_name),
+        delivery_method: normalizeText(values.delivery_method) || "pickup",
+        pickup_location: normalizeText(values.pickup_location) || "recytech-center",
+        shipping_country: normalizeText(values.shipping_country) || "Suisse",
+        shipping_address1: normalizeText(values.shipping_address1),
+        shipping_postal_code: normalizeText(values.shipping_postal_code),
+        shipping_city: normalizeText(values.shipping_city),
+        shipping_region: normalizeText(values.shipping_region) || "Neuchâtel",
+        shipping_phone: normalizeText(values.shipping_phone),
+        billing_same_as_shipping: billingSameAsShipping ? "1" : "0",
+        billing_country: normalizeText(values.billing_country) || "Suisse",
+        billing_first_name: normalizeText(values.billing_first_name),
+        billing_last_name: normalizeText(values.billing_last_name),
+        billing_address1: normalizeText(values.billing_address1),
+        billing_postal_code: normalizeText(values.billing_postal_code),
+        billing_city: normalizeText(values.billing_city),
+        billing_region: normalizeText(values.billing_region) || "Neuchâtel",
+        billing_phone: normalizeText(values.billing_phone),
+        payment_method: normalizeText(values.payment_method) || "bitcoin",
+        order_note: normalizeText(values.order_note),
+    };
+
+    if (!form.customer_email || !form.customer_first_name || !form.customer_last_name) {
+        throw new Error("Les coordonnées de contact sont obligatoires.");
+    }
+
+    if (!["ship", "pickup"].includes(form.delivery_method)) {
+        form.delivery_method = "pickup";
+    }
+
+    if (!["card", "transfer", "bitcoin"].includes(form.payment_method)) {
+        form.payment_method = "bitcoin";
+    }
+
+    if (form.delivery_method === "pickup") {
+        form.billing_same_as_shipping = "0";
+    }
+
+    if (form.delivery_method === "ship") {
+        const shippingFields = [
+            form.shipping_address1,
+            form.shipping_postal_code,
+            form.shipping_city,
+        ];
+
+        if (shippingFields.some((value) => !value)) {
+            throw new Error("L'adresse de livraison est incomplète.");
+        }
+    }
+
+    if (form.billing_same_as_shipping === "0") {
+        const billingFields = [
+            form.billing_first_name,
+            form.billing_last_name,
+            form.billing_address1,
+            form.billing_postal_code,
+            form.billing_city,
+        ];
+
+        if (billingFields.some((value) => !value)) {
+            throw new Error("L'adresse de facturation est incomplète.");
+        }
+    } else {
+        form.billing_country = form.shipping_country;
+        form.billing_first_name = form.customer_first_name;
+        form.billing_last_name = form.customer_last_name;
+        form.billing_address1 = form.shipping_address1;
+        form.billing_postal_code = form.shipping_postal_code;
+        form.billing_city = form.shipping_city;
+        form.billing_region = form.shipping_region;
+        form.billing_phone = form.shipping_phone;
+    }
+
+    const shippingOption = SHIPPING_OPTIONS[form.delivery_method] || SHIPPING_OPTIONS.pickup;
+    const customerName = `${form.customer_first_name} ${form.customer_last_name}`.trim();
+
+    return {
+        form,
+        customer: {
+            name: customerName,
+            email: form.customer_email,
+        },
+        shippingOption,
+    };
+}
+
+function validateCheckout(req) {
+    return validateCheckoutInput(req.body);
+}
+
+async function createOrReuseStripeIntent(req, values = {}) {
+    if (!paymentState().stripeEnabled) {
+        throw new Error("Le paiement par carte est indisponible.");
+    }
+
+    const cart = buildCart(req);
+    if (!cart.items.length) {
+        throw new Error("Le panier est vide.");
+    }
+
+    const draftForm = buildCheckoutDraft(values, getCheckoutForm(req));
+    const shippingOption = SHIPPING_OPTIONS[draftForm.delivery_method] || SHIPPING_OPTIONS.pickup;
+    const amountCents = cart.subtotalCents + shippingOption.priceCents;
+    const cartSignature = getCartSignature(cart);
+    const draft = getStripeDraft(req);
+
+    if (
+        draft &&
+        draft.amountCents === amountCents &&
+        draft.deliveryMethod === draftForm.delivery_method &&
+        draft.cartSignature === cartSignature &&
+        draft.paymentIntentId &&
+        draft.clientSecret
+    ) {
+        return draft;
+    }
+
+    const paymentIntent = await stripe.paymentIntents.create({
+        amount: amountCents,
+        currency: "chf",
+        payment_method_types: ["card"],
+        receipt_email: draftForm.customer_email || undefined,
+        metadata: {
+            source: "recytech-shop",
+            delivery_method: draftForm.delivery_method,
+        },
+    });
+
+    const nextDraft = {
+        paymentIntentId: paymentIntent.id,
+        clientSecret: paymentIntent.client_secret,
+        amountCents,
+        deliveryMethod: draftForm.delivery_method,
+        cartSignature,
+    };
+
+    setStripeDraft(req, nextDraft);
+    return nextDraft;
+}
+
+app.post("/webhooks/stripe", express.raw({ type: "application/json" }), (req, res) => {
+    if (!stripe || !env.STRIPE_WEBHOOK_SECRET) {
+        return res.status(204).end();
+    }
+
+    try {
+        const signature = req.headers["stripe-signature"];
+        const event = stripe.webhooks.constructEvent(req.body, signature, env.STRIPE_WEBHOOK_SECRET);
+
+        if (event.type === "payment_intent.succeeded") {
+            const paymentIntent = event.data.object;
+            const order = getOrderByProviderReference(db, "stripe", paymentIntent.id);
+
+            if (order) {
+                markOrderPaid(db, order.id, {
+                    stripePaymentIntentId: paymentIntent.id,
+                    paymentStatus: paymentIntent.status,
+                });
+            }
+        }
+
+        if (["payment_intent.payment_failed", "payment_intent.canceled"].includes(event.type)) {
+            const paymentIntent = event.data.object;
+            const order = getOrderByProviderReference(db, "stripe", paymentIntent.id);
+
+            if (order) {
+                updateOrderStatus(db, order.id, "failed", {
+                    stripePaymentIntentId: paymentIntent.id,
+                    paymentStatus: paymentIntent.status,
+                });
+            }
+        }
+
+        res.status(200).json({ received: true });
+    } catch (error) {
+        res.status(400).send(`Webhook Error: ${error.message}`);
+    }
+});
+
+app.post("/webhooks/btcpay", express.raw({ type: "application/json" }), (req, res) => {
+    try {
+        const payload = JSON.parse(req.body.toString("utf8"));
+        const invoiceId = payload.invoiceId || payload.invoice?.id;
+
+        if (!invoiceId) {
+            return res.status(200).json({ received: true });
+        }
+
+        const order = getOrderByProviderReference(db, "btcpay", invoiceId);
+        if (!order) {
+            return res.status(200).json({ received: true });
+        }
+
+        const nextStatus = mapBtcpayStatus(payload.type || payload.status);
+        if (nextStatus === "paid") {
+            markOrderPaid(db, order.id, {
+                btcpayInvoiceId: invoiceId,
+                webhookType: payload.type || payload.status,
+            });
+        } else if (nextStatus !== "pending") {
+            updateOrderStatus(db, order.id, nextStatus, {
+                btcpayInvoiceId: invoiceId,
+                webhookType: payload.type || payload.status,
+            });
+        }
+
+        res.status(200).json({ received: true });
+    } catch (error) {
+        res.status(400).send(`Webhook Error: ${error.message}`);
+    }
+});
+
+app.use(express.urlencoded({ extended: false }));
+app.use(express.json());
+app.use(
+    session({
+        secret: env.SESSION_SECRET || crypto.randomBytes(32).toString("hex"),
+        resave: false,
+        saveUninitialized: false,
+        cookie: {
+            httpOnly: true,
+            sameSite: "lax",
+            maxAge: 1000 * 60 * 60 * 12,
+        },
+    })
+);
+
+app.use((req, res, next) => {
+    const currentAdmin = req.session.adminId ? getAdminById(db, req.session.adminId) : null;
+    const hideFooter = req.path === "/cart" || req.path.startsWith("/admin");
+
+    res.locals.currentPath = req.path;
+    res.locals.settings = getSettings(db);
+    res.locals.flash = getFlash(req);
+    res.locals.cart = buildCart(req);
+    res.locals.currentAdmin = currentAdmin;
+    res.locals.paymentConfig = paymentState();
+    res.locals.showFooter = !hideFooter;
+    req.currentAdmin = currentAdmin;
+    next();
+});
+
+app.post("/checkout/session", (req, res) => {
+    setCheckoutForm(req, buildCheckoutDraft(req.body || {}, getCheckoutForm(req)));
+    req.session.save(() => {
+        res.status(204).end();
+    });
+});
+
+app.post("/checkout/stripe/intent", async (req, res) => {
+    try {
+        const draft = await createOrReuseStripeIntent(req, req.body || {});
+        req.session.save(() => {
+            res.json({
+                paymentIntentId: draft.paymentIntentId,
+                clientSecret: draft.clientSecret,
+            });
+        });
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+});
+
+app.post("/checkout/stripe/prepare", async (req, res) => {
+    try {
+        if (!paymentState().stripeEnabled) {
+            return res.status(400).json({ error: "Le paiement par carte est indisponible." });
+        }
+
+        const paymentIntentId = normalizeText(req.body.stripe_payment_intent_id);
+        if (!paymentIntentId) {
+            return res.status(400).json({ error: "Session de paiement Stripe manquante." });
+        }
+
+        const checkoutDetails = validateCheckoutInput(req.body || {});
+        checkoutDetails.form.payment_method = "card";
+        setCheckoutForm(req, checkoutDetails.form);
+
+        const cart = buildCart(req);
+        if (!cart.items.length) {
+            return res.status(400).json({ error: "Le panier est vide." });
+        }
+
+        const amountCents = cart.subtotalCents + checkoutDetails.shippingOption.priceCents;
+        const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+
+        if (paymentIntent.currency !== "chf" || paymentIntent.amount !== amountCents) {
+            return res.status(400).json({ error: "Le montant Stripe ne correspond plus à la commande." });
+        }
+
+        let order = getOrderByProviderReference(db, "stripe", paymentIntent.id);
+        let createdOrder = false;
+        if (!order) {
+            order = createOrder(db, {
+                provider: "stripe",
+                provider_reference: paymentIntent.id,
+                customer_name: checkoutDetails.customer.name,
+                customer_email: checkoutDetails.customer.email,
+                amount_cents: amountCents,
+                currency: "CHF",
+                items: cart.items,
+                status: "pending",
+                metadata: {
+                    checkout: checkoutDetails.form,
+                    delivery: {
+                        method: checkoutDetails.shippingOption.key,
+                        label: checkoutDetails.shippingOption.label,
+                        amount_cents: checkoutDetails.shippingOption.priceCents,
+                    },
+                    additions: checkoutDetails.shippingOption.priceCents > 0
+                        ? [{
+                            type: "shipping",
+                            label: checkoutDetails.shippingOption.label,
+                            amount_cents: checkoutDetails.shippingOption.priceCents,
+                        }]
+                        : [],
+                    stripePaymentIntentId: paymentIntent.id,
+                },
+            });
+            createdOrder = true;
+        }
+
+        if (createdOrder) {
+            await notifyNewOrder(order);
+        }
+
+        await stripe.paymentIntents.update(paymentIntent.id, {
+            receipt_email: checkoutDetails.customer.email,
+            metadata: {
+                source: "recytech-shop",
+                order_number: order.order_number,
+                delivery_method: checkoutDetails.shippingOption.key,
+            },
+        });
+
+        req.session.save(() => {
+            res.json({
+                successUrl: `/checkout/success?provider=stripe&payment_intent=${encodeURIComponent(paymentIntent.id)}`,
+                orderNumber: order.order_number,
+            });
+        });
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+});
+
+app.get("/", (req, res) => {
+    render(res, "home", {
+            title: "Boutique RecyTech",
+        featuredProducts: listFeaturedProducts(db),
+        products: listPublishedProducts(db),
+    });
+});
+
+app.get(["/politique-confidentialite", "/conditions-generales-de-vente", "/remboursements-retours"], (req, res) => {
+    const slug = req.path.replace(/^\//, "");
+    const page = getLegalPages(res.locals.settings)[slug];
+
+    render(res, "legal", {
+        title: page.title,
+        page,
+    });
+});
+
+app.get("/products/:slug", (req, res) => {
+    const product = getProductBySlug(db, req.params.slug);
+    if (!product || !product.published) {
+        return res.status(404).render("not-found", { title: "Produit introuvable" });
+    }
+
+    render(res, "product", {
+        title: product.name,
+        product,
+    });
+});
+
+app.post("/cart/add", (req, res) => {
+    const productId = Number.parseInt(req.body.product_id, 10);
+    const quantity = Number.parseInt(req.body.quantity || "1", 10) || 1;
+    const product = getProductById(db, productId);
+
+    if (!product || !product.published) {
+        setFlash(req, "error", "Produit introuvable.");
+        return saveSessionAndRedirect(req, res, "/");
+    }
+
+    if (product.inventory <= 0) {
+        setFlash(req, "error", "Ce produit est en rupture de stock.");
+        return saveSessionAndRedirect(req, res, req.body.redirect_to || `/products/${product.slug}`);
+    }
+
+    let selectedOptions = [];
+
+    try {
+        selectedOptions = readSelectedProductOptions(product, req.body);
+    } catch (error) {
+        setFlash(req, "error", error.message);
+        return saveSessionAndRedirect(req, res, req.body.redirect_to || `/products/${product.slug}`);
+    }
+
+    upsertCartItem(req, productId, Math.min(quantity, product.inventory), selectedOptions);
+    setFlash(req, "success", `${product.name} a été ajouté au panier.`, {
+        actionHref: "/cart",
+        actionLabel: "Voir le panier",
+    });
+    saveSessionAndRedirect(req, res, req.body.redirect_to || `/products/${product.slug}`);
+});
+
+app.get("/cart", (req, res) => {
+    render(res, "cart", {
+        title: "Panier",
+    });
+});
+
+app.post("/cart/update", (req, res) => {
+    const itemKey = normalizeText(req.body.item_key);
+    const productId = Number.parseInt(req.body.product_id, 10);
+    const quantity = Number.parseInt(req.body.quantity || "1", 10) || 1;
+    const product = getProductById(db, productId);
+    const cartItem = getCartItems(req).find((item) => (item.itemKey || makeCartItemKey(item.productId, item.selectedOptions || [])) === itemKey);
+
+    if (!product || product.inventory <= 0) {
+        if (itemKey) {
+            removeCartItem(req, itemKey);
+        }
+        setFlash(req, "error", "Ce produit n'est plus disponible.");
+        return saveSessionAndRedirect(req, res, "/cart");
+    }
+
+    upsertCartItem(req, productId, Math.min(quantity, product.inventory), cartItem?.selectedOptions || []);
+    setFlash(req, "success", "Le panier a été mis à jour.");
+    saveSessionAndRedirect(req, res, "/cart");
+});
+
+app.post("/cart/remove", (req, res) => {
+    const itemKey = normalizeText(req.body.item_key);
+    if (itemKey) {
+        removeCartItem(req, itemKey);
+    }
+    setFlash(req, "success", "Le produit a été retiré du panier.");
+    saveSessionAndRedirect(req, res, "/cart");
+});
+
+app.get("/checkout", (req, res) => {
+    if (!res.locals.cart.items.length) {
+        setFlash(req, "error", "Votre panier est vide.");
+        return res.redirect("/cart");
+    }
+
+    const checkoutForm = getCheckoutForm(req);
+    const shippingOption = SHIPPING_OPTIONS[checkoutForm.delivery_method] || SHIPPING_OPTIONS.pickup;
+
+    render(res, "checkout", {
+        title: "Paiement",
+        checkoutForm,
+        shippingOptions: SHIPPING_OPTIONS,
+        shippingCostCents: shippingOption.priceCents,
+        orderTotalCents: res.locals.cart.subtotalCents + shippingOption.priceCents,
+    });
+});
+
+function createOrderFromSessionCart(req, provider, customer, checkoutDetails) {
+    const cart = buildCart(req);
+    if (!cart.items.length) {
+        throw new Error("Le panier est vide.");
+    }
+
+    const shippingLine = checkoutDetails.shippingOption.priceCents > 0
+        ? [{
+            type: "shipping",
+            label: checkoutDetails.shippingOption.label,
+            amount_cents: checkoutDetails.shippingOption.priceCents,
+        }]
+        : [];
+
+    return createOrder(db, {
+        provider,
+        customer_name: customer.name,
+        customer_email: customer.email,
+        amount_cents: cart.subtotalCents + checkoutDetails.shippingOption.priceCents,
+        currency: "CHF",
+        items: cart.items,
+        status: provider === "transfer" ? "awaiting_transfer" : "pending",
+        metadata: {
+            checkout: checkoutDetails.form,
+            delivery: {
+                method: checkoutDetails.shippingOption.key,
+                label: checkoutDetails.shippingOption.label,
+                amount_cents: checkoutDetails.shippingOption.priceCents,
+            },
+            additions: shippingLine,
+        },
+    });
+}
+
+async function notifyNewOrder(order) {
+    try {
+        await sendNewOrderNotification(order);
+    } catch (error) {
+        console.error(`Order notification email failed for ${order.order_number}: ${error.message}`);
+    }
+}
+
+app.post("/checkout", async (req, res) => {
+    try {
+        const checkoutDetails = validateCheckout(req);
+        setCheckoutForm(req, checkoutDetails.form);
+
+        if (checkoutDetails.form.payment_method === "card") {
+            if (!paymentState().stripeEnabled) {
+                setFlash(req, "error", "Le paiement par carte est indisponible.");
+                return saveSessionAndRedirect(req, res, "/checkout");
+            }
+
+            setFlash(req, "error", "Le paiement par carte se finalise directement sur cette page.");
+            return saveSessionAndRedirect(req, res, "/checkout");
+        }
+
+        if (checkoutDetails.form.payment_method === "bitcoin") {
+            if (!paymentState().btcpayEnabled) {
+                setFlash(req, "error", "Le paiement bitcoin est indisponible.");
+                return saveSessionAndRedirect(req, res, "/checkout");
+            }
+
+            const order = createOrderFromSessionCart(req, "btcpay", checkoutDetails.customer, checkoutDetails);
+            await notifyNewOrder(order);
+            const invoice = await createBtcpayInvoice(order, req);
+
+            updateOrderProviderReference(db, order.id, invoice.id, {
+                checkoutUrl: invoice.checkoutLink || invoice.url || "",
+            });
+
+            return saveSessionAndRedirect(req, res, invoice.checkoutLink || invoice.url);
+        }
+
+        const transferOrder = createOrderFromSessionCart(req, "transfer", checkoutDetails.customer, checkoutDetails);
+        await notifyNewOrder(transferOrder);
+        clearCheckoutForm(req);
+        setCartItems(req, []);
+        return saveSessionAndRedirect(req, res, `/checkout/success?provider=transfer&order=${encodeURIComponent(transferOrder.order_number)}`);
+    } catch (error) {
+        setFlash(req, "error", error.message);
+        return saveSessionAndRedirect(req, res, "/checkout");
+    }
+});
+
+app.get("/checkout/success", async (req, res) => {
+    let order = null;
+
+    try {
+        if (req.query.provider === "stripe" && req.query.payment_intent && stripe) {
+            const paymentIntent = await stripe.paymentIntents.retrieve(req.query.payment_intent);
+            order = getOrderByProviderReference(db, "stripe", paymentIntent.id);
+
+            if (order && paymentIntent.status === "succeeded") {
+                order = markOrderPaid(db, order.id, {
+                    stripePaymentIntentId: paymentIntent.id,
+                    paymentStatus: paymentIntent.status,
+                });
+                setCartItems(req, []);
+            } else if (order && ["processing", "requires_capture"].includes(paymentIntent.status)) {
+                order = updateOrderStatus(db, order.id, "pending", {
+                    stripePaymentIntentId: paymentIntent.id,
+                    paymentStatus: paymentIntent.status,
+                });
+            }
+        }
+
+        if (req.query.provider === "btcpay" && req.query.order) {
+            order = getOrderByNumber(db, req.query.order);
+
+            if (order?.provider_reference && paymentState().btcpayEnabled) {
+                const invoice = await fetchBtcpayInvoice(order.provider_reference);
+                const nextStatus = mapBtcpayStatus(invoice.status);
+
+                if (nextStatus === "paid") {
+                    order = markOrderPaid(db, order.id, {
+                        btcpayInvoiceId: invoice.id,
+                        invoiceStatus: invoice.status,
+                    });
+                    setCartItems(req, []);
+                } else {
+                    order = updateOrderStatus(db, order.id, nextStatus, {
+                        btcpayInvoiceId: invoice.id,
+                        invoiceStatus: invoice.status,
+                    });
+                }
+            }
+        }
+
+        if (req.query.provider === "transfer" && req.query.order) {
+            order = getOrderByNumber(db, req.query.order);
+            if (order) {
+                setCartItems(req, []);
+            }
+        }
+    } catch (error) {
+        setFlash(req, "error", `Paiement terminé avec un statut incertain : ${error.message}`);
+    }
+
+    clearCheckoutForm(req);
+    clearStripeDraft(req);
+
+    render(res, "success", {
+        title: "Commande",
+        order,
+    });
+});
+
+app.get("/checkout/cancel", (req, res) => {
+    render(res, "cancel", {
+        title: "Paiement annulé",
+        order: req.query.order ? getOrderByNumber(db, req.query.order) : null,
+    });
+});
+
+app.get("/admin/login", (req, res) => {
+    if (req.session.adminId) {
+        return res.redirect("/");
+    }
+
+    render(res, "admin/login", {
+        title: "Connexion",
+    });
+});
+
+app.post("/admin/login", (req, res) => {
+    const username = String(req.body.username || "").trim();
+    const password = String(req.body.password || "");
+    const admin = getAdminByUsername(db, username);
+
+    if (!admin || !verifyPassword(password, admin.password_hash)) {
+        setFlash(req, "error", "Identifiants invalides.");
+        return saveSessionAndRedirect(req, res, "/admin/login");
+    }
+
+    req.session.adminId = admin.id;
+    setFlash(req, "success", "Connexion réussie.");
+    saveSessionAndRedirect(req, res, "/");
+});
+
+app.post("/admin/logout", requireAdmin, (req, res) => {
+    req.session.destroy(() => {
+        res.redirect("/admin/login");
+    });
+});
+
+app.get("/admin", requireAdmin, (req, res) => {
+    render(res, "admin/dashboard", {
+        title: "Administration",
+        stats: getDashboardStats(db),
+        products: listAdminProducts(db),
+        recentOrders: listRecentOrders(db),
+    });
+});
+
+app.get("/admin/account", requireAdmin, (req, res) => {
+    render(res, "admin/account", {
+        title: "Mon compte",
+    });
+});
+
+app.post("/admin/account", requireAdmin, (req, res) => {
+    const adminRecord = getAdminByUsername(db, req.currentAdmin.username);
+    if (!adminRecord) {
+        req.session.adminId = null;
+        setFlash(req, "error", "Session administrateur invalide.");
+        return saveSessionAndRedirect(req, res, "/admin/login");
+    }
+
+    try {
+        const input = readAdminAccountInput(req.body, adminRecord);
+
+        if ((input.usernameChanged || input.passwordChanged) && !verifyPassword(input.currentPassword, adminRecord.password_hash)) {
+            throw new Error("Le mot de passe actuel est incorrect.");
+        }
+
+        updateAdminUser(db, adminRecord.id, {
+            username: input.username,
+            role: adminRecord.role,
+            password: input.password,
+        });
+
+        setFlash(req, "success", "Votre compte a été mis à jour.");
+        return saveSessionAndRedirect(req, res, "/admin/account");
+    } catch (error) {
+        const message = error.code === "SQLITE_CONSTRAINT_UNIQUE"
+            ? "Ce nom d'utilisateur existe déjà."
+            : error.message;
+        setFlash(req, "error", message);
+        return saveSessionAndRedirect(req, res, "/admin/account");
+    }
+});
+
+app.get("/admin/admins", requireSuperadmin, (req, res) => {
+    render(res, "admin/admins", {
+        title: "Administrateurs",
+        admins: listAdmins(db),
+        superadminCount: countAdminsByRole(db, "superadmin"),
+    });
+});
+
+app.get("/admin/admins/new", requireSuperadmin, (req, res) => {
+    render(res, "admin/admin-form", {
+        title: "Nouvel administrateur",
+        formAction: "/admin/admins/new",
+        adminUser: null,
+        roleOptions: ADMIN_ROLE_OPTIONS,
+        currentAdminId: req.currentAdmin.id,
+    });
+});
+
+app.post("/admin/admins/new", requireSuperadmin, (req, res) => {
+    try {
+        const input = readAdminUserInput(req.body, { requirePassword: true });
+        createAdminUser(db, input);
+        setFlash(req, "success", "Administrateur créé.");
+        return saveSessionAndRedirect(req, res, "/admin/admins");
+    } catch (error) {
+        const message = error.code === "SQLITE_CONSTRAINT_UNIQUE"
+            ? "Ce nom d'utilisateur existe déjà."
+            : error.message;
+        setFlash(req, "error", message);
+        return saveSessionAndRedirect(req, res, "/admin/admins/new");
+    }
+});
+
+app.get("/admin/admins/:id/edit", requireSuperadmin, (req, res) => {
+    const adminUser = getAdminById(db, Number.parseInt(req.params.id, 10));
+    if (!adminUser) {
+        return res.status(404).render("not-found", { title: "Administrateur introuvable" });
+    }
+
+    render(res, "admin/admin-form", {
+        title: `Modifier ${adminUser.username}`,
+        formAction: `/admin/admins/${adminUser.id}/edit`,
+        adminUser,
+        roleOptions: ADMIN_ROLE_OPTIONS,
+        currentAdminId: req.currentAdmin.id,
+    });
+});
+
+app.post("/admin/admins/:id/edit", requireSuperadmin, (req, res) => {
+    const adminId = Number.parseInt(req.params.id, 10);
+    const existingAdmin = getAdminById(db, adminId);
+    if (!existingAdmin) {
+        return res.status(404).render("not-found", { title: "Administrateur introuvable" });
+    }
+
+    try {
+        const input = readAdminUserInput(req.body);
+        if (existingAdmin.role === "superadmin" && input.role !== "superadmin" && countAdminsByRole(db, "superadmin") <= 1) {
+            throw new Error("Le dernier superadmin ne peut pas être rétrogradé.");
+        }
+
+        updateAdminUser(db, adminId, input);
+        setFlash(req, "success", "Administrateur mis à jour.");
+        return saveSessionAndRedirect(req, res, "/admin/admins");
+    } catch (error) {
+        const message = error.code === "SQLITE_CONSTRAINT_UNIQUE"
+            ? "Ce nom d'utilisateur existe déjà."
+            : error.message;
+        setFlash(req, "error", message);
+        return saveSessionAndRedirect(req, res, `/admin/admins/${adminId}/edit`);
+    }
+});
+
+app.post("/admin/admins/:id/delete", requireSuperadmin, (req, res) => {
+    const adminId = Number.parseInt(req.params.id, 10);
+    const adminUser = getAdminById(db, adminId);
+    if (!adminUser) {
+        return res.status(404).render("not-found", { title: "Administrateur introuvable" });
+    }
+
+    if (adminUser.id === req.currentAdmin.id) {
+        setFlash(req, "error", "Vous ne pouvez pas supprimer votre propre compte.");
+        return saveSessionAndRedirect(req, res, "/admin/admins");
+    }
+
+    if (adminUser.role === "superadmin" && countAdminsByRole(db, "superadmin") <= 1) {
+        setFlash(req, "error", "Le dernier superadmin ne peut pas être supprimé.");
+        return saveSessionAndRedirect(req, res, "/admin/admins");
+    }
+
+    deleteAdminUser(db, adminId);
+    setFlash(req, "success", "Administrateur supprimé.");
+    return saveSessionAndRedirect(req, res, "/admin/admins");
+});
+
+app.get("/admin/orders", requireAdmin, (req, res) => {
+    const status = normalizeText(req.query.status);
+    const query = normalizeText(req.query.q);
+
+    render(res, "admin/orders", {
+        title: "Commandes",
+        orders: listOrders(db, {
+            status: status || null,
+            query: query || null,
+        }),
+        filters: {
+            status,
+            query,
+        },
+        orderStatusOptions: ORDER_STATUS_OPTIONS,
+    });
+});
+
+app.get("/admin/orders/:id", requireAdmin, (req, res) => {
+    const order = getOrderById(db, Number.parseInt(req.params.id, 10));
+    if (!order) {
+        return res.status(404).render("not-found", { title: "Commande introuvable" });
+    }
+
+    const contact = getOrderContactSnapshot(order);
+    const admin = getOrderAdminData(order);
+    const emailDraft = buildOrderEmailDraft(order);
+    const settings = res.locals.settings;
+
+    render(res, "admin/order-detail", {
+        title: `Commande ${order.order_number}`,
+        order,
+        contact,
+        admin,
+        orderStatusOptions: ORDER_STATUS_OPTIONS,
+        contactMailto: buildOrderMailto(order),
+        mailConfigured: isMailConfigured(settings),
+        defaultEmailSubject: emailDraft.subject,
+        defaultEmailMessage: emailDraft.message,
+    });
+});
+
+app.post("/admin/orders/:id/update", requireAdmin, (req, res) => {
+    const order = getOrderById(db, Number.parseInt(req.params.id, 10));
+    if (!order) {
+        return res.status(404).render("not-found", { title: "Commande introuvable" });
+    }
+
+    const status = normalizeText(req.body.status);
+    if (!ORDER_STATUS_OPTIONS.some((option) => option.value === status)) {
+        setFlash(req, "error", "Statut de commande invalide.");
+        return saveSessionAndRedirect(req, res, `/admin/orders/${order.id}`);
+    }
+
+    const currentAdminData = getOrderAdminData(order);
+    const nextAdminData = {
+        ...currentAdminData,
+        internal_note: normalizeText(req.body.internal_note),
+        customer_note: normalizeText(req.body.customer_note),
+        fulfillment_note: normalizeText(req.body.fulfillment_note),
+        carrier: normalizeText(req.body.carrier),
+        tracking_number: normalizeText(req.body.tracking_number),
+        pickup_details: normalizeText(req.body.pickup_details),
+    };
+
+    const nextOrder = updateOrderRecord(db, order.id, {
+        status,
+        metadata: {
+            admin: nextAdminData,
+        },
+    });
+
+    setFlash(req, "success", "Commande mise à jour.");
+    return saveSessionAndRedirect(req, res, `/admin/orders/${nextOrder.id}`);
+});
+
+app.post("/admin/orders/:id/send-email", requireAdmin, async (req, res) => {
+    const order = getOrderById(db, Number.parseInt(req.params.id, 10));
+    if (!order) {
+        return res.status(404).render("not-found", { title: "Commande introuvable" });
+    }
+
+    const subject = normalizeText(req.body.subject);
+    const message = normalizeText(req.body.message);
+    if (!subject || !message) {
+        setFlash(req, "error", "Le sujet et le message sont obligatoires.");
+        return saveSessionAndRedirect(req, res, `/admin/orders/${order.id}`);
+    }
+
+    const settings = getSettings(db);
+    const configError = getMailConfigError(settings);
+    if (configError) {
+        setFlash(req, "error", `Envoi impossible : ${configError}`);
+        return saveSessionAndRedirect(req, res, `/admin/orders/${order.id}`);
+    }
+
+    try {
+        await sendStoreEmail(settings, {
+            to: order.customer_email,
+            subject,
+            text: message,
+        });
+        setFlash(req, "success", "E-mail envoyé au client.");
+    } catch (error) {
+        setFlash(req, "error", `Échec de l'envoi : ${error.message}`);
+    }
+
+    return saveSessionAndRedirect(req, res, `/admin/orders/${order.id}`);
+});
+
+app.post("/admin/orders/:id/delete", requireAdmin, (req, res) => {
+    const order = getOrderById(db, Number.parseInt(req.params.id, 10));
+    if (!order) {
+        setFlash(req, "error", "Commande introuvable.");
+        return saveSessionAndRedirect(req, res, "/admin/orders");
+    }
+
+    deleteOrder(db, order.id);
+    setFlash(req, "success", `La commande ${order.order_number} a été supprimée.`);
+    return saveSessionAndRedirect(req, res, "/admin/orders");
+});
+
+app.get("/admin/products/new", requireAdmin, (req, res) => {
+    render(res, "admin/product-form", {
+        title: "Nouveau produit",
+        formAction: "/admin/products/new",
+        product: null,
+    });
+});
+
+app.post("/admin/products/new", requireAdmin, (req, res) => {
+    createProduct(db, req.body);
+    setFlash(req, "success", "Produit créé.");
+    saveSessionAndRedirect(req, res, "/admin");
+});
+
+app.get("/admin/products/:id/edit", requireAdmin, (req, res) => {
+    const product = getProductById(db, Number.parseInt(req.params.id, 10));
+    if (!product) {
+        return res.status(404).render("not-found", { title: "Produit introuvable" });
+    }
+
+    render(res, "admin/product-form", {
+        title: `Modifier ${product.name}`,
+        formAction: `/admin/products/${product.id}/edit`,
+        product,
+    });
+});
+
+app.post("/admin/products/:id/edit", requireAdmin, (req, res) => {
+    const product = updateProduct(db, Number.parseInt(req.params.id, 10), req.body);
+    if (!product) {
+        return res.status(404).render("not-found", { title: "Produit introuvable" });
+    }
+
+    setFlash(req, "success", "Produit mis à jour.");
+    saveSessionAndRedirect(req, res, "/admin");
+});
+
+app.post("/admin/products/:id/delete", requireAdmin, (req, res) => {
+    deleteProduct(db, Number.parseInt(req.params.id, 10));
+    setFlash(req, "success", "Produit supprimé.");
+    saveSessionAndRedirect(req, res, "/admin");
+});
+
+app.get("/admin/settings", requireAdmin, (req, res) => {
+    render(res, "admin/settings", {
+        title: "Paramètres de la boutique",
+    });
+});
+
+app.post("/admin/settings", requireAdmin, (req, res) => {
+    saveSettings(db, {
+        store_name: String(req.body.store_name || "").trim(),
+        tagline: String(req.body.tagline || "").trim(),
+        hero_title: String(req.body.hero_title || "").trim(),
+        hero_text: String(req.body.hero_text || "").trim(),
+        support_email: String(req.body.support_email || "").trim(),
+        support_address: String(req.body.support_address || "").trim(),
+        shipping_note: String(req.body.shipping_note || "").trim(),
+        bank_account_holder: String(req.body.bank_account_holder || "").trim(),
+        bank_name: String(req.body.bank_name || "").trim(),
+        bank_account_number: String(req.body.bank_account_number || "").trim(),
+        bank_iban: String(req.body.bank_iban || "").trim(),
+        bank_bic: String(req.body.bank_bic || "").trim(),
+        smtp_host: String(req.body.smtp_host || "").trim(),
+        smtp_port: String(req.body.smtp_port || "").trim() || "587",
+        smtp_secure: req.body.smtp_secure ? "1" : "0",
+        smtp_username: String(req.body.smtp_username || "").trim(),
+        smtp_password: String(req.body.smtp_password || "").trim(),
+        smtp_from_name: String(req.body.smtp_from_name || "").trim(),
+        smtp_from_email: String(req.body.smtp_from_email || "").trim(),
+        order_notification_email: String(req.body.order_notification_email || "").trim(),
+    });
+
+    setFlash(req, "success", "Paramètres enregistrés.");
+    saveSessionAndRedirect(req, res, "/admin/settings");
+});
+
+app.use((req, res) => {
+    res.status(404).render("not-found", { title: "Page introuvable" });
+});
+
+const port = Number.parseInt(env.PORT || "3000", 10);
+const host = env.HOST || "127.0.0.1";
+
+app.listen(port, host, () => {
+    console.log(`RecyTech shop listening on http://${host}:${port}`);
+});
