@@ -1,3 +1,21 @@
+const csrfTokenMeta = document.querySelector('meta[name="csrf-token"]');
+const csrfToken = csrfTokenMeta?.content || "";
+
+if (csrfToken) {
+    document.querySelectorAll('form[method="post"]').forEach((form) => {
+        let hiddenField = form.querySelector('input[name="_csrf"]');
+
+        if (!hiddenField) {
+            hiddenField = document.createElement("input");
+            hiddenField.type = "hidden";
+            hiddenField.name = "_csrf";
+            form.append(hiddenField);
+        }
+
+        hiddenField.value = csrfToken;
+    });
+}
+
 document.querySelectorAll(".flash").forEach((flash) => {
     window.setTimeout(() => {
         flash.classList.add("flash-hidden");
@@ -212,6 +230,7 @@ function persistCheckoutDraft() {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
+            "X-CSRF-Token": csrfToken,
         },
         body: JSON.stringify(payload),
         keepalive: true,
@@ -247,6 +266,7 @@ async function fetchStripeIntent() {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
+            "X-CSRF-Token": csrfToken,
         },
         body: JSON.stringify(buildCheckoutDraftPayload() || {}),
     });
@@ -363,6 +383,7 @@ async function prepareStripeOrder() {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
+            "X-CSRF-Token": csrfToken,
         },
         body: JSON.stringify(payload),
     });

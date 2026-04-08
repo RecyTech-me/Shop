@@ -49,6 +49,15 @@ const stripePublishableKey = env.STRIPE_PUBLISHABLE_KEY || "";
 const swissBitcoinPayApiUrl = (env.SWISS_BITCOIN_PAY_API_URL || "https://api.swiss-bitcoin-pay.ch").replace(/\/$/, "");
 const swissBitcoinPayApiKey = String(env.SWISS_BITCOIN_PAY_API_KEY || "").trim();
 const swissBitcoinPayWebhookSecret = String(env.SWISS_BITCOIN_PAY_WEBHOOK_SECRET || "").trim();
+const orderViewTokenSecret = String(env.ORDER_VIEW_TOKEN_SECRET || env.SESSION_SECRET || "").trim();
+const loginAttemptTracker = new Map();
+
+const LOGIN_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_RATE_LIMIT_BLOCK_MS = 15 * 60 * 1000;
+const LOGIN_RATE_LIMIT_MAX_ATTEMPTS = 5;
+
+app.disable("x-powered-by");
+app.set("trust proxy", 1);
 
 app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "views"));
@@ -432,7 +441,7 @@ function paymentState() {
     return {
         stripeEnabled: Boolean(stripe && stripePublishableKey),
         stripePublishableKey,
-        bitcoinEnabled: Boolean(swissBitcoinPayApiKey),
+        bitcoinEnabled: Boolean(swissBitcoinPayApiKey && swissBitcoinPayWebhookSecret),
         transferEnabled: true,
     };
 }
@@ -763,7 +772,7 @@ async function createSwissBitcoinPayInvoice(order, req) {
                 email: order.customer_email,
                 emailLanguage: "fr",
                 redirect: false,
-                redirectAfterPaid: `${baseUrl(req)}/checkout/success?provider=swissbitcoinpay&order=${encodeURIComponent(order.order_number)}`,
+                redirectAfterPaid: `${baseUrl(req)}/checkout/success?provider=swissbitcoinpay&order=${encodeURIComponent(order.order_number)}&view=${encodeURIComponent(createOrderViewToken(order))}`,
                 webhook: {
                     url: `${baseUrl(req)}/webhooks/swiss-bitcoin-pay`,
                 },
@@ -821,8 +830,126 @@ function saveSessionAndRedirect(req, res, location) {
     });
 }
 
+function getSafeRedirectTarget(value, fallback = "/") {
+    const input = normalizeText(value);
+    if (!input || !input.startsWith("/") || input.startsWith("//") || /[\r\n\\]/.test(input)) {
+        return fallback;
+    }
+
+    return input;
+}
+
 function normalizeText(value) {
     return String(value || "").trim();
+}
+
+function normalizeSingleLineText(value) {
+    return normalizeText(value).replace(/[\r\n]+/g, " ");
+}
+
+function getRequestIp(req) {
+    return normalizeText(req.ip || req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "unknown");
+}
+
+function getLoginRateLimitState(req) {
+    const key = getRequestIp(req);
+    const now = Date.now();
+    const current = loginAttemptTracker.get(key);
+
+    if (!current) {
+        return {
+            key,
+            attempts: 0,
+            blockedUntil: 0,
+        };
+    }
+
+    if (current.blockedUntil && current.blockedUntil > now) {
+        return {
+            key,
+            attempts: current.attempts || LOGIN_RATE_LIMIT_MAX_ATTEMPTS,
+            blockedUntil: current.blockedUntil,
+        };
+    }
+
+    if (!current.firstAttemptAt || (now - current.firstAttemptAt) > LOGIN_RATE_LIMIT_WINDOW_MS) {
+        loginAttemptTracker.delete(key);
+        return {
+            key,
+            attempts: 0,
+            blockedUntil: 0,
+        };
+    }
+
+    return {
+        key,
+        attempts: current.attempts || 0,
+        blockedUntil: 0,
+    };
+}
+
+function registerLoginFailure(req) {
+    const state = getLoginRateLimitState(req);
+    const now = Date.now();
+    const nextAttempts = state.attempts + 1;
+    const nextState = {
+        firstAttemptAt: state.attempts ? loginAttemptTracker.get(state.key)?.firstAttemptAt || now : now,
+        attempts: nextAttempts,
+        blockedUntil: nextAttempts >= LOGIN_RATE_LIMIT_MAX_ATTEMPTS ? now + LOGIN_RATE_LIMIT_BLOCK_MS : 0,
+    };
+
+    loginAttemptTracker.set(state.key, nextState);
+}
+
+function clearLoginFailures(req) {
+    loginAttemptTracker.delete(getRequestIp(req));
+}
+
+function getOrCreateCsrfToken(req) {
+    if (!req.session.csrfToken) {
+        req.session.csrfToken = crypto.randomBytes(24).toString("hex");
+    }
+
+    return req.session.csrfToken;
+}
+
+function isValidCsrfToken(req) {
+    const sessionToken = req.session?.csrfToken;
+    const incomingToken = normalizeText(req.body?._csrf || req.headers["x-csrf-token"] || req.headers["csrf-token"]);
+
+    if (!sessionToken || !incomingToken) {
+        return false;
+    }
+
+    const expected = Buffer.from(sessionToken, "utf8");
+    const provided = Buffer.from(incomingToken, "utf8");
+
+    return expected.length === provided.length && crypto.timingSafeEqual(expected, provided);
+}
+
+function createOrderViewToken(order) {
+    if (!order || !orderViewTokenSecret) {
+        return "";
+    }
+
+    return crypto
+        .createHmac("sha256", orderViewTokenSecret)
+        .update([order.order_number, order.customer_email, order.amount_cents, order.provider].join("|"))
+        .digest("base64url");
+}
+
+function verifyOrderViewToken(order, token) {
+    const expected = createOrderViewToken(order);
+    const provided = normalizeText(token);
+
+    if (!expected || !provided) {
+        return false;
+    }
+
+    const expectedBuffer = Buffer.from(expected, "utf8");
+    const providedBuffer = Buffer.from(provided, "utf8");
+
+    return expectedBuffer.length === providedBuffer.length && crypto.timingSafeEqual(expectedBuffer, providedBuffer);
 }
 
 function readAdminUserInput(values, options = {}) {
@@ -934,7 +1061,7 @@ function parseInteger(value, fallback) {
 
 function verifySwissBitcoinPaySignature(rawBody, signatureHeader) {
     if (!swissBitcoinPayWebhookSecret) {
-        return true;
+        return false;
     }
 
     const signature = String(signatureHeader || "").trim();
@@ -1415,6 +1542,7 @@ app.use(
         saveUninitialized: false,
         cookie: {
             httpOnly: true,
+            secure: /^https:\/\//i.test(env.BASE_URL || "") ? "auto" : false,
             sameSite: "lax",
             maxAge: 1000 * 60 * 60 * 12,
         },
@@ -1422,6 +1550,16 @@ app.use(
 );
 
 app.use((req, res, next) => {
+    const requestIsSecure = req.secure || req.get("x-forwarded-proto") === "https";
+    res.set("X-Frame-Options", "DENY");
+    res.set("X-Content-Type-Options", "nosniff");
+    res.set("Referrer-Policy", "strict-origin-when-cross-origin");
+    res.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+    if (requestIsSecure) {
+        res.set("Strict-Transport-Security", "max-age=15552000; includeSubDomains");
+    }
+
+    res.locals.csrfToken = getOrCreateCsrfToken(req);
     const currentAdmin = req.session.adminId ? getAdminById(db, req.session.adminId) : null;
     const hideFooter = req.path === "/cart" || req.path.startsWith("/admin");
 
@@ -1434,6 +1572,19 @@ app.use((req, res, next) => {
     res.locals.showFooter = !hideFooter;
     req.currentAdmin = currentAdmin;
     next();
+});
+
+app.use((req, res, next) => {
+    if (!["POST", "PUT", "PATCH", "DELETE"].includes(req.method) || req.path.startsWith("/webhooks/")) {
+        return next();
+    }
+
+    if (isValidCsrfToken(req)) {
+        return next();
+    }
+
+    setFlash(req, "error", "Votre session de sécurité a expiré. Veuillez réessayer.");
+    return saveSessionAndRedirect(req, res, req.get("referer") || "/");
 });
 
 app.options(["/api/products", "/wp-json/wc/v3/products"], (req, res) => {
@@ -1551,7 +1702,7 @@ app.post("/checkout/stripe/prepare", async (req, res) => {
 
         req.session.save(() => {
             res.json({
-                successUrl: `/checkout/success?provider=stripe&payment_intent=${encodeURIComponent(paymentIntent.id)}`,
+                successUrl: `/checkout/success?provider=stripe&payment_intent=${encodeURIComponent(paymentIntent.id)}&order=${encodeURIComponent(order.order_number)}&view=${encodeURIComponent(createOrderViewToken(order))}`,
                 orderNumber: order.order_number,
             });
         });
@@ -1600,9 +1751,11 @@ app.post("/cart/add", (req, res) => {
         return saveSessionAndRedirect(req, res, "/");
     }
 
+    const redirectTarget = getSafeRedirectTarget(req.body.redirect_to, `/products/${product.slug}`);
+
     if (product.inventory <= 0) {
         setFlash(req, "error", "Ce produit est en rupture de stock.");
-        return saveSessionAndRedirect(req, res, req.body.redirect_to || `/products/${product.slug}`);
+        return saveSessionAndRedirect(req, res, redirectTarget);
     }
 
     let selectedOptions = [];
@@ -1611,7 +1764,7 @@ app.post("/cart/add", (req, res) => {
         selectedOptions = readSelectedProductOptions(product, req.body);
     } catch (error) {
         setFlash(req, "error", error.message);
-        return saveSessionAndRedirect(req, res, req.body.redirect_to || `/products/${product.slug}`);
+        return saveSessionAndRedirect(req, res, redirectTarget);
     }
 
     upsertCartItem(req, productId, Math.min(quantity, product.inventory), selectedOptions);
@@ -1619,7 +1772,7 @@ app.post("/cart/add", (req, res) => {
         actionHref: "/cart",
         actionLabel: "Voir le panier",
     });
-    saveSessionAndRedirect(req, res, req.body.redirect_to || `/products/${product.slug}`);
+    saveSessionAndRedirect(req, res, redirectTarget);
 });
 
 app.get("/cart", (req, res) => {
@@ -1766,14 +1919,14 @@ app.post("/checkout", async (req, res) => {
             await notifyNewOrder(cashOrder);
             clearCheckoutForm(req);
             setCartItems(req, []);
-            return saveSessionAndRedirect(req, res, `/checkout/success?provider=cash&order=${encodeURIComponent(cashOrder.order_number)}`);
+            return saveSessionAndRedirect(req, res, `/checkout/success?provider=cash&order=${encodeURIComponent(cashOrder.order_number)}&view=${encodeURIComponent(createOrderViewToken(cashOrder))}`);
         }
 
         const transferOrder = createOrderFromSessionCart(req, "transfer", checkoutDetails.customer, checkoutDetails);
         await notifyNewOrder(transferOrder);
         clearCheckoutForm(req);
         setCartItems(req, []);
-        return saveSessionAndRedirect(req, res, `/checkout/success?provider=transfer&order=${encodeURIComponent(transferOrder.order_number)}`);
+        return saveSessionAndRedirect(req, res, `/checkout/success?provider=transfer&order=${encodeURIComponent(transferOrder.order_number)}&view=${encodeURIComponent(createOrderViewToken(transferOrder))}`);
     } catch (error) {
         setFlash(req, "error", error.message);
         return saveSessionAndRedirect(req, res, "/checkout");
@@ -1782,6 +1935,7 @@ app.post("/checkout", async (req, res) => {
 
 app.get("/checkout/success", async (req, res) => {
     let order = null;
+    let visibleOrder = null;
 
     try {
         if (req.query.provider === "stripe" && req.query.payment_intent && stripe) {
@@ -1800,12 +1954,20 @@ app.get("/checkout/success", async (req, res) => {
                     paymentStatus: paymentIntent.status,
                 });
             }
+
+            if (order && verifyOrderViewToken(order, req.query.view)) {
+                visibleOrder = order;
+            }
         }
 
         if (req.query.provider === "swissbitcoinpay" && req.query.order) {
             order = getOrderByNumber(db, req.query.order);
 
-            if (order?.provider_reference && paymentState().bitcoinEnabled) {
+            if (order && verifyOrderViewToken(order, req.query.view)) {
+                visibleOrder = order;
+            }
+
+            if (visibleOrder?.provider_reference && paymentState().bitcoinEnabled) {
                 const invoice = await fetchSwissBitcoinPayInvoice(order.provider_reference);
                 const nextStatus = mapSwissBitcoinPayStatus(invoice);
                 const metadata = {
@@ -1817,23 +1979,27 @@ app.get("/checkout/success", async (req, res) => {
 
                 if (nextStatus === "paid") {
                     order = markOrderPaid(db, order.id, metadata);
+                    visibleOrder = order;
                     setCartItems(req, []);
                 } else {
                     order = updateOrderStatus(db, order.id, nextStatus, metadata);
+                    visibleOrder = order;
                 }
             }
         }
 
         if (req.query.provider === "transfer" && req.query.order) {
             order = getOrderByNumber(db, req.query.order);
-            if (order) {
+            if (order && verifyOrderViewToken(order, req.query.view)) {
+                visibleOrder = order;
                 setCartItems(req, []);
             }
         }
 
         if (req.query.provider === "cash" && req.query.order) {
             order = getOrderByNumber(db, req.query.order);
-            if (order) {
+            if (order && verifyOrderViewToken(order, req.query.view)) {
+                visibleOrder = order;
                 setCartItems(req, []);
             }
         }
@@ -1846,7 +2012,7 @@ app.get("/checkout/success", async (req, res) => {
 
     render(res, "success", {
         title: "Commande",
-        order,
+        order: visibleOrder,
     });
 });
 
@@ -1868,22 +2034,39 @@ app.get("/admin/login", (req, res) => {
 });
 
 app.post("/admin/login", (req, res) => {
+    const rateLimitState = getLoginRateLimitState(req);
+    if (rateLimitState.blockedUntil > Date.now()) {
+        setFlash(req, "error", "Trop de tentatives de connexion. Réessayez plus tard.");
+        return saveSessionAndRedirect(req, res, "/admin/login");
+    }
+
     const username = String(req.body.username || "").trim();
     const password = String(req.body.password || "");
     const admin = getAdminByUsername(db, username);
 
     if (!admin || !verifyPassword(password, admin.password_hash)) {
+        registerLoginFailure(req);
         setFlash(req, "error", "Identifiants invalides.");
         return saveSessionAndRedirect(req, res, "/admin/login");
     }
 
-    req.session.adminId = admin.id;
-    setFlash(req, "success", "Connexion réussie.");
-    saveSessionAndRedirect(req, res, "/");
+    clearLoginFailures(req);
+    req.session.regenerate((error) => {
+        if (error) {
+            setFlash(req, "error", "Impossible d'ouvrir une session sécurisée.");
+            return saveSessionAndRedirect(req, res, "/admin/login");
+        }
+
+        req.session.adminId = admin.id;
+        getOrCreateCsrfToken(req);
+        setFlash(req, "success", "Connexion réussie.");
+        return saveSessionAndRedirect(req, res, "/");
+    });
 });
 
 app.post("/admin/logout", requireAdmin, (req, res) => {
     req.session.destroy(() => {
+        res.clearCookie("connect.sid");
         res.redirect("/admin/login");
     });
 });
@@ -2095,12 +2278,16 @@ app.post("/admin/orders/:id/update", requireAdmin, (req, res) => {
         pickup_details: normalizeText(req.body.pickup_details),
     };
 
-    const nextOrder = updateOrderRecord(db, order.id, {
-        status,
-        metadata: {
+    const nextOrder = status === "paid" && order.status !== "paid"
+        ? markOrderPaid(db, order.id, {
             admin: nextAdminData,
-        },
-    });
+        })
+        : updateOrderRecord(db, order.id, {
+            status,
+            metadata: {
+                admin: nextAdminData,
+            },
+        });
 
     setFlash(req, "success", "Commande mise à jour.");
     return saveSessionAndRedirect(req, res, `/admin/orders/${nextOrder.id}`);
@@ -2112,7 +2299,7 @@ app.post("/admin/orders/:id/send-email", requireAdmin, async (req, res) => {
         return res.status(404).render("not-found", { title: "Commande introuvable" });
     }
 
-    const subject = normalizeText(req.body.subject);
+    const subject = normalizeSingleLineText(req.body.subject);
     const message = normalizeText(req.body.message);
     if (!subject || !message) {
         setFlash(req, "error", "Le sujet et le message sont obligatoires.");
@@ -2202,6 +2389,8 @@ app.get("/admin/settings", requireAdmin, (req, res) => {
 });
 
 app.post("/admin/settings", requireAdmin, (req, res) => {
+    const currentSettings = getSettings(db);
+    const nextSmtpPassword = String(req.body.smtp_password || "").trim();
     saveSettings(db, {
         store_name: String(req.body.store_name || "").trim(),
         tagline: String(req.body.tagline || "").trim(),
@@ -2219,7 +2408,7 @@ app.post("/admin/settings", requireAdmin, (req, res) => {
         smtp_port: String(req.body.smtp_port || "").trim() || "587",
         smtp_secure: req.body.smtp_secure ? "1" : "0",
         smtp_username: String(req.body.smtp_username || "").trim(),
-        smtp_password: String(req.body.smtp_password || "").trim(),
+        smtp_password: nextSmtpPassword || currentSettings.smtp_password || "",
         smtp_from_name: String(req.body.smtp_from_name || "").trim(),
         smtp_from_email: String(req.body.smtp_from_email || "").trim(),
         order_notification_email: String(req.body.order_notification_email || "").trim(),
