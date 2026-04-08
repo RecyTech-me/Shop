@@ -46,6 +46,9 @@ const databasePath = path.join(__dirname, "storage", "shop.db");
 const db = initializeDatabase(databasePath, env);
 const stripe = env.STRIPE_SECRET_KEY ? new Stripe(env.STRIPE_SECRET_KEY) : null;
 const stripePublishableKey = env.STRIPE_PUBLISHABLE_KEY || "";
+const swissBitcoinPayApiUrl = (env.SWISS_BITCOIN_PAY_API_URL || "https://api.swiss-bitcoin-pay.ch").replace(/\/$/, "");
+const swissBitcoinPayApiKey = String(env.SWISS_BITCOIN_PAY_API_KEY || "").trim();
+const swissBitcoinPayWebhookSecret = String(env.SWISS_BITCOIN_PAY_WEBHOOK_SECRET || "").trim();
 
 app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "views"));
@@ -71,6 +74,8 @@ const SHIPPING_OPTIONS = {
         priceCents: 0,
     },
 };
+
+const PAYMENT_DISCOUNT_RATE = 0.1;
 
 const ORDER_STATUS_OPTIONS = [
     { value: "pending", label: "En attente" },
@@ -112,6 +117,30 @@ function getOrderStatusTone(status) {
 
 function getAdminRoleLabel(role) {
     return ADMIN_ROLE_OPTIONS.find((option) => option.value === role)?.label || role;
+}
+
+function getOrderProviderLabel(provider) {
+    if (provider === "stripe") {
+        return "Carte bancaire (Stripe)";
+    }
+
+    if (provider === "transfer") {
+        return "Virement bancaire";
+    }
+
+    if (provider === "cash") {
+        return "Paiement en espèces";
+    }
+
+    if (provider === "swissbitcoinpay") {
+        return "Bitcoin (Swiss Bitcoin Pay)";
+    }
+
+    if (provider === "btcpay") {
+        return "Bitcoin (BTCPay)";
+    }
+
+    return provider;
 }
 
 function formatDateTime(value) {
@@ -177,7 +206,7 @@ function getLegalPages(settings) {
                         "Selon le mode de paiement choisi, certaines données peuvent être transmises à nos prestataires de paiement, à des prestataires logistiques ou à notre infrastructure d'envoi d'e-mails afin de permettre l'exécution de la commande et le suivi client.",
                     ],
                     bullets: [
-                        "prestataires de paiement, notamment Stripe pour le paiement par carte et BTCPay pour le paiement bitcoin",
+                        "prestataires de paiement, notamment Stripe pour le paiement par carte et Swiss Bitcoin Pay pour le paiement bitcoin",
                         "prestataires de livraison ou transporteurs lorsque vous choisissez une expédition",
                         "prestataire SMTP ou infrastructure d'envoi d'e-mails lorsqu'un message relatif à la commande vous est adressé depuis l'administration de la boutique",
                         "autorités ou conseillers lorsque la loi l'exige ou lorsqu'il faut faire valoir ou défendre des droits",
@@ -248,7 +277,7 @@ function getLegalPages(settings) {
                     title: "Prix et paiement",
                     paragraphs: [
                         "Les prix sont indiqués en CHF, sauf mention contraire. Les frais de livraison ou de retrait payants sont affichés avant validation définitive de la commande.",
-                        "Le paiement peut être effectué selon les options rendues disponibles sur le site au moment de la commande, en particulier par carte bancaire, bitcoin ou virement bancaire.",
+                        "Le paiement peut être effectué selon les options rendues disponibles sur le site au moment de la commande, en particulier par carte bancaire, bitcoin, virement bancaire ou en espèces lors d'un retrait lorsque cette option est proposée.",
                         "Lorsque le paiement est traité par un prestataire externe, les conditions et contrôles du prestataire concernent également la transaction.",
                     ],
                     bullets: [],
@@ -339,6 +368,56 @@ function baseUrl(req) {
     return env.BASE_URL || `${req.protocol}://${req.get("host")}`;
 }
 
+function absoluteUrl(req, value) {
+    const input = String(value || "").trim();
+    if (!input) {
+        return "";
+    }
+
+    if (/^https?:\/\//i.test(input)) {
+        return input;
+    }
+
+    const origin = baseUrl(req).replace(/\/$/, "");
+    return `${origin}${input.startsWith("/") ? "" : "/"}${input}`;
+}
+
+function setPublicApiHeaders(res) {
+    res.set("Access-Control-Allow-Origin", "*");
+    res.set("Access-Control-Allow-Methods", "GET, OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.set("Cache-Control", "public, max-age=120");
+}
+
+function serializePublicProduct(req, product) {
+    const images = (product.gallery_images || [])
+        .map((src) => absoluteUrl(req, src))
+        .filter(Boolean)
+        .map((src, index) => ({
+            id: `${product.id}-${index}`,
+            src,
+            alt: product.name,
+            position: index,
+        }));
+
+    return {
+        id: product.id,
+        slug: product.slug,
+        name: product.name,
+        short_description: product.short_description || "",
+        description: product.description || "",
+        price: ((product.price_cents || 0) / 100).toFixed(2),
+        regular_price: ((product.price_cents || 0) / 100).toFixed(2),
+        currency: product.currency || "CHF",
+        featured: Boolean(product.featured),
+        stock_quantity: Math.max(0, Number(product.inventory || 0)),
+        stock_status: product.inventory > 0 ? "instock" : "outofstock",
+        status: product.published ? "publish" : "draft",
+        permalink: `${baseUrl(req).replace(/\/$/, "")}/products/${product.slug}`,
+        images,
+    };
+}
+
 function setFlash(req, type, message, options = {}) {
     req.session.flash = { type, message, ...options };
 }
@@ -353,24 +432,22 @@ function paymentState() {
     return {
         stripeEnabled: Boolean(stripe && stripePublishableKey),
         stripePublishableKey,
-        btcpayEnabled: Boolean(env.BTCPAY_SERVER_URL && env.BTCPAY_STORE_ID && env.BTCPAY_API_KEY),
+        bitcoinEnabled: Boolean(swissBitcoinPayApiKey),
         transferEnabled: true,
     };
 }
 
-function mapBtcpayStatus(status) {
-    const normalized = String(status || "").toLowerCase();
-    if (
-        ["settled", "processing", "complete", "confirmed", "paid"].includes(normalized) ||
-        normalized.includes("settled") ||
-        normalized.includes("confirmed") ||
-        normalized.includes("paid")
-    ) {
+function mapSwissBitcoinPayStatus(invoice) {
+    const normalized = String(invoice?.status || "").toLowerCase();
+
+    if (invoice?.isPaid || normalized === "paid") {
         return "paid";
     }
-    if (["invalid", "expired"].includes(normalized) || normalized.includes("expired") || normalized.includes("invalid")) {
+
+    if (invoice?.isExpired || normalized === "expired") {
         return "failed";
     }
+
     return "pending";
 }
 
@@ -426,6 +503,79 @@ function buildCart(req) {
     };
 }
 
+function getAllowedPaymentMethods(deliveryMethod) {
+    const methods = [];
+    const state = paymentState();
+
+    if (state.stripeEnabled) {
+        methods.push("card");
+    }
+
+    methods.push("transfer");
+
+    if (state.bitcoinEnabled) {
+        methods.push("bitcoin");
+    }
+
+    if (deliveryMethod === "pickup") {
+        methods.push("cash");
+    }
+
+    return methods;
+}
+
+function getPreferredPaymentMethod(deliveryMethod) {
+    return getAllowedPaymentMethods(deliveryMethod)[0] || "transfer";
+}
+
+function getPaymentDiscountLabel(paymentMethod) {
+    if (paymentMethod === "bitcoin") {
+        return "Réduction Bitcoin (-10%)";
+    }
+
+    if (paymentMethod === "cash") {
+        return "Réduction retrait espèces (-10%)";
+    }
+
+    return "";
+}
+
+function getCheckoutPricing(subtotalCents, shippingOption, paymentMethod) {
+    const shippingCents = shippingOption?.priceCents || 0;
+    const discountCents = ["bitcoin", "cash"].includes(paymentMethod)
+        ? Math.round((subtotalCents || 0) * PAYMENT_DISCOUNT_RATE)
+        : 0;
+
+    return {
+        subtotalCents: subtotalCents || 0,
+        shippingCents,
+        discountCents,
+        discountLabel: getPaymentDiscountLabel(paymentMethod),
+        totalCents: Math.max(0, (subtotalCents || 0) + shippingCents - discountCents),
+    };
+}
+
+function normalizeCheckoutFormState(form) {
+    const nextForm = {
+        ...form,
+    };
+
+    if (!["ship", "pickup"].includes(nextForm.delivery_method)) {
+        nextForm.delivery_method = "ship";
+    }
+
+    const allowedPaymentMethods = getAllowedPaymentMethods(nextForm.delivery_method);
+    if (!allowedPaymentMethods.includes(nextForm.payment_method)) {
+        nextForm.payment_method = getPreferredPaymentMethod(nextForm.delivery_method);
+    }
+
+    if (nextForm.delivery_method === "pickup") {
+        nextForm.billing_same_as_shipping = "0";
+    }
+
+    return nextForm;
+}
+
 function getDefaultCheckoutForm() {
     return {
         customer_email: "",
@@ -448,16 +598,16 @@ function getDefaultCheckoutForm() {
         billing_city: "",
         billing_region: "Neuchâtel",
         billing_phone: "",
-        payment_method: "bitcoin",
+        payment_method: getPreferredPaymentMethod("ship"),
         order_note: "",
     };
 }
 
 function getCheckoutForm(req) {
-    return {
+    return normalizeCheckoutFormState({
         ...getDefaultCheckoutForm(),
         ...(req.session.checkoutForm || {}),
-    };
+    });
 }
 
 function buildCheckoutDraft(values, currentForm = getDefaultCheckoutForm()) {
@@ -497,7 +647,7 @@ function buildCheckoutDraft(values, currentForm = getDefaultCheckoutForm()) {
         draft.delivery_method = values.delivery_method;
     }
 
-    if (["card", "transfer", "bitcoin"].includes(values.payment_method)) {
+    if (["card", "transfer", "bitcoin", "cash"].includes(values.payment_method)) {
         draft.payment_method = values.payment_method;
     }
 
@@ -505,7 +655,7 @@ function buildCheckoutDraft(values, currentForm = getDefaultCheckoutForm()) {
         draft.billing_same_as_shipping = values.billing_same_as_shipping === "1" ? "1" : "0";
     }
 
-    return draft;
+    return normalizeCheckoutFormState(draft);
 }
 
 function setCheckoutForm(req, values) {
@@ -583,25 +733,46 @@ function requireSuperadmin(req, res, next) {
     next();
 }
 
-async function createBtcpayInvoice(order, req) {
+function buildSwissBitcoinPayDescription(order) {
+    const items = Array.isArray(order.items) ? order.items : [];
+    const preview = items.slice(0, 3).map((item) => `${item.quantity} x ${item.name}`);
+
+    if (items.length > 3) {
+        preview.push(`+${items.length - 3} autre(s) article(s)`);
+    }
+
+    return preview.join(", ") || `Commande ${order.order_number}`;
+}
+
+async function createSwissBitcoinPayInvoice(order, req) {
     const response = await fetch(
-        `${env.BTCPAY_SERVER_URL.replace(/\/$/, "")}/api/v1/stores/${env.BTCPAY_STORE_ID}/invoices`,
+        `${swissBitcoinPayApiUrl}/checkout`,
         {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
-                Authorization: `token ${env.BTCPAY_API_KEY}`,
+                "api-key": swissBitcoinPayApiKey,
             },
             body: JSON.stringify({
-                amount: order.amount_cents / 100,
-                currency: order.currency,
-                metadata: {
-                    orderId: order.order_number,
-                    source: "recytech-shop-prototype",
+                amount: Number((order.amount_cents / 100).toFixed(2)),
+                title: `Commande ${order.order_number}`,
+                description: buildSwissBitcoinPayDescription(order),
+                unit: order.currency,
+                onChain: true,
+                delay: 10,
+                email: order.customer_email,
+                emailLanguage: "fr",
+                redirect: false,
+                redirectAfterPaid: `${baseUrl(req)}/checkout/success?provider=swissbitcoinpay&order=${encodeURIComponent(order.order_number)}`,
+                webhook: {
+                    url: `${baseUrl(req)}/webhooks/swiss-bitcoin-pay`,
                 },
-                checkout: {
-                    redirectURL: `${baseUrl(req)}/checkout/success?provider=btcpay&order=${encodeURIComponent(order.order_number)}`,
-                    redirectAutomatically: true,
+                device: {
+                    name: "RecyTech Shop",
+                    type: "website",
+                },
+                extra: {
+                    orderNumber: order.order_number,
                 },
             }),
         }
@@ -609,25 +780,24 @@ async function createBtcpayInvoice(order, req) {
 
     if (!response.ok) {
         const text = await response.text();
-        throw new Error(`BTCPay invoice creation failed: ${response.status} ${text}`);
+        throw new Error(`Swiss Bitcoin Pay invoice creation failed: ${response.status} ${text}`);
     }
 
-    return response.json();
+    const invoice = await response.json();
+
+    if (!invoice?.checkoutUrl) {
+        throw new Error("Swiss Bitcoin Pay n'a pas retourné d'URL de paiement.");
+    }
+
+    return invoice;
 }
 
-async function fetchBtcpayInvoice(invoiceId) {
-    const response = await fetch(
-        `${env.BTCPAY_SERVER_URL.replace(/\/$/, "")}/api/v1/stores/${env.BTCPAY_STORE_ID}/invoices/${invoiceId}`,
-        {
-            headers: {
-                Authorization: `token ${env.BTCPAY_API_KEY}`,
-            },
-        }
-    );
+async function fetchSwissBitcoinPayInvoice(invoiceId) {
+    const response = await fetch(`${swissBitcoinPayApiUrl}/checkout/${encodeURIComponent(invoiceId)}`);
 
     if (!response.ok) {
         const text = await response.text();
-        throw new Error(`BTCPay invoice fetch failed: ${response.status} ${text}`);
+        throw new Error(`Swiss Bitcoin Pay invoice fetch failed: ${response.status} ${text}`);
     }
 
     return response.json();
@@ -639,6 +809,7 @@ function render(res, view, options = {}) {
         formatDateTime,
         getOrderStatusLabel,
         getOrderStatusTone,
+        getOrderProviderLabel,
         getAdminRoleLabel,
         ...options,
     });
@@ -761,6 +932,44 @@ function parseInteger(value, fallback) {
     return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function verifySwissBitcoinPaySignature(rawBody, signatureHeader) {
+    if (!swissBitcoinPayWebhookSecret) {
+        return true;
+    }
+
+    const signature = String(signatureHeader || "").trim();
+    if (!signature) {
+        return false;
+    }
+
+    const payload = Buffer.isBuffer(rawBody) ? rawBody : Buffer.from(String(rawBody || ""), "utf8");
+    const digest = crypto.createHmac("sha256", swissBitcoinPayWebhookSecret).update(payload).digest();
+    const candidates = [signature, signature.replace(/^sha256=/i, "").trim()].filter(Boolean);
+
+    for (const candidate of candidates) {
+        if (/^[a-f0-9]+$/i.test(candidate) && candidate.length === digest.length * 2) {
+            const buffer = Buffer.from(candidate, "hex");
+            if (buffer.length === digest.length && crypto.timingSafeEqual(buffer, digest)) {
+                return true;
+            }
+        }
+
+        const normalizedBase64 = candidate.replace(/-/g, "+").replace(/_/g, "/");
+        const paddedBase64 = normalizedBase64 + "=".repeat((4 - (normalizedBase64.length % 4 || 4)) % 4);
+
+        try {
+            const buffer = Buffer.from(paddedBase64, "base64");
+            if (buffer.length === digest.length && crypto.timingSafeEqual(buffer, digest)) {
+                return true;
+            }
+        } catch (error) {
+            // Ignore invalid encodings and keep trying supported formats.
+        }
+    }
+
+    return false;
+}
+
 function getMailSettings(settings) {
     return {
         host: normalizeText(settings.smtp_host || env.SMTP_HOST),
@@ -862,7 +1071,7 @@ function buildNewOrderNotification(order) {
             `Client : ${order.customer_name}`,
             `E-mail : ${order.customer_email}`,
             contact.phone ? `Téléphone : ${contact.phone}` : null,
-            `Paiement : ${order.provider}`,
+            `Paiement : ${getOrderProviderLabel(order.provider)}`,
             `Statut : ${getOrderStatusLabel(order.status)}`,
             `Total : ${formatMoney(order.amount_cents, order.currency)}`,
             `Livraison : ${deliveryLabel}`,
@@ -993,7 +1202,7 @@ function validateCheckoutInput(values) {
         billing_city: normalizeText(values.billing_city),
         billing_region: normalizeText(values.billing_region) || "Neuchâtel",
         billing_phone: normalizeText(values.billing_phone),
-        payment_method: normalizeText(values.payment_method) || "bitcoin",
+        payment_method: normalizeText(values.payment_method) || getPreferredPaymentMethod(normalizeText(values.delivery_method) || "pickup"),
         order_note: normalizeText(values.order_note),
     };
 
@@ -1005,8 +1214,12 @@ function validateCheckoutInput(values) {
         form.delivery_method = "pickup";
     }
 
-    if (!["card", "transfer", "bitcoin"].includes(form.payment_method)) {
-        form.payment_method = "bitcoin";
+    if (!["card", "transfer", "bitcoin", "cash"].includes(form.payment_method)) {
+        form.payment_method = getPreferredPaymentMethod(form.delivery_method);
+    }
+
+    if (form.payment_method === "cash" && form.delivery_method !== "pickup") {
+        throw new Error("Le paiement en espèces est disponible uniquement pour le retrait.");
     }
 
     if (form.delivery_method === "pickup") {
@@ -1077,7 +1290,8 @@ async function createOrReuseStripeIntent(req, values = {}) {
 
     const draftForm = buildCheckoutDraft(values, getCheckoutForm(req));
     const shippingOption = SHIPPING_OPTIONS[draftForm.delivery_method] || SHIPPING_OPTIONS.pickup;
-    const amountCents = cart.subtotalCents + shippingOption.priceCents;
+    const pricing = getCheckoutPricing(cart.subtotalCents, shippingOption, "card");
+    const amountCents = pricing.totalCents;
     const cartSignature = getCartSignature(cart);
     const draft = getStripeDraft(req);
 
@@ -1154,31 +1368,36 @@ app.post("/webhooks/stripe", express.raw({ type: "application/json" }), (req, re
     }
 });
 
-app.post("/webhooks/btcpay", express.raw({ type: "application/json" }), (req, res) => {
+app.post("/webhooks/swiss-bitcoin-pay", express.raw({ type: "application/json" }), (req, res) => {
     try {
-        const payload = JSON.parse(req.body.toString("utf8"));
-        const invoiceId = payload.invoiceId || payload.invoice?.id;
+        if (!verifySwissBitcoinPaySignature(req.body, req.headers["sbp-sig"])) {
+            return res.status(401).json({ error: "Invalid webhook signature" });
+        }
+
+        const invoice = JSON.parse(req.body.toString("utf8") || "{}");
+        const invoiceId = normalizeText(invoice.id || invoice.invoice?.id);
 
         if (!invoiceId) {
             return res.status(200).json({ received: true });
         }
 
-        const order = getOrderByProviderReference(db, "btcpay", invoiceId);
+        const order = getOrderByProviderReference(db, "swissbitcoinpay", invoiceId);
         if (!order) {
             return res.status(200).json({ received: true });
         }
 
-        const nextStatus = mapBtcpayStatus(payload.type || payload.status);
+        const nextStatus = mapSwissBitcoinPayStatus(invoice);
+        const metadata = {
+            swissBitcoinPayInvoiceId: invoiceId,
+            invoiceStatus: invoice.status || "",
+            paymentMethod: invoice.paymentMethod || "",
+            txId: invoice.txId || "",
+        };
+
         if (nextStatus === "paid") {
-            markOrderPaid(db, order.id, {
-                btcpayInvoiceId: invoiceId,
-                webhookType: payload.type || payload.status,
-            });
-        } else if (nextStatus !== "pending") {
-            updateOrderStatus(db, order.id, nextStatus, {
-                btcpayInvoiceId: invoiceId,
-                webhookType: payload.type || payload.status,
-            });
+            markOrderPaid(db, order.id, metadata);
+        } else {
+            updateOrderStatus(db, order.id, nextStatus, metadata);
         }
 
         res.status(200).json({ received: true });
@@ -1215,6 +1434,16 @@ app.use((req, res, next) => {
     res.locals.showFooter = !hideFooter;
     req.currentAdmin = currentAdmin;
     next();
+});
+
+app.options(["/api/products", "/wp-json/wc/v3/products"], (req, res) => {
+    setPublicApiHeaders(res);
+    res.status(204).end();
+});
+
+app.get(["/api/products", "/wp-json/wc/v3/products"], (req, res) => {
+    setPublicApiHeaders(res);
+    res.json(listPublishedProducts(db).map((product) => serializePublicProduct(req, product)));
 });
 
 app.post("/checkout/session", (req, res) => {
@@ -1258,7 +1487,8 @@ app.post("/checkout/stripe/prepare", async (req, res) => {
             return res.status(400).json({ error: "Le panier est vide." });
         }
 
-        const amountCents = cart.subtotalCents + checkoutDetails.shippingOption.priceCents;
+        const pricing = getCheckoutPricing(cart.subtotalCents, checkoutDetails.shippingOption, "card");
+        const amountCents = pricing.totalCents;
         const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
 
         if (paymentIntent.currency !== "chf" || paymentIntent.amount !== amountCents) {
@@ -1284,13 +1514,22 @@ app.post("/checkout/stripe/prepare", async (req, res) => {
                         label: checkoutDetails.shippingOption.label,
                         amount_cents: checkoutDetails.shippingOption.priceCents,
                     },
-                    additions: checkoutDetails.shippingOption.priceCents > 0
+                    additions: [
+                        ...(checkoutDetails.shippingOption.priceCents > 0
                         ? [{
                             type: "shipping",
                             label: checkoutDetails.shippingOption.label,
                             amount_cents: checkoutDetails.shippingOption.priceCents,
                         }]
-                        : [],
+                        : []),
+                        ...(pricing.discountCents > 0
+                        ? [{
+                            type: "discount",
+                            label: pricing.discountLabel,
+                            amount_cents: -pricing.discountCents,
+                        }]
+                        : []),
+                    ],
                     stripePaymentIntentId: paymentIntent.id,
                 },
             });
@@ -1426,13 +1665,15 @@ app.get("/checkout", (req, res) => {
 
     const checkoutForm = getCheckoutForm(req);
     const shippingOption = SHIPPING_OPTIONS[checkoutForm.delivery_method] || SHIPPING_OPTIONS.pickup;
+    const pricing = getCheckoutPricing(res.locals.cart.subtotalCents, shippingOption, checkoutForm.payment_method);
 
     render(res, "checkout", {
         title: "Paiement",
         checkoutForm,
+        pricing,
         shippingOptions: SHIPPING_OPTIONS,
         shippingCostCents: shippingOption.priceCents,
-        orderTotalCents: res.locals.cart.subtotalCents + shippingOption.priceCents,
+        orderTotalCents: pricing.totalCents,
     });
 });
 
@@ -1442,6 +1683,7 @@ function createOrderFromSessionCart(req, provider, customer, checkoutDetails) {
         throw new Error("Le panier est vide.");
     }
 
+    const pricing = getCheckoutPricing(cart.subtotalCents, checkoutDetails.shippingOption, checkoutDetails.form.payment_method);
     const shippingLine = checkoutDetails.shippingOption.priceCents > 0
         ? [{
             type: "shipping",
@@ -1449,12 +1691,19 @@ function createOrderFromSessionCart(req, provider, customer, checkoutDetails) {
             amount_cents: checkoutDetails.shippingOption.priceCents,
         }]
         : [];
+    const discountLine = pricing.discountCents > 0
+        ? [{
+            type: "discount",
+            label: pricing.discountLabel,
+            amount_cents: -pricing.discountCents,
+        }]
+        : [];
 
     return createOrder(db, {
         provider,
         customer_name: customer.name,
         customer_email: customer.email,
-        amount_cents: cart.subtotalCents + checkoutDetails.shippingOption.priceCents,
+        amount_cents: pricing.totalCents,
         currency: "CHF",
         items: cart.items,
         status: provider === "transfer" ? "awaiting_transfer" : "pending",
@@ -1465,7 +1714,7 @@ function createOrderFromSessionCart(req, provider, customer, checkoutDetails) {
                 label: checkoutDetails.shippingOption.label,
                 amount_cents: checkoutDetails.shippingOption.priceCents,
             },
-            additions: shippingLine,
+            additions: [...shippingLine, ...discountLine],
         },
     });
 }
@@ -1494,20 +1743,30 @@ app.post("/checkout", async (req, res) => {
         }
 
         if (checkoutDetails.form.payment_method === "bitcoin") {
-            if (!paymentState().btcpayEnabled) {
+            if (!paymentState().bitcoinEnabled) {
                 setFlash(req, "error", "Le paiement bitcoin est indisponible.");
                 return saveSessionAndRedirect(req, res, "/checkout");
             }
 
-            const order = createOrderFromSessionCart(req, "btcpay", checkoutDetails.customer, checkoutDetails);
+            const order = createOrderFromSessionCart(req, "swissbitcoinpay", checkoutDetails.customer, checkoutDetails);
             await notifyNewOrder(order);
-            const invoice = await createBtcpayInvoice(order, req);
+            const invoice = await createSwissBitcoinPayInvoice(order, req);
 
             updateOrderProviderReference(db, order.id, invoice.id, {
-                checkoutUrl: invoice.checkoutLink || invoice.url || "",
+                checkoutUrl: invoice.checkoutUrl || "",
+                lightningInvoice: invoice.pr || "",
+                onChainAddress: invoice.onChainAddr || "",
             });
 
-            return saveSessionAndRedirect(req, res, invoice.checkoutLink || invoice.url);
+            return saveSessionAndRedirect(req, res, invoice.checkoutUrl);
+        }
+
+        if (checkoutDetails.form.payment_method === "cash") {
+            const cashOrder = createOrderFromSessionCart(req, "cash", checkoutDetails.customer, checkoutDetails);
+            await notifyNewOrder(cashOrder);
+            clearCheckoutForm(req);
+            setCartItems(req, []);
+            return saveSessionAndRedirect(req, res, `/checkout/success?provider=cash&order=${encodeURIComponent(cashOrder.order_number)}`);
         }
 
         const transferOrder = createOrderFromSessionCart(req, "transfer", checkoutDetails.customer, checkoutDetails);
@@ -1543,29 +1802,36 @@ app.get("/checkout/success", async (req, res) => {
             }
         }
 
-        if (req.query.provider === "btcpay" && req.query.order) {
+        if (req.query.provider === "swissbitcoinpay" && req.query.order) {
             order = getOrderByNumber(db, req.query.order);
 
-            if (order?.provider_reference && paymentState().btcpayEnabled) {
-                const invoice = await fetchBtcpayInvoice(order.provider_reference);
-                const nextStatus = mapBtcpayStatus(invoice.status);
+            if (order?.provider_reference && paymentState().bitcoinEnabled) {
+                const invoice = await fetchSwissBitcoinPayInvoice(order.provider_reference);
+                const nextStatus = mapSwissBitcoinPayStatus(invoice);
+                const metadata = {
+                    swissBitcoinPayInvoiceId: invoice.id,
+                    invoiceStatus: invoice.status || "",
+                    paymentMethod: invoice.paymentMethod || "",
+                    txId: invoice.txId || "",
+                };
 
                 if (nextStatus === "paid") {
-                    order = markOrderPaid(db, order.id, {
-                        btcpayInvoiceId: invoice.id,
-                        invoiceStatus: invoice.status,
-                    });
+                    order = markOrderPaid(db, order.id, metadata);
                     setCartItems(req, []);
                 } else {
-                    order = updateOrderStatus(db, order.id, nextStatus, {
-                        btcpayInvoiceId: invoice.id,
-                        invoiceStatus: invoice.status,
-                    });
+                    order = updateOrderStatus(db, order.id, nextStatus, metadata);
                 }
             }
         }
 
         if (req.query.provider === "transfer" && req.query.order) {
+            order = getOrderByNumber(db, req.query.order);
+            if (order) {
+                setCartItems(req, []);
+            }
+        }
+
+        if (req.query.provider === "cash" && req.query.order) {
             order = getOrderByNumber(db, req.query.order);
             if (order) {
                 setCartItems(req, []);

@@ -15,7 +15,11 @@ const pickupSection = document.querySelector('[data-checkout-section="pickup"]')
 const billingToggleSection = document.querySelector('[data-checkout-section="billing-toggle"]');
 const billingSection = document.querySelector('[data-checkout-section="billing"]');
 const cardPaymentSection = document.querySelector('[data-checkout-section="card-payment"]');
+const cashPaymentOption = document.querySelector('[data-checkout-section="cash-payment-option"]');
 const shippingPrice = document.getElementById("checkout-shipping-price");
+const discountRow = document.getElementById("checkout-discount-row");
+const discountLabel = document.getElementById("checkout-discount-label");
+const discountAmount = document.getElementById("checkout-discount-amount");
 const orderTotal = document.getElementById("checkout-order-total");
 const optionalPhoneFields = document.querySelectorAll('input[name="shipping_phone"], input[name="billing_phone"]');
 const checkoutForm = document.querySelector(".checkout-form");
@@ -28,6 +32,7 @@ let stripePaymentElement = null;
 let stripeIntentId = "";
 let stripeClientSecret = "";
 let stripeLoadingPromise = null;
+const discountedPaymentMethods = new Set(["bitcoin", "cash"]);
 
 function formatChf(cents) {
     return new Intl.NumberFormat("fr-CH", {
@@ -76,19 +81,56 @@ function showStripeMessage(message, tone = "error") {
 }
 
 function getSelectedPaymentMethod() {
-    return document.querySelector('input[name="payment_method"]:checked')?.value || "bitcoin";
+    return document.querySelector('input[name="payment_method"]:checked')?.value || "card";
 }
 
 function getStripeKey() {
     return checkoutForm?.dataset.stripePublishableKey || "";
 }
 
+function selectFirstEnabledPaymentMethod(candidates) {
+    for (const value of candidates) {
+        const input = document.querySelector(`input[name="payment_method"][value="${value}"]`);
+        if (input && !input.disabled) {
+            input.checked = true;
+            return value;
+        }
+    }
+
+    return getSelectedPaymentMethod();
+}
+
+function ensureValidPaymentMethod(selectedDelivery) {
+    const allowedMethods = selectedDelivery === "pickup"
+        ? ["card", "transfer", "bitcoin", "cash"]
+        : ["card", "transfer", "bitcoin"];
+    const currentInput = document.querySelector('input[name="payment_method"]:checked');
+
+    if (currentInput && !currentInput.disabled && allowedMethods.includes(currentInput.value)) {
+        return currentInput.value;
+    }
+
+    return selectFirstEnabledPaymentMethod(allowedMethods);
+}
+
+function getPaymentDiscountLabel(paymentMethod) {
+    if (paymentMethod === "bitcoin") {
+        return "Réduction Bitcoin (-10%)";
+    }
+
+    if (paymentMethod === "cash") {
+        return "Réduction retrait espèces (-10%)";
+    }
+
+    return "";
+}
+
 function syncCheckoutSections() {
     const selectedDelivery = document.querySelector('input[name="delivery_method"]:checked')?.value || "pickup";
-    const selectedPayment = getSelectedPaymentMethod();
 
     toggleSection(shippingSection, selectedDelivery === "ship");
     toggleSection(pickupSection, selectedDelivery === "pickup");
+    toggleSection(cashPaymentOption, selectedDelivery === "pickup");
 
     if (billingSameInput) {
         const wasDisabled = billingSameInput.disabled;
@@ -107,6 +149,7 @@ function syncCheckoutSections() {
 
     const shouldShowBilling = selectedDelivery === "pickup" || Boolean(billingSameInput && !billingSameInput.checked);
     toggleSection(billingSection, shouldShowBilling);
+    const selectedPayment = ensureValidPaymentMethod(selectedDelivery);
     toggleSection(cardPaymentSection, selectedPayment === "card");
 
     if (shippingPrice && orderTotal) {
@@ -115,9 +158,16 @@ function syncCheckoutSections() {
             10
         ) || 0;
         const subtotal = Number.parseInt(orderTotal.dataset.subtotal || "0", 10) || 0;
+        const discountRate = Number.parseFloat(orderTotal.dataset.discountRate || "0") || 0;
+        const discountCents = discountedPaymentMethods.has(selectedPayment) ? Math.round(subtotal * discountRate) : 0;
 
         shippingPrice.textContent = formatChf(deliveryPrice);
-        orderTotal.textContent = formatChf(subtotal + deliveryPrice);
+        if (discountRow && discountLabel && discountAmount) {
+            discountRow.hidden = discountCents <= 0;
+            discountLabel.textContent = getPaymentDiscountLabel(selectedPayment);
+            discountAmount.textContent = `-${formatChf(discountCents)}`;
+        }
+        orderTotal.textContent = formatChf(subtotal + deliveryPrice - discountCents);
     }
 }
 

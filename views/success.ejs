@@ -9,10 +9,13 @@
 
         <% if (order) { %>
             <p>Commande <strong><%= order.order_number %></strong> pour <strong><%= formatMoney(order.amount_cents, order.currency) %></strong>.</p>
-            <p>Statut actuel: <strong><%= order.status %></strong>.</p>
+            <p>Statut actuel: <strong><%= getOrderStatusLabel(order.status) %></strong>.</p>
             <p>Client: <%= order.customer_name %> - <%= order.customer_email %></p>
             <% if (order.provider === "transfer") { %>
                 <p>Le virement bancaire doit maintenant être effectué. Utilisez la référence <strong><%= order.order_number %></strong> lors du paiement.</p>
+            <% } %>
+            <% if (order.provider === "cash") { %>
+                <p>Le paiement en espèces se fera lors du retrait. Merci de prévoir <strong><%= formatMoney(order.amount_cents, order.currency) %></strong> au moment du rendez-vous.</p>
             <% } %>
             <% if (order.metadata?.delivery) { %>
                 <p>Livraison: <%= order.metadata.delivery.label %>.</p>

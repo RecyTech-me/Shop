@@ -63,7 +63,7 @@
                                     <div><%= order.customer_name %></div>
                                     <div class="muted"><%= order.customer_email %></div>
                                 </td>
-                                <td><%= order.provider %></td>
+                                <td><%= getOrderProviderLabel(order.provider) %></td>
                                 <td><%= formatMoney(order.amount_cents, order.currency) %></td>
                                 <td><span class="chip chip-<%= getOrderStatusTone(order.status) %>"><%= getOrderStatusLabel(order.status) %></span></td>
                                 <td class="order-actions-cell">

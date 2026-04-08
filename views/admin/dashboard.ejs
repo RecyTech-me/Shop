@@ -113,7 +113,7 @@
                     <thead>
                         <tr>
                             <th>Numéro</th>
-                            <th>Provider</th>
+                            <th>Paiement</th>
                             <th>Client</th>
                             <th>Montant</th>
                             <th>Statut</th>
@@ -124,7 +124,7 @@
                         <% recentOrders.forEach((order) => { %>
                             <tr>
                                 <td><%= order.order_number %></td>
-                                <td><%= order.provider %></td>
+                                <td><%= getOrderProviderLabel(order.provider) %></td>
                                 <td><%= order.customer_name %></td>
                                 <td><%= formatMoney(order.amount_cents, order.currency) %></td>
                                 <td><%= getOrderStatusLabel(order.status) %></td>
