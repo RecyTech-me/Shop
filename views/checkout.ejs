@@ -213,12 +213,26 @@
                                 <span class="choice-indicator" aria-hidden="true"></span>
                             </span>
                         </label>
-                        <label class="choice-card choice-card-radio <%= paymentConfig.btcpayEnabled ? '' : 'choice-card-disabled' %>">
-                            <input type="radio" name="payment_method" value="bitcoin" <%= checkoutForm.payment_method === "bitcoin" ? "checked" : "" %> <%= paymentConfig.btcpayEnabled ? "" : "disabled" %>>
+                        <label class="choice-card choice-card-radio <%= paymentConfig.bitcoinEnabled ? '' : 'choice-card-disabled' %>">
+                            <input type="radio" name="payment_method" value="bitcoin" <%= checkoutForm.payment_method === "bitcoin" ? "checked" : "" %> <%= paymentConfig.bitcoinEnabled ? "" : "disabled" %>>
                             <span class="choice-surface">
                                 <span class="choice-card-copy">
                                     <strong>Bitcoin</strong>
-                                    <small>Lightning ou onchain</small>
+                                    <small>Lightning ou onchain · -10% de réduction</small>
+                                </span>
+                                <span class="choice-indicator" aria-hidden="true"></span>
+                            </span>
+                        </label>
+                        <label
+                            class="choice-card choice-card-radio checkout-section"
+                            data-checkout-section="cash-payment-option"
+                            <%= checkoutForm.delivery_method === "pickup" ? "" : "hidden" %>
+                        >
+                            <input type="radio" name="payment_method" value="cash" <%= checkoutForm.payment_method === "cash" ? "checked" : "" %> <%= checkoutForm.delivery_method === "pickup" ? "" : "disabled" %>>
+                            <span class="choice-surface">
+                                <span class="choice-card-copy">
+                                    <strong>Paiement en espèces</strong>
+                                    <small>Au retrait · -10% de réduction</small>
                                 </span>
                                 <span class="choice-indicator" aria-hidden="true"></span>
                             </span>
@@ -253,9 +267,13 @@
                 <span>Livraison</span>
                 <strong id="checkout-shipping-price" data-price-pickup="<%= shippingOptions.pickup.priceCents %>" data-price-ship="<%= shippingOptions.ship.priceCents %>"><%= formatMoney(shippingCostCents) %></strong>
             </div>
+            <div class="summary-row" id="checkout-discount-row" <%= pricing.discountCents > 0 ? "" : "hidden" %>>
+                <span id="checkout-discount-label"><%= pricing.discountLabel %></span>
+                <strong id="checkout-discount-amount">-<%= formatMoney(pricing.discountCents) %></strong>
+            </div>
             <div class="summary-row">
                 <span>Total</span>
-                <strong id="checkout-order-total" data-subtotal="<%= cart.subtotalCents %>"><%= formatMoney(orderTotalCents) %></strong>
+                <strong id="checkout-order-total" data-subtotal="<%= cart.subtotalCents %>" data-discount-rate="0.1"><%= formatMoney(orderTotalCents) %></strong>
             </div>
         </aside>
     </section>

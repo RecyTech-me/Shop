@@ -175,7 +175,7 @@ function mapPaymentProvider(string $paymentMethod): string
         "bacs" => "transfer",
         "cod" => "cash",
         "cheque" => "manual",
-        "bitcoin" => "btcpay",
+        "bitcoin" => "swissbitcoinpay",
     ][strtolower($paymentMethod)] ?? strtolower($paymentMethod ?: "manual");
 }
 

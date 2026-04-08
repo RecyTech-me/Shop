@@ -8,8 +8,8 @@ Standalone Node/Express shop prototype for RecyTech.
 - Admin login with product creation, edition, deletion, and store settings
 - SQLite storage for products, settings, and orders
 - Stripe Checkout session creation
-- BTCPay invoice creation
-- Stripe and BTCPay webhook endpoints
+- Swiss Bitcoin Pay invoice creation
+- Stripe and Swiss Bitcoin Pay webhook endpoints
 
 ## Quick start
 
@@ -34,12 +34,11 @@ Stripe:
 - `STRIPE_SECRET_KEY`
 - `STRIPE_WEBHOOK_SECRET`
 
-BTCPay:
+Swiss Bitcoin Pay:
 
-- `BTCPAY_SERVER_URL`
-- `BTCPAY_STORE_ID`
-- `BTCPAY_API_KEY`
-- `BTCPAY_WEBHOOK_SECRET`
+- `SWISS_BITCOIN_PAY_API_URL`
+- `SWISS_BITCOIN_PAY_API_KEY`
+- `SWISS_BITCOIN_PAY_WEBHOOK_SECRET` (API secret used to verify the `sbp-sig` webhook HMAC signature)
 
 Buttons stay disabled on the checkout page until the corresponding provider is configured.
 
@@ -51,4 +50,4 @@ Buttons stay disabled on the checkout page until the corresponding provider is c
 - `/admin/login`
 - `/admin`
 - `/webhooks/stripe`
-- `/webhooks/btcpay`
+- `/webhooks/swiss-bitcoin-pay`
