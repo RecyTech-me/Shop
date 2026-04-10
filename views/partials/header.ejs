@@ -1,16 +1,31 @@
-<header class="site-header">
+<header class="site-header" data-site-header>
     <% if (currentAdmin) { %>
-        <div class="admin-bar">
+        <div class="admin-bar" data-admin-bar>
             <div class="shell admin-bar-shell">
-                <div class="admin-bar-copy">
-                    <strong>Connecté en admin</strong>
-                    <span><%= currentAdmin.username %> · <%= getAdminRoleLabel(currentAdmin.role) %></span>
+                <div class="admin-bar-topline">
+                    <div class="admin-bar-copy">
+                        <strong>Connecté en admin</strong>
+                        <span><%= currentAdmin.username %> · <%= getAdminRoleLabel(currentAdmin.role) %></span>
+                    </div>
+                    <button
+                        class="admin-bar-toggle"
+                        type="button"
+                        aria-expanded="false"
+                        aria-controls="admin-bar-nav"
+                        aria-label="Ouvrir le menu admin"
+                        data-admin-menu-toggle
+                    >
+                        <span class="admin-bar-toggle-bar"></span>
+                        <span class="admin-bar-toggle-bar"></span>
+                        <span class="admin-bar-toggle-bar"></span>
+                    </button>
                 </div>
-                <div class="admin-bar-actions">
+                <div class="admin-bar-actions" id="admin-bar-nav" data-admin-nav>
                     <a href="/">Voir la boutique</a>
                     <a href="/admin">Tableau de bord</a>
                     <a href="/admin/account">Mon compte</a>
                     <a href="/admin/orders">Commandes</a>
+                    <a href="/admin/promo-codes">Codes promo</a>
                     <% if (currentAdmin.role === "superadmin") { %>
                         <a href="/admin/admins">Admins</a>
                     <% } %>
@@ -28,7 +43,19 @@
             <img src="/static/images/recytech-logo.svg" alt="RecyTech">
             <span><%= settings.store_name %></span>
         </a>
-        <nav class="site-nav">
+        <button
+            class="site-menu-toggle"
+            type="button"
+            aria-expanded="false"
+            aria-controls="site-nav"
+            aria-label="Ouvrir le menu"
+            data-site-menu-toggle
+        >
+            <span class="site-menu-toggle-bar"></span>
+            <span class="site-menu-toggle-bar"></span>
+            <span class="site-menu-toggle-bar"></span>
+        </button>
+        <nav class="site-nav" id="site-nav" data-site-nav>
             <a href="/" class="<%= currentPath === '/' ? 'active' : '' %>">Boutique</a>
             <a href="/cart" class="<%= currentPath === '/cart' ? 'active' : '' %>">
                 <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">

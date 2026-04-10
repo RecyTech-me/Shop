@@ -7,12 +7,61 @@
         <div class="product-gallery" data-product-gallery>
             <div class="product-visual product-visual-large product-gallery-main">
                 <% if (product.gallery_images.length) { %>
-                    <img
-                        src="<%= product.gallery_images[0] %>"
-                        alt="<%= product.name %>"
-                        class="product-gallery-main-image"
-                        data-product-gallery-main
-                    >
+                    <% const galleryLoopImages = product.gallery_images.length > 1
+                        ? [product.gallery_images[product.gallery_images.length - 1], ...product.gallery_images, product.gallery_images[0]]
+                        : product.gallery_images; %>
+                    <div class="product-gallery-viewport">
+                        <div
+                            class="product-gallery-track is-no-transition"
+                            data-product-gallery-track
+                            style="transform: translateX(-<%= product.gallery_images.length > 1 ? 100 : 0 %>%);"
+                        >
+                            <% galleryLoopImages.forEach((imageUrl, loopIndex) => { %>
+                                <% const logicalIndex = product.gallery_images.length > 1
+                                    ? (loopIndex === 0
+                                        ? product.gallery_images.length - 1
+                                        : loopIndex === galleryLoopImages.length - 1
+                                            ? 0
+                                            : loopIndex - 1)
+                                    : 0; %>
+                                <div
+                                    class="product-gallery-slide"
+                                    data-gallery-slide
+                                    data-gallery-logical-index="<%= logicalIndex %>"
+                                    aria-hidden="<%= logicalIndex === 0 ? 'false' : 'true' %>"
+                                >
+                                    <img
+                                        src="<%= imageUrl %>"
+                                        alt="<%= product.name %>"
+                                        class="product-gallery-main-image"
+                                        referrerpolicy="no-referrer"
+                                    >
+                                </div>
+                            <% }) %>
+                        </div>
+                    </div>
+                    <% if (product.gallery_images.length > 1) { %>
+                        <button
+                            type="button"
+                            class="product-gallery-arrow product-gallery-arrow-prev"
+                            data-gallery-prev
+                            aria-label="Voir l'image précédente"
+                        >
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M14.5 5.5 8 12l6.5 6.5"></path>
+                            </svg>
+                        </button>
+                        <button
+                            type="button"
+                            class="product-gallery-arrow product-gallery-arrow-next"
+                            data-gallery-next
+                            aria-label="Voir l'image suivante"
+                        >
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M9.5 5.5 16 12l-6.5 6.5"></path>
+                            </svg>
+                        </button>
+                    <% } %>
                 <% } else { %>
                     <span>RecyTech</span>
                 <% } %>
@@ -24,6 +73,7 @@
                         <button
                             type="button"
                             class="product-gallery-thumb <%= index === 0 ? 'is-active' : '' %>"
+                            data-gallery-index="<%= index %>"
                             data-gallery-image="<%= imageUrl %>"
                             data-gallery-alt="<%= product.name %>"
                             aria-label="Voir l'image <%= index + 1 %> de <%= product.name %>"
@@ -43,7 +93,6 @@
 
             <div class="detail-panel product-highlight-list">
                 <p><strong>Stock :</strong> <%= product.inventory %> unité(s)</p>
-                <p><strong>Retrait / livraison :</strong> <%= settings.shipping_note %></p>
             </div>
 
             <form

@@ -10,6 +10,7 @@
         </div>
         <div class="admin-actions">
             <a href="/admin/account" class="button button-secondary">Mon compte</a>
+            <a href="/admin/promo-codes" class="button button-secondary">Codes promo</a>
             <% if (currentAdmin?.role === "superadmin") { %>
                 <a href="/admin/admins" class="button button-secondary">Gérer les admins</a>
             <% } %>
@@ -36,6 +37,10 @@
         <article class="admin-stat-card">
             <span>Chiffre d'affaires</span>
             <strong><%= formatMoney(stats.revenueCents) %></strong>
+        </article>
+        <article class="admin-stat-card">
+            <span>Codes promo actifs</span>
+            <strong><%= stats.activePromoCodes %></strong>
         </article>
     </section>
 
