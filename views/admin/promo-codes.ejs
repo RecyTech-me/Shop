@@ -2,8 +2,8 @@
 <%- include("../partials/header") %>
 <%- include("../partials/flash") %>
 
-<main class="shell section-stack">
-    <section class="section-heading">
+<main class="shell section-stack admin-page">
+    <section class="section-heading admin-section-heading">
         <div>
             <p class="eyebrow">Administration</p>
             <h1>Codes promo</h1>
@@ -20,8 +20,8 @@
                 <p>Aucun code promo pour l'instant.</p>
             </div>
         <% } else { %>
-            <div class="table-wrap">
-                <table>
+            <div class="table-wrap table-wrap-admin">
+                <table class="admin-table">
                     <thead>
                         <tr>
                             <th>Code</th>
@@ -35,27 +35,27 @@
                     <tbody>
                         <% promoCodes.forEach((promoCode) => { %>
                             <tr>
-                                <td>
+                                <td data-label="Code">
                                     <strong><%= promoCode.code %></strong>
                                     <% if (promoCode.description) { %>
                                         <div class="muted"><%= promoCode.description %></div>
                                     <% } %>
                                 </td>
-                                <td><%= formatPromoCodeDiscount(promoCode) %></td>
-                                <td>
+                                <td data-label="Réduction"><%= formatPromoCodeDiscount(promoCode) %></td>
+                                <td data-label="Conditions">
                                     <div>Minimum: <%= promoCode.minimum_order_cents > 0 ? formatMoney(promoCode.minimum_order_cents) : "Aucun" %></div>
                                     <div class="muted">
                                         <%= promoCode.starts_on || "Immédiat" %> → <%= promoCode.expires_on || "Sans fin" %>
                                     </div>
                                 </td>
-                                <td>
+                                <td data-label="Utilisations">
                                     <div><%= promoCode.times_redeemed %> utilisée(s)</div>
                                     <div class="muted">
                                         <%= Number.isInteger(promoCode.max_redemptions) ? `Limite : ${promoCode.max_redemptions}` : "Sans limite" %>
                                     </div>
                                 </td>
-                                <td><span class="chip chip-<%= getPromoCodeStatusTone(promoCode) %>"><%= getPromoCodeStatus(promoCode) %></span></td>
-                                <td class="order-actions-cell">
+                                <td data-label="Statut"><span class="chip chip-<%= getPromoCodeStatusTone(promoCode) %>"><%= getPromoCodeStatus(promoCode) %></span></td>
+                                <td class="order-actions-cell" data-label="Actions">
                                     <div class="row-actions">
                                         <a href="/admin/promo-codes/<%= promoCode.id %>/edit">Modifier</a>
                                         <form
