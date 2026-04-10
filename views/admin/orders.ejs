@@ -2,8 +2,8 @@
 <%- include("../partials/header") %>
 <%- include("../partials/flash") %>
 
-<main class="shell section-stack">
-    <section class="section-heading">
+<main class="shell section-stack admin-page">
+    <section class="section-heading admin-section-heading">
         <div>
             <p class="eyebrow">Administration</p>
             <h1>Commandes</h1>
@@ -41,8 +41,8 @@
                 <p>Aucune commande ne correspond à ces filtres.</p>
             </div>
         <% } else { %>
-            <div class="table-wrap">
-                <table>
+            <div class="table-wrap table-wrap-admin">
+                <table class="admin-table">
                     <thead>
                         <tr>
                             <th>Numéro</th>
@@ -57,16 +57,16 @@
                     <tbody>
                         <% orders.forEach((order) => { %>
                             <tr>
-                                <td><strong><%= order.order_number %></strong></td>
-                                <td><%= formatDateTime(order.created_at) %></td>
-                                <td>
+                                <td data-label="Numéro"><strong><%= order.order_number %></strong></td>
+                                <td data-label="Date"><%= formatDateTime(order.created_at) %></td>
+                                <td data-label="Client">
                                     <div><%= order.customer_name %></div>
                                     <div class="muted"><%= order.customer_email %></div>
                                 </td>
-                                <td><%= getOrderProviderLabel(order.provider) %></td>
-                                <td><%= formatMoney(order.amount_cents, order.currency) %></td>
-                                <td><span class="chip chip-<%= getOrderStatusTone(order.status) %>"><%= getOrderStatusLabel(order.status) %></span></td>
-                                <td class="order-actions-cell">
+                                <td data-label="Paiement"><%= getOrderProviderLabel(order.provider) %></td>
+                                <td data-label="Montant"><%= formatMoney(order.amount_cents, order.currency) %></td>
+                                <td data-label="Statut"><span class="chip chip-<%= getOrderStatusTone(order.status) %>"><%= getOrderStatusLabel(order.status) %></span></td>
+                                <td class="order-actions-cell" data-label="Actions">
                                     <div class="row-actions">
                                         <a href="/admin/orders/<%= order.id %>">Gérer</a>
                                         <form

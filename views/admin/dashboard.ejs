@@ -2,8 +2,8 @@
 <%- include("../partials/header") %>
 <%- include("../partials/flash") %>
 
-<main class="shell section-stack">
-    <section class="section-heading">
+<main class="shell section-stack admin-page">
+    <section class="section-heading admin-section-heading">
         <div>
             <p class="eyebrow">Administration</p>
             <h1>Tableau de bord</h1>
@@ -45,7 +45,7 @@
     </section>
 
     <section class="section-block">
-        <div class="section-heading">
+        <div class="section-heading admin-section-heading">
             <div>
                 <p class="eyebrow">Catalogue</p>
                 <h2>Produits</h2>
@@ -58,8 +58,8 @@
                 <p>Aucun produit pour l'instant.</p>
             </div>
         <% } else { %>
-            <div class="table-wrap">
-                <table>
+            <div class="table-wrap table-wrap-admin">
+                <table class="admin-table">
                     <thead>
                         <tr>
                             <th>Nom</th>
@@ -72,11 +72,11 @@
                     <tbody>
                         <% products.forEach((product) => { %>
                             <tr>
-                                <td><%= product.name %></td>
-                                <td><%= formatMoney(product.price_cents, product.currency) %></td>
-                                <td><%= product.inventory %></td>
-                                <td><%= product.published ? "Publié" : "Brouillon" %></td>
-                                <td class="order-actions-cell">
+                                <td data-label="Nom"><%= product.name %></td>
+                                <td data-label="Prix"><%= formatMoney(product.price_cents, product.currency) %></td>
+                                <td data-label="Stock"><%= product.inventory %></td>
+                                <td data-label="État"><%= product.published ? "Publié" : "Brouillon" %></td>
+                                <td class="order-actions-cell" data-label="Actions">
                                     <div class="row-actions">
                                         <a href="/admin/products/<%= product.id %>/edit">Modifier</a>
                                         <form
@@ -100,7 +100,7 @@
     </section>
 
     <section class="section-block">
-        <div class="section-heading">
+        <div class="section-heading admin-section-heading">
             <div>
                 <p class="eyebrow">Commandes</p>
                 <h2>Dernières commandes</h2>
@@ -113,8 +113,8 @@
                 <p>Aucune commande enregistrée pour l'instant.</p>
             </div>
         <% } else { %>
-            <div class="table-wrap">
-                <table>
+            <div class="table-wrap table-wrap-admin">
+                <table class="admin-table">
                     <thead>
                         <tr>
                             <th>Numéro</th>
@@ -128,12 +128,12 @@
                     <tbody>
                         <% recentOrders.forEach((order) => { %>
                             <tr>
-                                <td><%= order.order_number %></td>
-                                <td><%= getOrderProviderLabel(order.provider) %></td>
-                                <td><%= order.customer_name %></td>
-                                <td><%= formatMoney(order.amount_cents, order.currency) %></td>
-                                <td><%= getOrderStatusLabel(order.status) %></td>
-                                <td class="order-actions-cell">
+                                <td data-label="Numéro"><%= order.order_number %></td>
+                                <td data-label="Paiement"><%= getOrderProviderLabel(order.provider) %></td>
+                                <td data-label="Client"><%= order.customer_name %></td>
+                                <td data-label="Montant"><%= formatMoney(order.amount_cents, order.currency) %></td>
+                                <td data-label="Statut"><%= getOrderStatusLabel(order.status) %></td>
+                                <td class="order-actions-cell" data-label="Actions">
                                     <div class="row-actions">
                                         <a href="/admin/orders/<%= order.id %>">Ouvrir</a>
                                     </div>

@@ -64,6 +64,14 @@ textarea {
     font: inherit;
 }
 
+button,
+.button,
+.site-menu-toggle,
+.admin-bar-toggle {
+    -webkit-appearance: none;
+    appearance: none;
+}
+
 .shell {
     width: min(1120px, calc(100vw - 2rem));
     margin: 0 auto;
@@ -73,6 +81,7 @@ textarea {
     position: sticky;
     top: 0;
     z-index: 20;
+    -webkit-backdrop-filter: blur(18px);
     backdrop-filter: blur(18px);
     background: rgba(249, 245, 236, 0.84);
     border-bottom: 1px solid rgba(36, 76, 56, 0.08);
@@ -1640,6 +1649,7 @@ select {
 }
 
 select {
+    -webkit-appearance: none;
     appearance: none;
     background-image:
         linear-gradient(45deg, transparent 50%, rgba(36, 76, 56, 0.72) 50%),
@@ -1773,6 +1783,7 @@ th {
     position: absolute;
     inset: 0;
     background: rgba(14, 23, 18, 0.46);
+    -webkit-backdrop-filter: blur(6px);
     backdrop-filter: blur(6px);
 }
 
@@ -1995,6 +2006,30 @@ th {
         width: min(100vw - 1rem, 1120px);
     }
 
+    .eyebrow {
+        font-size: 0.9rem;
+        letter-spacing: 0.13em;
+    }
+
+    .admin-page.shell {
+        width: min(100vw - 0.5rem, 1120px);
+    }
+
+    .admin-page {
+        gap: 1.2rem;
+        padding-top: 0.7rem;
+        padding-bottom: 1.5rem;
+    }
+
+    .hero {
+        padding: 0.8rem 0 0.9rem;
+    }
+
+    .hero + .section-stack {
+        padding-top: 0;
+        padding-bottom: 1.4rem;
+    }
+
     .admin-bar-shell,
     .section-heading,
     .admin-actions,
@@ -2021,6 +2056,23 @@ th {
         padding: 1.2rem;
     }
 
+    .admin-page .section-block,
+    .admin-page .payment-card,
+    .admin-page .summary-card,
+    .admin-page .auth-card,
+    .admin-page .status-card {
+        padding: 1rem;
+    }
+
+    .admin-page .detail-panel,
+    .admin-page .admin-stat-card {
+        padding: 1rem;
+    }
+
+    .admin-page .section-heading {
+        margin-bottom: 0.9rem;
+    }
+
     .admin-stat-grid,
     .admin-form-grid,
     .admin-order-summary-grid,
@@ -2044,6 +2096,18 @@ th {
     .stripe-card-panel,
     .pickup-info {
         overflow: hidden;
+    }
+
+    .admin-page .admin-stat-grid,
+    .admin-page .admin-form-grid,
+    .admin-page .admin-order-layout,
+    .admin-page .admin-order-summary-grid,
+    .admin-page .admin-order-main,
+    .admin-page .admin-order-items,
+    .admin-page .admin-order-side,
+    .admin-page .admin-order-filters,
+    .admin-page .table-wrap-admin .admin-table tbody {
+        gap: 0.8rem;
     }
 
     .choice-surface,
@@ -2103,6 +2167,131 @@ th {
 }
 
 @media (max-width: 820px) {
+    .admin-page .section-actions-top {
+        margin-top: 0.75rem;
+    }
+
+    .admin-section-heading {
+        align-items: start;
+        flex-direction: column;
+    }
+
+    .admin-section-heading > .button {
+        width: 100%;
+    }
+
+    .admin-form-grid,
+    .admin-order-summary-grid,
+    .admin-order-filters {
+        grid-template-columns: 1fr;
+    }
+
+    .admin-actions,
+    .admin-order-filters .form-actions,
+    .section-actions-top {
+        width: 100%;
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .admin-actions > *,
+    .admin-actions form,
+    .admin-actions .button,
+    .admin-order-filters .form-actions > *,
+    .admin-order-filters .form-actions .button,
+    .section-actions-top > *,
+    .section-actions-top form,
+    .section-actions-top .button {
+        width: 100%;
+    }
+
+    .admin-order-filters .form-actions {
+        height: auto;
+    }
+
+    .table-wrap-admin {
+        overflow: visible;
+    }
+
+    .admin-table,
+    .admin-table tbody,
+    .admin-table tr,
+    .admin-table td {
+        display: block;
+        width: 100%;
+    }
+
+    .admin-table thead {
+        display: none;
+    }
+
+    .admin-table tbody {
+        display: grid;
+        gap: 0.95rem;
+    }
+
+    .admin-table tr {
+        display: grid;
+        gap: 0.7rem;
+        padding: 0.9rem;
+        border: 1px solid rgba(36, 76, 56, 0.12);
+        border-radius: var(--radius-lg);
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(251, 246, 238, 0.95));
+        box-shadow: 0 12px 28px rgba(25, 44, 35, 0.06);
+    }
+
+    .admin-table td {
+        min-width: 0;
+        padding: 0;
+        border: 0;
+        text-align: left;
+        white-space: normal;
+    }
+
+    .admin-table td::before {
+        content: attr(data-label);
+        display: block;
+        margin-bottom: 0.2rem;
+        font-size: 0.74rem;
+        line-height: 1.2;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--text-soft);
+    }
+
+    .admin-table td > * {
+        min-width: 0;
+    }
+
+    .admin-table td.order-actions-cell {
+        margin-top: 0.15rem;
+        padding-top: 0.75rem;
+        border-top: 1px solid rgba(36, 76, 56, 0.1);
+    }
+
+    .admin-table td.order-actions-cell .row-actions {
+        justify-content: flex-start;
+        gap: 0.75rem 1rem;
+    }
+
+    .row-actions {
+        flex-wrap: wrap;
+    }
+
+    .order-actions-cell {
+        text-align: left;
+        white-space: normal;
+    }
+
+    .admin-order-item {
+        flex-direction: column;
+        gap: 0.55rem;
+    }
+
+    .admin-order-item > strong {
+        align-self: flex-start;
+    }
+
     .header-shell {
         min-height: 74px;
         gap: 0.75rem;
@@ -2150,6 +2339,7 @@ th {
         border: 0;
         border-radius: 0;
         background: rgba(249, 245, 236, 0.98);
+        -webkit-backdrop-filter: blur(18px);
         backdrop-filter: blur(18px);
         box-shadow: 0 18px 38px rgba(25, 44, 35, 0.12);
         z-index: 30;
@@ -2263,6 +2453,6 @@ th {
 @media (max-width: 560px) {
     .catalogue-grid {
         grid-template-columns: 1fr;
-        max-width: calc(240px + (2 * 1.35rem));
+        max-width: min(100%, 380px);
     }
 }

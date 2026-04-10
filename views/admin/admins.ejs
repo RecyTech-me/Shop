@@ -2,8 +2,8 @@
 <%- include("../partials/header") %>
 <%- include("../partials/flash") %>
 
-<main class="shell section-stack">
-    <section class="section-heading">
+<main class="shell section-stack admin-page">
+    <section class="section-heading admin-section-heading">
         <div>
             <p class="eyebrow">Administration</p>
             <h1>Administrateurs</h1>
@@ -15,8 +15,8 @@
     </section>
 
     <section class="section-block">
-        <div class="table-wrap">
-            <table>
+        <div class="table-wrap table-wrap-admin">
+            <table class="admin-table">
                 <thead>
                     <tr>
                         <th>Utilisateur</th>
@@ -28,17 +28,17 @@
                 <tbody>
                     <% admins.forEach((adminUser) => { %>
                         <tr>
-                            <td>
+                            <td data-label="Utilisateur">
                                 <strong><%= adminUser.username %></strong>
                                 <% if (adminUser.id === currentAdmin.id) { %>
                                     <div class="muted">Compte actuel</div>
                                 <% } %>
                             </td>
-                            <td>
+                            <td data-label="Rôle">
                                 <span class="chip chip-<%= adminUser.role === 'superadmin' ? 'info' : 'muted' %>"><%= getAdminRoleLabel(adminUser.role) %></span>
                             </td>
-                            <td><%= formatDateTime(adminUser.created_at) %></td>
-                            <td class="order-actions-cell">
+                            <td data-label="Créé le"><%= formatDateTime(adminUser.created_at) %></td>
+                            <td class="order-actions-cell" data-label="Actions">
                                 <div class="row-actions">
                                     <a href="/admin/admins/<%= adminUser.id %>/edit">Modifier</a>
                                     <% if (adminUser.id !== currentAdmin.id && !(adminUser.role === "superadmin" && superadminCount <= 1)) { %>
