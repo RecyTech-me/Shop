@@ -26,6 +26,12 @@ const {
     createAdmin: createAdminUser,
     updateAdmin: updateAdminUser,
     deleteAdmin: deleteAdminUser,
+    listPromoCodes,
+    getPromoCodeById,
+    getPromoCodeByCode,
+    createPromoCode: createPromoCodeRecord,
+    updatePromoCode: updatePromoCodeRecord,
+    deletePromoCode: deletePromoCodeRecord,
     getDashboardStats,
     createOrder,
     getOrderById,
@@ -537,6 +543,21 @@ function getPreferredPaymentMethod(deliveryMethod) {
     return getAllowedPaymentMethods(deliveryMethod)[0] || "transfer";
 }
 
+function normalizePromoCode(value) {
+    return String(value || "")
+        .trim()
+        .toUpperCase()
+        .replace(/\s+/g, "");
+}
+
+function todayIsoDate() {
+    const value = new Date();
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, "0");
+    const day = String(value.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+}
+
 function getPaymentDiscountLabel(paymentMethod) {
     if (paymentMethod === "bitcoin") {
         return "Réduction Bitcoin (-10%)";
@@ -549,17 +570,219 @@ function getPaymentDiscountLabel(paymentMethod) {
     return "";
 }
 
-function getCheckoutPricing(subtotalCents, shippingOption, paymentMethod) {
+function getPromoCodeLabel(promoCode) {
+    return `Code promo ${promoCode.code}`;
+}
+
+function formatPromoCodeDiscount(promoCode) {
+    if (!promoCode) {
+        return "";
+    }
+
+    if (promoCode.discount_type === "percent") {
+        return `-${promoCode.discount_percent}%`;
+    }
+
+    return `-${formatMoney(promoCode.discount_cents || 0)}`;
+}
+
+function getPromoCodeStatus(promoCode) {
+    if (!promoCode) {
+        return "Inconnu";
+    }
+
+    if (!promoCode.active) {
+        return "Désactivé";
+    }
+
+    const today = todayIsoDate();
+
+    if (promoCode.starts_on && today < promoCode.starts_on) {
+        return "Planifié";
+    }
+
+    if (promoCode.expires_on && today > promoCode.expires_on) {
+        return "Expiré";
+    }
+
+    if (
+        Number.isInteger(promoCode.max_redemptions) &&
+        promoCode.max_redemptions > 0 &&
+        promoCode.times_redeemed >= promoCode.max_redemptions
+    ) {
+        return "Épuisé";
+    }
+
+    return "Actif";
+}
+
+function getPromoCodeStatusTone(promoCode) {
+    const status = getPromoCodeStatus(promoCode);
+
+    if (status === "Actif") {
+        return "success";
+    }
+
+    if (status === "Planifié") {
+        return "info";
+    }
+
+    if (["Expiré", "Épuisé", "Désactivé"].includes(status)) {
+        return "muted";
+    }
+
+    return "muted";
+}
+
+function getPromoCodeOutcome(codeValue, subtotalCents) {
+    const normalizedCode = normalizePromoCode(codeValue);
+    if (!normalizedCode) {
+        return {
+            code: "",
+            promoCode: null,
+            discountCents: 0,
+            label: "",
+            error: "",
+        };
+    }
+
+    const promoCode = getPromoCodeByCode(db, normalizedCode);
+    if (!promoCode) {
+        return {
+            code: normalizedCode,
+            promoCode: null,
+            discountCents: 0,
+            label: "",
+            error: "Ce code promo n'existe pas.",
+        };
+    }
+
+    if (!promoCode.active) {
+        return {
+            code: normalizedCode,
+            promoCode,
+            discountCents: 0,
+            label: "",
+            error: "Ce code promo est désactivé.",
+        };
+    }
+
+    const today = todayIsoDate();
+
+    if (promoCode.starts_on && today < promoCode.starts_on) {
+        return {
+            code: normalizedCode,
+            promoCode,
+            discountCents: 0,
+            label: "",
+            error: "Ce code promo n'est pas encore actif.",
+        };
+    }
+
+    if (promoCode.expires_on && today > promoCode.expires_on) {
+        return {
+            code: normalizedCode,
+            promoCode,
+            discountCents: 0,
+            label: "",
+            error: "Ce code promo a expiré.",
+        };
+    }
+
+    if (
+        Number.isInteger(promoCode.max_redemptions) &&
+        promoCode.max_redemptions > 0 &&
+        promoCode.times_redeemed >= promoCode.max_redemptions
+    ) {
+        return {
+            code: normalizedCode,
+            promoCode,
+            discountCents: 0,
+            label: "",
+            error: "Ce code promo a déjà atteint sa limite d'utilisation.",
+        };
+    }
+
+    if ((subtotalCents || 0) < (promoCode.minimum_order_cents || 0)) {
+        return {
+            code: normalizedCode,
+            promoCode,
+            discountCents: 0,
+            label: "",
+            error: `Ce code promo nécessite une commande d'au moins ${formatMoney(promoCode.minimum_order_cents || 0)}.`,
+        };
+    }
+
+    const discountCents = promoCode.discount_type === "percent"
+        ? Math.round((subtotalCents || 0) * ((promoCode.discount_percent || 0) / 100))
+        : Math.min(promoCode.discount_cents || 0, subtotalCents || 0);
+
+    if (discountCents <= 0) {
+        return {
+            code: normalizedCode,
+            promoCode,
+            discountCents: 0,
+            label: "",
+            error: "Ce code promo ne peut pas être appliqué à cette commande.",
+        };
+    }
+
+    return {
+        code: normalizedCode,
+        promoCode,
+        discountCents,
+        label: getPromoCodeLabel(promoCode),
+        error: "",
+    };
+}
+
+function requirePromoCodeOutcome(codeValue, subtotalCents) {
+    const outcome = getPromoCodeOutcome(codeValue, subtotalCents);
+    if (outcome.code && outcome.error) {
+        throw new Error(outcome.error);
+    }
+
+    return outcome;
+}
+
+function getCheckoutPricing(subtotalCents, shippingOption, paymentMethod, promoCodeOutcome = null) {
     const shippingCents = shippingOption?.priceCents || 0;
-    const discountCents = ["bitcoin", "cash"].includes(paymentMethod)
-        ? Math.round((subtotalCents || 0) * PAYMENT_DISCOUNT_RATE)
+    const promoDiscountCents = promoCodeOutcome?.discountCents || 0;
+    const remainingSubtotalCents = Math.max((subtotalCents || 0) - promoDiscountCents, 0);
+    const paymentDiscountCents = ["bitcoin", "cash"].includes(paymentMethod)
+        ? Math.round(remainingSubtotalCents * PAYMENT_DISCOUNT_RATE)
         : 0;
+    const discountLines = [];
+
+    if (promoDiscountCents > 0 && promoCodeOutcome?.promoCode) {
+        discountLines.push({
+            type: "discount",
+            code: promoCodeOutcome.promoCode.code,
+            label: promoCodeOutcome.label,
+            amount_cents: -promoDiscountCents,
+        });
+    }
+
+    if (paymentDiscountCents > 0) {
+        discountLines.push({
+            type: "discount",
+            label: getPaymentDiscountLabel(paymentMethod),
+            amount_cents: -paymentDiscountCents,
+        });
+    }
+
+    const discountCents = promoDiscountCents + paymentDiscountCents;
 
     return {
         subtotalCents: subtotalCents || 0,
         shippingCents,
+        promoDiscountCents,
+        promoDiscountLabel: promoDiscountCents > 0 ? promoCodeOutcome.label : "",
+        paymentDiscountCents,
+        paymentDiscountLabel: paymentDiscountCents > 0 ? getPaymentDiscountLabel(paymentMethod) : "",
         discountCents,
-        discountLabel: getPaymentDiscountLabel(paymentMethod),
+        discountLabel: discountLines.map((line) => line.label).join(" + "),
+        discountLines,
         totalCents: Math.max(0, (subtotalCents || 0) + shippingCents - discountCents),
     };
 }
@@ -608,6 +831,7 @@ function getDefaultCheckoutForm() {
         billing_region: "Neuchâtel",
         billing_phone: "",
         payment_method: getPreferredPaymentMethod("ship"),
+        promo_code: "",
         order_note: "",
     };
 }
@@ -658,6 +882,10 @@ function buildCheckoutDraft(values, currentForm = getDefaultCheckoutForm()) {
 
     if (["card", "transfer", "bitcoin", "cash"].includes(values.payment_method)) {
         draft.payment_method = values.payment_method;
+    }
+
+    if (values.promo_code !== undefined) {
+        draft.promo_code = normalizePromoCode(values.promo_code);
     }
 
     if (values.billing_same_as_shipping !== undefined) {
@@ -816,10 +1044,13 @@ function render(res, view, options = {}) {
     res.render(view, {
         formatMoney,
         formatDateTime,
+        formatPromoCodeDiscount,
         getOrderStatusLabel,
         getOrderStatusTone,
         getOrderProviderLabel,
         getAdminRoleLabel,
+        getPromoCodeStatus,
+        getPromoCodeStatusTone,
         ...options,
     });
 }
@@ -1057,6 +1288,80 @@ function toBoolean(value) {
 function parseInteger(value, fallback) {
     const parsed = Number.parseInt(String(value || "").trim(), 10);
     return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function parseMoneyToCents(value, fallback = 0) {
+    const normalized = String(value || "").trim().replace(",", ".");
+    if (!normalized) {
+        return fallback;
+    }
+
+    const parsed = Number.parseFloat(normalized);
+    if (!Number.isFinite(parsed)) {
+        return fallback;
+    }
+
+    return Math.round(parsed * 100);
+}
+
+function normalizeDateField(value) {
+    const normalized = String(value || "").trim();
+    return /^\d{4}-\d{2}-\d{2}$/.test(normalized) ? normalized : "";
+}
+
+function readPromoCodeInput(values) {
+    const code = normalizePromoCode(values.code);
+    const description = normalizeText(values.description);
+    const discountType = normalizeText(values.discount_type) === "fixed" ? "fixed" : "percent";
+    const amountValue = String(values.amount_value || "").trim();
+    const minimumOrderCents = Math.max(0, parseMoneyToCents(values.minimum_order_chf, 0));
+    const maxRedemptionsRaw = String(values.max_redemptions || "").trim();
+    const startsOn = normalizeDateField(values.starts_on);
+    const expiresOn = normalizeDateField(values.expires_on);
+
+    if (!code) {
+        throw new Error("Le code promo est obligatoire.");
+    }
+
+    let discountValue = 0;
+
+    if (discountType === "percent") {
+        const parsedPercent = parseInteger(amountValue, NaN);
+        if (!Number.isFinite(parsedPercent) || parsedPercent <= 0 || parsedPercent > 100) {
+            throw new Error("Le pourcentage doit être compris entre 1 et 100.");
+        }
+
+        discountValue = parsedPercent;
+    } else {
+        discountValue = parseMoneyToCents(amountValue, NaN);
+        if (!Number.isFinite(discountValue) || discountValue <= 0) {
+            throw new Error("Le montant fixe doit être supérieur à 0.");
+        }
+    }
+
+    let maxRedemptions = null;
+    if (maxRedemptionsRaw) {
+        maxRedemptions = parseInteger(maxRedemptionsRaw, NaN);
+        if (!Number.isFinite(maxRedemptions) || maxRedemptions <= 0) {
+            throw new Error("La limite d'utilisation doit être un entier positif.");
+        }
+    }
+
+    if (startsOn && expiresOn && startsOn > expiresOn) {
+        throw new Error("La date de fin doit être postérieure à la date de début.");
+    }
+
+    return {
+        code,
+        description,
+        discount_type: discountType,
+        discount_value: discountValue,
+        minimum_order_cents: minimumOrderCents,
+        max_redemptions: maxRedemptions,
+        starts_on: startsOn || null,
+        expires_on: expiresOn || null,
+        active: values.active ? 1 : 0,
+    };
 }
 
 function verifySwissBitcoinPaySignature(rawBody, signatureHeader) {
@@ -1330,6 +1635,7 @@ function validateCheckoutInput(values) {
         billing_region: normalizeText(values.billing_region) || "Neuchâtel",
         billing_phone: normalizeText(values.billing_phone),
         payment_method: normalizeText(values.payment_method) || getPreferredPaymentMethod(normalizeText(values.delivery_method) || "pickup"),
+        promo_code: normalizePromoCode(values.promo_code),
         order_note: normalizeText(values.order_note),
     };
 
@@ -1417,7 +1723,8 @@ async function createOrReuseStripeIntent(req, values = {}) {
 
     const draftForm = buildCheckoutDraft(values, getCheckoutForm(req));
     const shippingOption = SHIPPING_OPTIONS[draftForm.delivery_method] || SHIPPING_OPTIONS.pickup;
-    const pricing = getCheckoutPricing(cart.subtotalCents, shippingOption, "card");
+    const promoCodeOutcome = requirePromoCodeOutcome(draftForm.promo_code, cart.subtotalCents);
+    const pricing = getCheckoutPricing(cart.subtotalCents, shippingOption, "card", promoCodeOutcome);
     const amountCents = pricing.totalCents;
     const cartSignature = getCartSignature(cart);
     const draft = getStripeDraft(req);
@@ -1426,6 +1733,7 @@ async function createOrReuseStripeIntent(req, values = {}) {
         draft &&
         draft.amountCents === amountCents &&
         draft.deliveryMethod === draftForm.delivery_method &&
+        draft.promoCode === promoCodeOutcome.code &&
         draft.cartSignature === cartSignature &&
         draft.paymentIntentId &&
         draft.clientSecret
@@ -1441,6 +1749,7 @@ async function createOrReuseStripeIntent(req, values = {}) {
         metadata: {
             source: "recytech-shop",
             delivery_method: draftForm.delivery_method,
+            promo_code: promoCodeOutcome.code || "",
         },
     });
 
@@ -1449,6 +1758,7 @@ async function createOrReuseStripeIntent(req, values = {}) {
         clientSecret: paymentIntent.client_secret,
         amountCents,
         deliveryMethod: draftForm.delivery_method,
+        promoCode: promoCodeOutcome.code,
         cartSignature,
     };
 
@@ -1604,6 +1914,32 @@ app.post("/checkout/session", (req, res) => {
     });
 });
 
+app.post("/checkout/promo", (req, res) => {
+    const cart = buildCart(req);
+    if (!cart.items.length) {
+        setFlash(req, "error", "Votre panier est vide.");
+        return saveSessionAndRedirect(req, res, "/cart");
+    }
+
+    const nextForm = buildCheckoutDraft(req.body || {}, getCheckoutForm(req));
+    setCheckoutForm(req, nextForm);
+    clearStripeDraft(req);
+
+    const promoCodeOutcome = getPromoCodeOutcome(nextForm.promo_code, cart.subtotalCents);
+    if (!nextForm.promo_code) {
+        setFlash(req, "success", "Le code promo a été retiré.");
+        return saveSessionAndRedirect(req, res, "/checkout");
+    }
+
+    if (promoCodeOutcome.error) {
+        setFlash(req, "error", promoCodeOutcome.error);
+        return saveSessionAndRedirect(req, res, "/checkout");
+    }
+
+    setFlash(req, "success", `${promoCodeOutcome.promoCode.code} a bien été appliqué.`);
+    return saveSessionAndRedirect(req, res, "/checkout");
+});
+
 app.post("/checkout/stripe/intent", async (req, res) => {
     try {
         const draft = await createOrReuseStripeIntent(req, req.body || {});
@@ -1638,7 +1974,8 @@ app.post("/checkout/stripe/prepare", async (req, res) => {
             return res.status(400).json({ error: "Le panier est vide." });
         }
 
-        const pricing = getCheckoutPricing(cart.subtotalCents, checkoutDetails.shippingOption, "card");
+        const promoCodeOutcome = requirePromoCodeOutcome(checkoutDetails.form.promo_code, cart.subtotalCents);
+        const pricing = getCheckoutPricing(cart.subtotalCents, checkoutDetails.shippingOption, "card", promoCodeOutcome);
         const amountCents = pricing.totalCents;
         const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
 
@@ -1673,14 +2010,19 @@ app.post("/checkout/stripe/prepare", async (req, res) => {
                             amount_cents: checkoutDetails.shippingOption.priceCents,
                         }]
                         : []),
-                        ...(pricing.discountCents > 0
-                        ? [{
-                            type: "discount",
-                            label: pricing.discountLabel,
-                            amount_cents: -pricing.discountCents,
-                        }]
-                        : []),
+                        ...pricing.discountLines,
                     ],
+                    promo: promoCodeOutcome.promoCode
+                        ? {
+                            id: promoCodeOutcome.promoCode.id,
+                            code: promoCodeOutcome.promoCode.code,
+                            description: promoCodeOutcome.promoCode.description,
+                            discount_type: promoCodeOutcome.promoCode.discount_type,
+                            discount_value: promoCodeOutcome.promoCode.discount_value,
+                            discount_cents: promoCodeOutcome.discountCents,
+                            label: promoCodeOutcome.label,
+                        }
+                        : null,
                     stripePaymentIntentId: paymentIntent.id,
                 },
             });
@@ -1697,6 +2039,7 @@ app.post("/checkout/stripe/prepare", async (req, res) => {
                 source: "recytech-shop",
                 order_number: order.order_number,
                 delivery_method: checkoutDetails.shippingOption.key,
+                promo_code: promoCodeOutcome.code || "",
             },
         });
 
@@ -1713,8 +2056,7 @@ app.post("/checkout/stripe/prepare", async (req, res) => {
 
 app.get("/", (req, res) => {
     render(res, "home", {
-            title: "Boutique RecyTech",
-        featuredProducts: listFeaturedProducts(db),
+        title: "Boutique RecyTech",
         products: listPublishedProducts(db),
     });
 });
@@ -1818,12 +2160,14 @@ app.get("/checkout", (req, res) => {
 
     const checkoutForm = getCheckoutForm(req);
     const shippingOption = SHIPPING_OPTIONS[checkoutForm.delivery_method] || SHIPPING_OPTIONS.pickup;
-    const pricing = getCheckoutPricing(res.locals.cart.subtotalCents, shippingOption, checkoutForm.payment_method);
+    const promoCodeOutcome = getPromoCodeOutcome(checkoutForm.promo_code, res.locals.cart.subtotalCents);
+    const pricing = getCheckoutPricing(res.locals.cart.subtotalCents, shippingOption, checkoutForm.payment_method, promoCodeOutcome.error ? null : promoCodeOutcome);
 
     render(res, "checkout", {
         title: "Paiement",
         checkoutForm,
         pricing,
+        promoCodeOutcome,
         shippingOptions: SHIPPING_OPTIONS,
         shippingCostCents: shippingOption.priceCents,
         orderTotalCents: pricing.totalCents,
@@ -1836,19 +2180,18 @@ function createOrderFromSessionCart(req, provider, customer, checkoutDetails) {
         throw new Error("Le panier est vide.");
     }
 
-    const pricing = getCheckoutPricing(cart.subtotalCents, checkoutDetails.shippingOption, checkoutDetails.form.payment_method);
+    const promoCodeOutcome = requirePromoCodeOutcome(checkoutDetails.form.promo_code, cart.subtotalCents);
+    const pricing = getCheckoutPricing(
+        cart.subtotalCents,
+        checkoutDetails.shippingOption,
+        checkoutDetails.form.payment_method,
+        promoCodeOutcome
+    );
     const shippingLine = checkoutDetails.shippingOption.priceCents > 0
         ? [{
             type: "shipping",
             label: checkoutDetails.shippingOption.label,
             amount_cents: checkoutDetails.shippingOption.priceCents,
-        }]
-        : [];
-    const discountLine = pricing.discountCents > 0
-        ? [{
-            type: "discount",
-            label: pricing.discountLabel,
-            amount_cents: -pricing.discountCents,
         }]
         : [];
 
@@ -1867,7 +2210,18 @@ function createOrderFromSessionCart(req, provider, customer, checkoutDetails) {
                 label: checkoutDetails.shippingOption.label,
                 amount_cents: checkoutDetails.shippingOption.priceCents,
             },
-            additions: [...shippingLine, ...discountLine],
+            additions: [...shippingLine, ...pricing.discountLines],
+            promo: promoCodeOutcome.promoCode
+                ? {
+                    id: promoCodeOutcome.promoCode.id,
+                    code: promoCodeOutcome.promoCode.code,
+                    description: promoCodeOutcome.promoCode.description,
+                    discount_type: promoCodeOutcome.promoCode.discount_type,
+                    discount_value: promoCodeOutcome.promoCode.discount_value,
+                    discount_cents: promoCodeOutcome.discountCents,
+                    label: promoCodeOutcome.label,
+                }
+                : null,
         },
     });
 }
@@ -2213,6 +2567,85 @@ app.post("/admin/admins/:id/delete", requireSuperadmin, (req, res) => {
     return saveSessionAndRedirect(req, res, "/admin/admins");
 });
 
+app.get("/admin/promo-codes", requireAdmin, (req, res) => {
+    render(res, "admin/promo-codes", {
+        title: "Codes promo",
+        promoCodes: listPromoCodes(db),
+    });
+});
+
+app.get("/admin/promo-codes/new", requireAdmin, (req, res) => {
+    render(res, "admin/promo-code-form", {
+        title: "Nouveau code promo",
+        formAction: "/admin/promo-codes/new",
+        promoCode: null,
+    });
+});
+
+app.post("/admin/promo-codes/new", requireAdmin, (req, res) => {
+    try {
+        const input = readPromoCodeInput(req.body);
+        createPromoCodeRecord(db, input);
+        setFlash(req, "success", "Code promo créé.");
+        return saveSessionAndRedirect(req, res, "/admin/promo-codes");
+    } catch (error) {
+        const message = error.code === "SQLITE_CONSTRAINT_UNIQUE"
+            ? "Ce code promo existe déjà."
+            : error.message;
+        setFlash(req, "error", message);
+        return saveSessionAndRedirect(req, res, "/admin/promo-codes/new");
+    }
+});
+
+app.get("/admin/promo-codes/:id/edit", requireAdmin, (req, res) => {
+    const promoCode = getPromoCodeById(db, Number.parseInt(req.params.id, 10));
+    if (!promoCode) {
+        return res.status(404).render("not-found", { title: "Code promo introuvable" });
+    }
+
+    render(res, "admin/promo-code-form", {
+        title: `Modifier ${promoCode.code}`,
+        formAction: `/admin/promo-codes/${promoCode.id}/edit`,
+        promoCode,
+    });
+});
+
+app.post("/admin/promo-codes/:id/edit", requireAdmin, (req, res) => {
+    const promoCodeId = Number.parseInt(req.params.id, 10);
+
+    try {
+        const input = readPromoCodeInput(req.body);
+        const promoCode = updatePromoCodeRecord(db, promoCodeId, input);
+
+        if (!promoCode) {
+            return res.status(404).render("not-found", { title: "Code promo introuvable" });
+        }
+
+        setFlash(req, "success", "Code promo mis à jour.");
+        return saveSessionAndRedirect(req, res, "/admin/promo-codes");
+    } catch (error) {
+        const message = error.code === "SQLITE_CONSTRAINT_UNIQUE"
+            ? "Ce code promo existe déjà."
+            : error.message;
+        setFlash(req, "error", message);
+        return saveSessionAndRedirect(req, res, `/admin/promo-codes/${promoCodeId}/edit`);
+    }
+});
+
+app.post("/admin/promo-codes/:id/delete", requireAdmin, (req, res) => {
+    const promoCodeId = Number.parseInt(req.params.id, 10);
+    const promoCode = getPromoCodeById(db, promoCodeId);
+
+    if (!promoCode) {
+        setFlash(req, "error", "Code promo introuvable.");
+        return saveSessionAndRedirect(req, res, "/admin/promo-codes");
+    }
+
+    deletePromoCodeRecord(db, promoCodeId);
+    setFlash(req, "success", `Le code promo ${promoCode.code} a été supprimé.`);
+    return saveSessionAndRedirect(req, res, "/admin/promo-codes");
+});
+
 app.get("/admin/orders", requireAdmin, (req, res) => {
     const status = normalizeText(req.query.status);
     const query = normalizeText(req.query.q);
@@ -2398,7 +2831,6 @@ app.post("/admin/settings", requireAdmin, (req, res) => {
         hero_text: String(req.body.hero_text || "").trim(),
         support_email: String(req.body.support_email || "").trim(),
         support_address: String(req.body.support_address || "").trim(),
-        shipping_note: String(req.body.shipping_note || "").trim(),
         bank_account_holder: String(req.body.bank_account_holder || "").trim(),
         bank_name: String(req.body.bank_name || "").trim(),
         bank_account_number: String(req.body.bank_account_number || "").trim(),

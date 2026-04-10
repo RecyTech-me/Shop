@@ -241,6 +241,35 @@
                 </div>
 
                 <div class="checkout-group">
+                    <h2>Code promo</h2>
+                    <div class="promo-code-row">
+                        <label class="checkout-grid-full">
+                            Code promo
+                            <input type="text" name="promo_code" value="<%= checkoutForm.promo_code %>" placeholder="BIENVENUE10" autocapitalize="characters" autocomplete="off">
+                        </label>
+                        <button
+                            type="submit"
+                            class="button button-secondary"
+                            formaction="/checkout/promo"
+                            formmethod="post"
+                            formnovalidate
+                            data-skip-stripe-submit
+                        >
+                            Appliquer
+                        </button>
+                    </div>
+                    <% if (promoCodeOutcome.code && !promoCodeOutcome.error && promoCodeOutcome.promoCode) { %>
+                        <p class="promo-code-state promo-code-state-success">
+                            <strong><%= promoCodeOutcome.promoCode.code %></strong> appliqué.
+                            Vous économisez <strong><%= formatMoney(promoCodeOutcome.discountCents) %></strong>.
+                        </p>
+                    <% } %>
+                    <% if (promoCodeOutcome.error) { %>
+                        <p class="promo-code-state promo-code-state-error"><%= promoCodeOutcome.error %></p>
+                    <% } %>
+                </div>
+
+                <div class="checkout-group">
                     <label>
                         Ajouter une note à votre commande
                         <textarea name="order_note" rows="4"><%= checkoutForm.order_note %></textarea>
@@ -267,13 +296,23 @@
                 <span>Livraison</span>
                 <strong id="checkout-shipping-price" data-price-pickup="<%= shippingOptions.pickup.priceCents %>" data-price-ship="<%= shippingOptions.ship.priceCents %>"><%= formatMoney(shippingCostCents) %></strong>
             </div>
-            <div class="summary-row" id="checkout-discount-row" <%= pricing.discountCents > 0 ? "" : "hidden" %>>
-                <span id="checkout-discount-label"><%= pricing.discountLabel %></span>
-                <strong id="checkout-discount-amount">-<%= formatMoney(pricing.discountCents) %></strong>
+            <div class="summary-row" id="checkout-promo-row" <%= pricing.promoDiscountCents > 0 ? "" : "hidden" %>>
+                <span id="checkout-promo-label"><%= pricing.promoDiscountLabel %></span>
+                <strong id="checkout-promo-amount">-<%= formatMoney(pricing.promoDiscountCents) %></strong>
+            </div>
+            <div class="summary-row" id="checkout-payment-discount-row" <%= pricing.paymentDiscountCents > 0 ? "" : "hidden" %>>
+                <span id="checkout-payment-discount-label"><%= pricing.paymentDiscountLabel %></span>
+                <strong id="checkout-payment-discount-amount">-<%= formatMoney(pricing.paymentDiscountCents) %></strong>
             </div>
             <div class="summary-row">
                 <span>Total</span>
-                <strong id="checkout-order-total" data-subtotal="<%= cart.subtotalCents %>" data-discount-rate="0.1"><%= formatMoney(orderTotalCents) %></strong>
+                <strong
+                    id="checkout-order-total"
+                    data-subtotal="<%= cart.subtotalCents %>"
+                    data-payment-discount-rate="0.1"
+                    data-promo-discount="<%= pricing.promoDiscountCents %>"
+                    data-promo-label="<%= pricing.promoDiscountLabel %>"
+                ><%= formatMoney(orderTotalCents) %></strong>
             </div>
         </aside>
     </section>

@@ -41,6 +41,10 @@
                     <p class="eyebrow">Paiement</p>
                     <h2><%= formatMoney(order.amount_cents, order.currency) %></h2>
                     <p class="muted">Paiement : <%= getOrderProviderLabel(order.provider) %></p>
+                    <% if (order.metadata?.promo?.code) { %>
+                        <p class="muted">Code promo : <strong><%= order.metadata.promo.code %></strong></p>
+                        <p class="muted">Réduction appliquée : <%= formatMoney(order.metadata.promo.discount_cents || 0, order.currency) %></p>
+                    <% } %>
                     <% if (order.provider_reference) { %>
                         <p class="muted provider-reference">Référence de transaction : <%= order.provider_reference %></p>
                     <% } %>

@@ -1,0 +1,117 @@
+<%- include("../partials/head", { title }) %>
+<%- include("../partials/header") %>
+<%- include("../partials/flash") %>
+
+<main class="shell section-stack">
+    <section class="section-block">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Administration</p>
+                <h1><%= promoCode ? `Modifier ${promoCode.code}` : "Nouveau code promo" %></h1>
+            </div>
+            <a href="/admin/promo-codes" class="button button-secondary">Retour</a>
+        </div>
+
+        <form action="<%= formAction %>" method="post" class="admin-form-grid">
+            <label>
+                Code
+                <input type="text" name="code" value="<%= promoCode?.code || '' %>" placeholder="BIENVENUE10" required>
+                <small>Le code sera normalisé en majuscules.</small>
+            </label>
+
+            <label>
+                Type de réduction
+                <select name="discount_type" required>
+                    <option value="percent" <%= !promoCode || promoCode.discount_type === "percent" ? "selected" : "" %>>Pourcentage</option>
+                    <option value="fixed" <%= promoCode?.discount_type === "fixed" ? "selected" : "" %>>Montant fixe (CHF)</option>
+                </select>
+            </label>
+
+            <label>
+                Valeur de réduction
+                <input
+                    type="text"
+                    name="amount_value"
+                    value="<%= promoCode ? (promoCode.discount_type === 'percent' ? promoCode.discount_percent : (promoCode.discount_cents / 100).toFixed(2)) : '' %>"
+                    placeholder="10 ou 25.00"
+                    required
+                >
+                <small>Pourcentage entre 1 et 100, ou montant fixe en CHF.</small>
+            </label>
+
+            <label>
+                Minimum de commande (CHF)
+                <input type="number" name="minimum_order_chf" min="0" step="0.01" value="<%= promoCode ? (promoCode.minimum_order_cents / 100).toFixed(2) : '0.00' %>">
+            </label>
+
+            <label>
+                Limite d'utilisations
+                <input type="number" name="max_redemptions" min="1" step="1" value="<%= promoCode?.max_redemptions ?? '' %>" placeholder="Vide = illimité">
+            </label>
+
+            <label>
+                Début
+                <input type="date" name="starts_on" value="<%= promoCode?.starts_on || '' %>">
+            </label>
+
+            <label>
+                Fin
+                <input type="date" name="expires_on" value="<%= promoCode?.expires_on || '' %>">
+            </label>
+
+            <label class="full-span">
+                Description
+                <input type="text" name="description" value="<%= promoCode?.description || '' %>" placeholder="Campagne printemps, newsletter, lancement...">
+            </label>
+
+            <label class="choice-card choice-card-checkbox">
+                <input type="checkbox" name="active" value="1" <%= !promoCode || promoCode.active ? "checked" : "" %>>
+                <span class="choice-surface">
+                    <span class="choice-indicator" aria-hidden="true"></span>
+                    <span class="choice-card-copy">
+                        <strong>Code actif</strong>
+                        <small>Le code pourra être utilisé au checkout si les autres conditions sont remplies.</small>
+                    </span>
+                </span>
+            </label>
+
+            <% if (promoCode) { %>
+                <div class="detail-panel">
+                    <p class="eyebrow">Suivi</p>
+                    <p><strong>Statut :</strong> <%= getPromoCodeStatus(promoCode) %></p>
+                    <p><strong>Utilisations :</strong> <%= promoCode.times_redeemed %></p>
+                    <p><strong>Créé le :</strong> <%= formatDateTime(promoCode.created_at) %></p>
+                    <p><strong>Mis à jour :</strong> <%= formatDateTime(promoCode.updated_at) %></p>
+                </div>
+            <% } %>
+
+            <div class="full-span form-actions">
+                <button type="submit" class="button">Enregistrer</button>
+                <% if (promoCode) { %>
+                    <button
+                        type="submit"
+                        form="delete-promo-code-form"
+                        class="button button-ghost"
+                    >
+                        Supprimer
+                    </button>
+                <% } %>
+            </div>
+        </form>
+
+        <% if (promoCode) { %>
+            <form
+                id="delete-promo-code-form"
+                action="/admin/promo-codes/<%= promoCode.id %>/delete"
+                method="post"
+                class="inline-danger-form"
+                data-confirm-form
+                data-confirm-title="Supprimer le code promo"
+                data-confirm-message="Ce code promo sera supprimé définitivement. Cette action est irréversible."
+                data-confirm-submit="Supprimer"
+            ></form>
+        <% } %>
+    </section>
+</main>
+
+<%- include("../partials/footer") %>
