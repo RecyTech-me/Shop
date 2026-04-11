@@ -455,12 +455,25 @@ function settingsUploadUrl(file) {
     return uploadUrl(file, "settings");
 }
 
+function ensureUploadDirectory(req, res, directoryPath) {
+    try {
+        fs.mkdirSync(directoryPath, { recursive: true });
+        return true;
+    } catch (error) {
+        setFlash(req, "error", `Préparation du dossier d'import impossible : ${error.message}`);
+        saveSessionAndRedirect(req, res, req.get("referer") || req.originalUrl || "/admin");
+        return false;
+    }
+}
+
 function withProductUploads(req, res, next) {
     if (req.productUploadsParsed) {
         return next();
     }
 
-    fs.mkdirSync(productUploadDir, { recursive: true });
+    if (!ensureUploadDirectory(req, res, productUploadDir)) {
+        return undefined;
+    }
 
     productImageUpload.fields([
         { name: "image_file", maxCount: 1 },
@@ -468,7 +481,7 @@ function withProductUploads(req, res, next) {
     ])(req, res, (error) => {
         if (error) {
             setFlash(req, "error", error.message || "L'import des images a échoué.");
-            return saveSessionAndRedirect(req, res, req.originalUrl);
+            return saveSessionAndRedirect(req, res, req.get("referer") || req.originalUrl || "/admin/products/new");
         }
 
         req.productUploadsParsed = true;
@@ -481,12 +494,14 @@ function withSettingsUpload(req, res, next) {
         return next();
     }
 
-    fs.mkdirSync(settingsUploadDir, { recursive: true });
+    if (!ensureUploadDirectory(req, res, settingsUploadDir)) {
+        return undefined;
+    }
 
     settingsImageUpload.single("hero_image_file")(req, res, (error) => {
         if (error) {
             setFlash(req, "error", error.message || "L'import de l'image a échoué.");
-            return saveSessionAndRedirect(req, res, req.originalUrl);
+            return saveSessionAndRedirect(req, res, req.get("referer") || req.originalUrl || "/admin/settings");
         }
 
         req.settingsUploadParsed = true;
@@ -3174,6 +3189,17 @@ app.post("/admin/settings", requireAdmin, withSettingsUpload, (req, res) => {
 
     setFlash(req, "success", "Paramètres enregistrés.");
     saveSessionAndRedirect(req, res, "/admin/settings");
+});
+
+app.use((error, req, res, next) => {
+    console.error(error);
+
+    if (req.currentAdmin) {
+        setFlash(req, "error", `Erreur serveur : ${error.message}`);
+        return saveSessionAndRedirect(req, res, req.get("referer") || "/admin");
+    }
+
+    return res.status(500).send("Internal Server Error");
 });
 
 app.use((req, res) => {
