@@ -6,7 +6,7 @@ Standalone Node/Express shop prototype for RecyTech.
 
 - Public storefront with product list, product page, cart, and checkout
 - Admin login with product creation, edition, deletion, and store settings
-- SQLite storage for products, settings, and orders
+- SQLite storage for products, settings, orders, and sessions
 - Stripe Checkout session creation
 - Swiss Bitcoin Pay invoice creation
 - Stripe and Swiss Bitcoin Pay webhook endpoints
@@ -19,6 +19,8 @@ Standalone Node/Express shop prototype for RecyTech.
 4. Start the app with `npm run dev` or `npm start`
 
 The app listens on `HOST` + `PORT`.
+
+Sessions are stored in the SQLite database, not in memory. Back up `storage/shop.db` before production maintenance or migrations.
 
 ## Default admin bootstrap
 

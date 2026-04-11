@@ -9,6 +9,7 @@ const multer = require("multer");
 const nodemailer = require("nodemailer");
 const Stripe = require("stripe");
 const { verifyPassword } = require("./lib/auth");
+const { SqliteSessionStore, SESSION_TTL_MS } = require("./lib/sqlite-session-store");
 const {
     initializeDatabase,
     getSettings,
@@ -1996,6 +1997,7 @@ app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 app.use(
     session({
+        store: new SqliteSessionStore(db),
         secret: env.SESSION_SECRET || crypto.randomBytes(32).toString("hex"),
         resave: false,
         saveUninitialized: false,
@@ -2003,7 +2005,7 @@ app.use(
             httpOnly: true,
             secure: /^https:\/\//i.test(env.BASE_URL || "") ? "auto" : false,
             sameSite: "lax",
-            maxAge: 1000 * 60 * 60 * 12,
+            maxAge: SESSION_TTL_MS,
         },
     })
 );
