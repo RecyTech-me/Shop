@@ -18,6 +18,7 @@ const {
     listPublishedProducts,
     listFeaturedProducts,
     listAdminProducts,
+    listProductCategories,
     getProductBySlug,
     getProductById,
     getAdminByUsername,
@@ -506,6 +507,7 @@ function serializePublicProduct(req, product) {
         price: ((product.price_cents || 0) / 100).toFixed(2),
         regular_price: ((product.price_cents || 0) / 100).toFixed(2),
         currency: product.currency || "CHF",
+        categories: product.category ? [{ id: product.category, name: product.category, slug: product.category.toLowerCase() }] : [],
         featured: Boolean(product.featured),
         stock_quantity: Math.max(0, Number(product.inventory || 0)),
         stock_status: product.inventory > 0 ? "instock" : "outofstock",
@@ -581,6 +583,7 @@ function buildCart(req) {
             item_key: rawItem.itemKey || `${product.id}:${JSON.stringify(selectedOptions)}`,
             slug: product.slug,
             name: product.name,
+            category: product.category,
             short_description: product.short_description,
             image_url: product.image_url,
             selected_options: selectedOptions,
@@ -2357,6 +2360,7 @@ function buildManualOrderItem(product, input) {
         item_key: `manual:${product.id}:${Date.now()}`,
         slug: product.slug,
         name: product.name,
+        category: product.category,
         short_description: product.short_description,
         image_url: product.image_url,
         selected_options: [],
@@ -3017,6 +3021,7 @@ app.get("/admin/products/new", requireAdmin, (req, res) => {
         title: "Nouveau produit",
         formAction: "/admin/products/new",
         product: null,
+        categories: listProductCategories(db),
     });
 });
 
@@ -3036,6 +3041,7 @@ app.get("/admin/products/:id/edit", requireAdmin, (req, res) => {
         title: `Modifier ${product.name}`,
         formAction: `/admin/products/${product.id}/edit`,
         product,
+        categories: listProductCategories(db),
     });
 });
 

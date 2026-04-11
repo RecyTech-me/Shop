@@ -63,6 +63,7 @@
                     <thead>
                         <tr>
                             <th>Nom</th>
+                            <th>Catégorie</th>
                             <th>Prix</th>
                             <th>Stock</th>
                             <th>État</th>
@@ -73,6 +74,7 @@
                         <% products.forEach((product) => { %>
                             <tr>
                                 <td data-label="Nom"><%= product.name %></td>
+                                <td data-label="Catégorie"><%= product.category || "Non définie" %></td>
                                 <td data-label="Prix"><%= formatMoney(product.price_cents, product.currency) %></td>
                                 <td data-label="Stock"><%= product.inventory %></td>
                                 <td data-label="État"><%= product.published ? "Publié" : "Brouillon" %></td>
