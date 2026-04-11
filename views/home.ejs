@@ -36,10 +36,63 @@
             </div>
         </div>
 
+        <form action="/#catalogue" method="get" class="catalogue-filters" aria-label="Filtrer le catalogue">
+            <label class="catalogue-filter-wide">
+                Recherche
+                <input type="search" name="q" value="<%= catalogueFilters.q %>" placeholder="Nom, description...">
+            </label>
+            <label>
+                Catégorie
+                <select name="category">
+                    <option value="">Toutes</option>
+                    <% catalogueCategories.forEach((category) => { %>
+                        <option value="<%= category %>" <%= catalogueFilters.category === category ? "selected" : "" %>><%= category %></option>
+                    <% }) %>
+                </select>
+            </label>
+            <label>
+                Prix min.
+                <input type="number" name="price_min" min="0" step="0.01" value="<%= catalogueFilters.price_min %>" placeholder="0">
+            </label>
+            <label>
+                Prix max.
+                <input type="number" name="price_max" min="0" step="0.01" value="<%= catalogueFilters.price_max %>" placeholder="200">
+            </label>
+            <label>
+                Disponibilité
+                <select name="availability">
+                    <option value="" <%= !catalogueFilters.availability ? "selected" : "" %>>Tous</option>
+                    <option value="in_stock" <%= catalogueFilters.availability === "in_stock" ? "selected" : "" %>>En stock</option>
+                    <option value="out_of_stock" <%= catalogueFilters.availability === "out_of_stock" ? "selected" : "" %>>Rupture</option>
+                </select>
+            </label>
+            <label>
+                Trier
+                <select name="sort">
+                    <option value="featured" <%= catalogueFilters.sort === "featured" ? "selected" : "" %>>Mis en avant</option>
+                    <option value="newest" <%= catalogueFilters.sort === "newest" ? "selected" : "" %>>Plus récents</option>
+                    <option value="price_asc" <%= catalogueFilters.sort === "price_asc" ? "selected" : "" %>>Prix croissant</option>
+                    <option value="price_desc" <%= catalogueFilters.sort === "price_desc" ? "selected" : "" %>>Prix décroissant</option>
+                    <option value="name_asc" <%= catalogueFilters.sort === "name_asc" ? "selected" : "" %>>Nom A-Z</option>
+                </select>
+            </label>
+            <div class="catalogue-filter-actions">
+                <button type="submit" class="button">Filtrer</button>
+                <% if (hasCatalogueFilters) { %>
+                    <a href="/#catalogue" class="button button-secondary">Réinitialiser</a>
+                <% } %>
+            </div>
+        </form>
+
         <% if (!products.length) { %>
             <div class="empty-state">
-                <h3>Le catalogue sera bientôt disponible.</h3>
-                <p>Les premiers ordinateurs et accessoires sont en cours d'ajout.</p>
+                <% if (hasCatalogueFilters) { %>
+                    <h3>Aucun produit ne correspond à ces filtres.</h3>
+                    <p>Essaie d'élargir la catégorie, le prix ou la disponibilité.</p>
+                <% } else { %>
+                    <h3>Le catalogue sera bientôt disponible.</h3>
+                    <p>Les premiers ordinateurs et accessoires sont en cours d'ajout.</p>
+                <% } %>
             </div>
         <% } else { %>
             <div class="product-grid catalogue-grid">
