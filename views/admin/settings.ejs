@@ -43,6 +43,18 @@
                 <textarea name="hero_text" rows="4"><%= settings.hero_text %></textarea>
             </label>
 
+            <label class="full-span">
+                Image hero
+                <input type="text" name="hero_image_url" value="<%= settings.hero_image_url %>" placeholder="/static/images/illustrations/hero-workshop.jpg">
+                <small>URL de l'image de fond affichée derrière le texte du hero.</small>
+            </label>
+
+            <label class="full-span">
+                Points hero
+                <textarea name="hero_points" rows="4"><%= settings.hero_points %></textarea>
+                <small>Une ligne par point affiché sous les boutons du hero.</small>
+            </label>
+
             <div class="full-span settings-subsection">
                 <h2>Coordonnées bancaires</h2>
                 <p class="muted">Ces informations seront affichées après une commande payée par virement bancaire.</p>
