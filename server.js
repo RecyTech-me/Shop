@@ -4,6 +4,7 @@ const path = require("path");
 const crypto = require("crypto");
 const express = require("express");
 const session = require("express-session");
+const multer = require("multer");
 const nodemailer = require("nodemailer");
 const Stripe = require("stripe");
 const { verifyPassword } = require("./lib/auth");
@@ -50,6 +51,7 @@ const env = process.env;
 const app = express();
 const databasePath = path.join(__dirname, "storage", "shop.db");
 const db = initializeDatabase(databasePath, env);
+const productUploadDir = path.join(__dirname, "public", "uploads", "products");
 const stripe = env.STRIPE_SECRET_KEY ? new Stripe(env.STRIPE_SECRET_KEY) : null;
 const stripePublishableKey = env.STRIPE_PUBLISHABLE_KEY || "";
 const swissBitcoinPayApiUrl = (env.SWISS_BITCOIN_PAY_API_URL || "https://api.swiss-bitcoin-pay.ch").replace(/\/$/, "");
@@ -68,6 +70,35 @@ app.set("trust proxy", 1);
 app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "views"));
 app.use("/static", express.static(path.join(__dirname, "public")));
+
+const productImageUpload = multer({
+    storage: multer.diskStorage({
+        destination: (req, file, callback) => {
+            callback(null, productUploadDir);
+        },
+        filename: (req, file, callback) => {
+            const extensionByMimeType = {
+                "image/jpeg": ".jpg",
+                "image/png": ".png",
+                "image/webp": ".webp",
+                "image/gif": ".gif",
+            };
+            const extension = extensionByMimeType[file.mimetype] || ".img";
+            callback(null, `${Date.now()}-${crypto.randomBytes(8).toString("hex")}${extension}`);
+        },
+    }),
+    limits: {
+        fileSize: 8 * 1024 * 1024,
+        files: 13,
+    },
+    fileFilter: (req, file, callback) => {
+        if (!["image/jpeg", "image/png", "image/webp", "image/gif"].includes(file.mimetype)) {
+            return callback(new Error("Seules les images JPG, PNG, WebP ou GIF peuvent être importées."));
+        }
+
+        callback(null, true);
+    },
+});
 
 function formatMoney(cents, currency = "CHF") {
     return new Intl.NumberFormat("fr-CH", {
@@ -395,6 +426,53 @@ function absoluteUrl(req, value) {
 
     const origin = baseUrl(req).replace(/\/$/, "");
     return `${origin}${input.startsWith("/") ? "" : "/"}${input}`;
+}
+
+function productUploadUrl(file) {
+    if (!file?.filename) {
+        return "";
+    }
+
+    return `/static/uploads/products/${file.filename}`;
+}
+
+function withProductUploads(req, res, next) {
+    fs.mkdirSync(productUploadDir, { recursive: true });
+
+    productImageUpload.fields([
+        { name: "image_file", maxCount: 1 },
+        { name: "gallery_files", maxCount: 12 },
+    ])(req, res, (error) => {
+        if (error) {
+            setFlash(req, "error", error.message || "L'import des images a échoué.");
+            return saveSessionAndRedirect(req, res, req.originalUrl);
+        }
+
+        return next();
+    });
+}
+
+function productInputWithUploads(req) {
+    const input = { ...req.body };
+    const primaryUpload = productUploadUrl(req.files?.image_file?.[0]);
+    const galleryUploads = (req.files?.gallery_files || []).map(productUploadUrl).filter(Boolean);
+    const existingGalleryUrls = String(input.image_gallery_urls || "").trim();
+
+    if (primaryUpload) {
+        input.image_url = primaryUpload;
+    }
+
+    if (!input.image_url && galleryUploads.length) {
+        input.image_url = galleryUploads.shift();
+    }
+
+    if (galleryUploads.length) {
+        input.image_gallery_urls = [existingGalleryUrls, ...galleryUploads]
+            .filter(Boolean)
+            .join("\n");
+    }
+
+    return input;
 }
 
 function setPublicApiHeaders(res) {
@@ -2780,8 +2858,8 @@ app.get("/admin/products/new", requireAdmin, (req, res) => {
     });
 });
 
-app.post("/admin/products/new", requireAdmin, (req, res) => {
-    createProduct(db, req.body);
+app.post("/admin/products/new", requireAdmin, withProductUploads, (req, res) => {
+    createProduct(db, productInputWithUploads(req));
     setFlash(req, "success", "Produit créé.");
     saveSessionAndRedirect(req, res, "/admin");
 });
@@ -2799,8 +2877,8 @@ app.get("/admin/products/:id/edit", requireAdmin, (req, res) => {
     });
 });
 
-app.post("/admin/products/:id/edit", requireAdmin, (req, res) => {
-    const product = updateProduct(db, Number.parseInt(req.params.id, 10), req.body);
+app.post("/admin/products/:id/edit", requireAdmin, withProductUploads, (req, res) => {
+    const product = updateProduct(db, Number.parseInt(req.params.id, 10), productInputWithUploads(req));
     if (!product) {
         return res.status(404).render("not-found", { title: "Produit introuvable" });
     }

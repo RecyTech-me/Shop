@@ -12,7 +12,7 @@
             <a href="/admin" class="button button-secondary">Retour</a>
         </div>
 
-        <form action="<%= formAction %>" method="post" class="admin-form-grid">
+        <form action="<%= formAction %>" method="post" class="admin-form-grid" enctype="multipart/form-data">
             <label>
                 Nom du produit
                 <input type="text" name="name" value="<%= product?.name || '' %>" required>
@@ -33,10 +33,22 @@
                 <input type="url" name="image_url" value="<%= product?.image_url || '' %>">
             </label>
 
+            <label>
+                Importer l'image principale
+                <input type="file" name="image_file" accept="image/*">
+                <small>Remplace l'URL ci-dessus si une image est sélectionnée.</small>
+            </label>
+
             <label class="full-span">
                 Galerie photos
                 <textarea name="image_gallery_urls" rows="5" placeholder="https://.../photo-2.jpg&#10;https://.../photo-3.jpg"><%= product?.image_gallery_text || '' %></textarea>
                 <small>Une URL par ligne. L'image principale ci-dessus reste la photo d'ouverture.</small>
+            </label>
+
+            <label class="full-span">
+                Importer des photos de galerie
+                <input type="file" name="gallery_files" accept="image/*" multiple>
+                <small>Les images importées seront ajoutées à la galerie existante.</small>
             </label>
 
             <label class="full-span">

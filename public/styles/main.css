@@ -654,6 +654,10 @@ button,
     align-items: center;
 }
 
+.summary-card > .button-block {
+    margin-top: 1rem;
+}
+
 .product-meta {
     margin-bottom: 0.9rem;
 }
@@ -963,6 +967,10 @@ button,
 
 .product-detail > .price-large {
     margin: 0.05rem 0 0;
+}
+
+.product-admin-actions {
+    margin: -0.1rem 0 0.25rem;
 }
 
 .price-large {
@@ -1454,7 +1462,7 @@ button,
 .cart-item-actions {
     flex-direction: column;
     align-items: stretch;
-    gap: 0.65rem;
+    gap: 0.45rem;
 }
 
 .cart-item-actions form {

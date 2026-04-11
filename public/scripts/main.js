@@ -382,7 +382,7 @@ async function ensureStripeClient() {
         throw new Error("Stripe n'a pas pu se charger.");
     }
 
-    stripeClient = window.Stripe(getStripeKey());
+    stripeClient = window.Stripe(getStripeKey(), { locale: "fr" });
     return stripeClient;
 }
 

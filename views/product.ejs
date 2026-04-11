@@ -89,6 +89,11 @@
             <p class="eyebrow">Produit</p>
             <h1><%= product.name %></h1>
             <p class="price-large"><%= formatMoney(product.price_cents, product.currency) %></p>
+            <% if (currentAdmin) { %>
+                <div class="product-admin-actions">
+                    <a href="/admin/products/<%= product.id %>/edit" class="button button-secondary button-small">Modifier le produit</a>
+                </div>
+            <% } %>
             <p class="product-intro"><%= product.short_description %></p>
 
             <div class="detail-panel product-highlight-list">
