@@ -358,6 +358,7 @@ button,
     gap: 0.75rem;
     flex-wrap: wrap;
     align-items: center;
+    justify-content: center;
 }
 
 .inline-danger-form {
