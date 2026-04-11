@@ -85,7 +85,7 @@ const SHIPPING_OPTIONS = {
     },
     pickup: {
         key: "pickup",
-        label: "Retrait au RecyTech Center",
+        label: "Retrait au point de retrait",
         priceCents: 0,
     },
 };
@@ -2829,6 +2829,12 @@ app.post("/admin/settings", requireAdmin, (req, res) => {
         tagline: String(req.body.tagline || "").trim(),
         hero_title: String(req.body.hero_title || "").trim(),
         hero_text: String(req.body.hero_text || "").trim(),
+        hero_image_url: String(req.body.hero_image_url || "").trim(),
+        hero_points: String(req.body.hero_points || "")
+            .split(/\r?\n/)
+            .map((point) => point.trim())
+            .filter(Boolean)
+            .join("\n"),
         support_email: String(req.body.support_email || "").trim(),
         support_address: String(req.body.support_address || "").trim(),
         bank_account_holder: String(req.body.bank_account_holder || "").trim(),

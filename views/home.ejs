@@ -4,7 +4,8 @@
 
 <section class="hero">
     <div class="shell hero-grid">
-        <div class="hero-copy">
+        <% const heroImageUrl = settings.hero_image_url || "/static/images/illustrations/hero-workshop.jpg"; %>
+        <div class="hero-copy" style="--hero-image: url(<%= JSON.stringify(heroImageUrl) %>);">
             <p class="eyebrow">Boutique solidaire RecyTech</p>
             <h1><%= settings.hero_title %></h1>
             <p class="hero-text"><%= settings.hero_text %></p>
@@ -12,11 +13,17 @@
                 <a href="#catalogue" class="button">Voir les produits</a>
                 <a href="/cart" class="button button-secondary">Voir le panier</a>
             </div>
-            <ul class="hero-points">
-                <li>Linux préinstallé sur les machines compatibles</li>
-                <li>Paiement par carte, virement, bitcoin ou espèces au retrait</li>
-                <li>Bitcoin accepte en Lightning ou en onchain</li>
-            </ul>
+            <% const heroPoints = String(settings.hero_points || "")
+                .split(/\r?\n/)
+                .map((point) => point.trim())
+                .filter(Boolean); %>
+            <% if (heroPoints.length) { %>
+                <ul class="hero-points">
+                    <% heroPoints.forEach((point) => { %>
+                        <li><%= point %></li>
+                    <% }) %>
+                </ul>
+            <% } %>
         </div>
     </div>
 </section>
@@ -34,7 +41,6 @@
             <div class="empty-state">
                 <h3>Le catalogue sera bientôt disponible.</h3>
                 <p>Les premiers ordinateurs et accessoires sont en cours d'ajout.</p>
-                <a href="/" class="button">Revenir à l'accueil</a>
             </div>
         <% } else { %>
             <div class="product-grid catalogue-grid">
@@ -51,7 +57,7 @@
                         <div class="product-body catalogue-body">
                             <div class="product-meta">
                                 <% if (product.featured) { %>
-                                    <span class="chip">A la une</span>
+                                    <span class="chip">À la une</span>
                                 <% } %>
                                 <span class="chip chip-muted"><%= product.inventory %> en stock</span>
                             </div>

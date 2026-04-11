@@ -324,7 +324,7 @@ button,
     border-radius: var(--radius-xl);
     background:
         linear-gradient(rgba(247, 242, 231, 0.82), rgba(247, 242, 231, 0.93)),
-        url("/static/images/illustrations/hero-workshop.jpg") center/cover;
+        var(--hero-image, url("/static/images/illustrations/hero-workshop.jpg")) center/cover;
     box-shadow: var(--shadow);
     overflow: hidden;
 }
