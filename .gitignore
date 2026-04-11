@@ -1,5 +1,7 @@
 node_modules/
 .env
+.codex
 storage/*.db
 storage/*.db-*
+public/uploads/
 *.log
