@@ -41,8 +41,9 @@
             </label>
 
             <label>
-                Image URL
-                <input type="url" name="image_url" value="<%= product?.image_url || '' %>">
+                Image URL ou chemin
+                <input type="text" name="image_url" value="<%= product?.image_url || '' %>" placeholder="https://... ou /static/images/...">
+                <small>Accepte une URL complète ou un chemin du site, par exemple `/static/uploads/products/image.jpg`.</small>
             </label>
 
             <label>
