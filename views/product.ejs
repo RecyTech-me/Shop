@@ -86,7 +86,7 @@
         </div>
 
         <div class="product-detail">
-            <p class="eyebrow">Produit</p>
+            <p class="eyebrow"><%= product.category ? `Catégorie : ${product.category}` : "Produit" %></p>
             <h1><%= product.name %></h1>
             <p class="price-large"><%= formatMoney(product.price_cents, product.currency) %></p>
             <% if (currentAdmin) { %>

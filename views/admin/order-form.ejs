@@ -46,7 +46,7 @@
                     <select name="product_id" required>
                         <% products.forEach((product) => { %>
                             <option value="<%= product.id %>" <%= product.inventory <= 0 ? "disabled" : "" %>>
-                                <%= product.name %> - <%= formatMoney(product.price_cents, product.currency) %> - stock <%= product.inventory %>
+                                <%= product.category ? `${product.category} - ` : "" %><%= product.name %> - <%= formatMoney(product.price_cents, product.currency) %> - stock <%= product.inventory %>
                             </option>
                         <% }) %>
                     </select>
