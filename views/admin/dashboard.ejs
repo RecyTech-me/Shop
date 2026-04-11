@@ -105,7 +105,10 @@
                 <p class="eyebrow">Commandes</p>
                 <h2>Dernières commandes</h2>
             </div>
-            <a href="/admin/orders" class="button button-secondary">Voir toutes les commandes</a>
+            <div class="admin-actions">
+                <a href="/admin/orders/new" class="button">Créer une commande</a>
+                <a href="/admin/orders" class="button button-secondary">Voir toutes les commandes</a>
+            </div>
         </div>
 
         <% if (!recentOrders.length) { %>

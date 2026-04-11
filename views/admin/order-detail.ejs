@@ -10,7 +10,9 @@
         </div>
         <div class="admin-actions">
             <a href="/admin/orders" class="button button-secondary">Retour aux commandes</a>
-            <a href="<%= contactMailto %>" class="button button-secondary">Ouvrir dans la messagerie</a>
+            <% if (order.customer_email) { %>
+                <a href="<%= contactMailto %>" class="button button-secondary">Ouvrir dans la messagerie</a>
+            <% } %>
             <% if (contact.phone) { %>
                 <a href="tel:<%= contact.phone.replace(/\s+/g, '') %>" class="button button-secondary">Appeler le client</a>
             <% } %>
@@ -41,6 +43,9 @@
                     <p class="eyebrow">Paiement</p>
                     <h2><%= formatMoney(order.amount_cents, order.currency) %></h2>
                     <p class="muted">Paiement : <%= getOrderProviderLabel(order.provider) %></p>
+                    <% if (order.metadata?.manual?.payment_label) { %>
+                        <p class="muted">Détail : <%= order.metadata.manual.payment_label %></p>
+                    <% } %>
                     <% if (order.metadata?.promo?.code) { %>
                         <p class="muted">Code promo : <strong><%= order.metadata.promo.code %></strong></p>
                         <p class="muted">Réduction appliquée : <%= formatMoney(order.metadata.promo.discount_cents || 0, order.currency) %></p>
@@ -137,7 +142,11 @@
             <article class="detail-panel">
                 <p class="eyebrow">Client</p>
                 <h2><%= order.customer_name %></h2>
-                <p><a href="mailto:<%= order.customer_email %>"><%= order.customer_email %></a></p>
+                <% if (order.customer_email) { %>
+                    <p><a href="mailto:<%= order.customer_email %>"><%= order.customer_email %></a></p>
+                <% } else { %>
+                    <p class="muted">Aucun e-mail renseigné.</p>
+                <% } %>
                 <% if (contact.phone) { %>
                     <p><a href="tel:<%= contact.phone.replace(/\s+/g, '') %>"><%= contact.phone %></a></p>
                 <% } %>
@@ -171,7 +180,9 @@
                     </div>
                 </div>
 
-                <% if (!mailConfigured) { %>
+                <% if (!order.customer_email) { %>
+                    <p class="muted">Aucun e-mail client n'est renseigné pour cette commande.</p>
+                <% } else if (!mailConfigured) { %>
                     <p class="muted">L'envoi direct n'est pas configuré. Renseignez le SMTP dans les paramètres de la boutique.</p>
                     <div class="form-actions">
                         <a href="/admin/settings" class="button button-secondary">Configurer le SMTP</a>
