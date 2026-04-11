@@ -859,6 +859,7 @@ button,
     height: 100%;
     object-fit: contain;
     display: block;
+    aspect-ratio: 1;
 }
 
 .product-gallery-arrow {
