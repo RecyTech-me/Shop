@@ -358,6 +358,9 @@ button,
     gap: 0.75rem;
     flex-wrap: wrap;
     align-items: center;
+}
+
+.add-product-button {
     justify-content: center;
 }
 
