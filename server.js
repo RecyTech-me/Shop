@@ -2219,10 +2219,55 @@ app.post("/checkout/stripe/prepare", async (req, res) => {
     }
 });
 
+function readCatalogueFilters(values) {
+    const priceMin = normalizeText(values.price_min);
+    const priceMax = normalizeText(values.price_max);
+    const minPriceCents = parseMoneyToCents(priceMin, Number.NaN);
+    const maxPriceCents = parseMoneyToCents(priceMax, Number.NaN);
+    const availability = normalizeText(values.availability);
+    const sort = normalizeText(values.sort) || "featured";
+    const allowedAvailability = new Set(["", "in_stock", "out_of_stock"]);
+    const allowedSorts = new Set(["featured", "newest", "price_asc", "price_desc", "name_asc"]);
+
+    const view = {
+        q: normalizeText(values.q),
+        category: normalizeText(values.category),
+        price_min: priceMin,
+        price_max: priceMax,
+        availability: allowedAvailability.has(availability) ? availability : "",
+        sort: allowedSorts.has(sort) ? sort : "featured",
+    };
+
+    return {
+        view,
+        productFilters: {
+            query: view.q,
+            category: view.category,
+            minPriceCents: Number.isFinite(minPriceCents) ? minPriceCents : null,
+            maxPriceCents: Number.isFinite(maxPriceCents) ? maxPriceCents : null,
+            availability: view.availability,
+            sort: view.sort,
+        },
+        hasActiveFilters: Boolean(
+            view.q ||
+            view.category ||
+            view.price_min ||
+            view.price_max ||
+            view.availability ||
+            view.sort !== "featured"
+        ),
+    };
+}
+
 app.get("/", (req, res) => {
+    const catalogue = readCatalogueFilters(req.query);
+
     render(res, "home", {
         title: "Boutique RecyTech",
-        products: listPublishedProducts(db),
+        products: listPublishedProducts(db, catalogue.productFilters),
+        catalogueFilters: catalogue.view,
+        catalogueCategories: listProductCategories(db, { publishedOnly: true }),
+        hasCatalogueFilters: catalogue.hasActiveFilters,
     });
 });
 
