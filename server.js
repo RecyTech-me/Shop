@@ -3026,9 +3026,14 @@ app.get("/admin/products/new", requireAdmin, (req, res) => {
 });
 
 app.post("/admin/products/new", requireAdmin, withProductUploads, (req, res) => {
-    createProduct(db, productInputWithUploads(req));
-    setFlash(req, "success", "Produit créé.");
-    saveSessionAndRedirect(req, res, "/admin");
+    try {
+        createProduct(db, productInputWithUploads(req));
+        setFlash(req, "success", "Produit créé.");
+        return saveSessionAndRedirect(req, res, "/admin");
+    } catch (error) {
+        setFlash(req, "error", `Création impossible : ${error.message}`);
+        return saveSessionAndRedirect(req, res, "/admin/products/new");
+    }
 });
 
 app.get("/admin/products/:id/edit", requireAdmin, (req, res) => {
@@ -3046,13 +3051,18 @@ app.get("/admin/products/:id/edit", requireAdmin, (req, res) => {
 });
 
 app.post("/admin/products/:id/edit", requireAdmin, withProductUploads, (req, res) => {
-    const product = updateProduct(db, Number.parseInt(req.params.id, 10), productInputWithUploads(req));
-    if (!product) {
-        return res.status(404).render("not-found", { title: "Produit introuvable" });
-    }
+    try {
+        const product = updateProduct(db, Number.parseInt(req.params.id, 10), productInputWithUploads(req));
+        if (!product) {
+            return res.status(404).render("not-found", { title: "Produit introuvable" });
+        }
 
-    setFlash(req, "success", "Produit mis à jour.");
-    saveSessionAndRedirect(req, res, "/admin");
+        setFlash(req, "success", "Produit mis à jour.");
+        return saveSessionAndRedirect(req, res, "/admin");
+    } catch (error) {
+        setFlash(req, "error", `Mise à jour impossible : ${error.message}`);
+        return saveSessionAndRedirect(req, res, `/admin/products/${req.params.id}/edit`);
+    }
 });
 
 app.post("/admin/products/:id/delete", requireAdmin, (req, res) => {
