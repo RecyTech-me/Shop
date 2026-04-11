@@ -12,7 +12,7 @@
             <a href="/admin" class="button button-secondary">Retour</a>
         </div>
 
-        <form action="/admin/settings" method="post" class="admin-form-grid">
+        <form action="/admin/settings" method="post" class="admin-form-grid" enctype="multipart/form-data">
             <label>
                 Nom de la boutique
                 <input type="text" name="store_name" value="<%= settings.store_name %>" required>
@@ -47,6 +47,12 @@
                 Image hero
                 <input type="text" name="hero_image_url" value="<%= settings.hero_image_url %>" placeholder="/static/images/illustrations/hero-workshop.jpg">
                 <small>URL de l'image de fond affichée derrière le texte du hero.</small>
+            </label>
+
+            <label class="full-span">
+                Importer une image hero
+                <input type="file" name="hero_image_file" accept="image/*">
+                <small>Remplace l'URL ci-dessus si une image est sélectionnée.</small>
             </label>
 
             <label class="full-span">

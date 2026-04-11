@@ -53,6 +53,7 @@ const app = express();
 const databasePath = path.join(__dirname, "storage", "shop.db");
 const db = initializeDatabase(databasePath, env);
 const productUploadDir = path.join(__dirname, "public", "uploads", "products");
+const settingsUploadDir = path.join(__dirname, "public", "uploads", "settings");
 const stripe = env.STRIPE_SECRET_KEY ? new Stripe(env.STRIPE_SECRET_KEY) : null;
 const stripePublishableKey = env.STRIPE_PUBLISHABLE_KEY || "";
 const swissBitcoinPayApiUrl = (env.SWISS_BITCOIN_PAY_API_URL || "https://api.swiss-bitcoin-pay.ch").replace(/\/$/, "");
@@ -72,34 +73,39 @@ app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "views"));
 app.use("/static", express.static(path.join(__dirname, "public")));
 
-const productImageUpload = multer({
-    storage: multer.diskStorage({
-        destination: (req, file, callback) => {
-            callback(null, productUploadDir);
+function createImageUpload(uploadDir, maxFiles) {
+    return multer({
+        storage: multer.diskStorage({
+            destination: (req, file, callback) => {
+                callback(null, uploadDir);
+            },
+            filename: (req, file, callback) => {
+                const extensionByMimeType = {
+                    "image/jpeg": ".jpg",
+                    "image/png": ".png",
+                    "image/webp": ".webp",
+                    "image/gif": ".gif",
+                };
+                const extension = extensionByMimeType[file.mimetype] || ".img";
+                callback(null, `${Date.now()}-${crypto.randomBytes(8).toString("hex")}${extension}`);
+            },
+        }),
+        limits: {
+            fileSize: 8 * 1024 * 1024,
+            files: maxFiles,
         },
-        filename: (req, file, callback) => {
-            const extensionByMimeType = {
-                "image/jpeg": ".jpg",
-                "image/png": ".png",
-                "image/webp": ".webp",
-                "image/gif": ".gif",
-            };
-            const extension = extensionByMimeType[file.mimetype] || ".img";
-            callback(null, `${Date.now()}-${crypto.randomBytes(8).toString("hex")}${extension}`);
-        },
-    }),
-    limits: {
-        fileSize: 8 * 1024 * 1024,
-        files: 13,
-    },
-    fileFilter: (req, file, callback) => {
-        if (!["image/jpeg", "image/png", "image/webp", "image/gif"].includes(file.mimetype)) {
-            return callback(new Error("Seules les images JPG, PNG, WebP ou GIF peuvent être importées."));
-        }
+        fileFilter: (req, file, callback) => {
+            if (!["image/jpeg", "image/png", "image/webp", "image/gif"].includes(file.mimetype)) {
+                return callback(new Error("Seules les images JPG, PNG, WebP ou GIF peuvent être importées."));
+            }
 
-        callback(null, true);
-    },
-});
+            callback(null, true);
+        },
+    });
+}
+
+const productImageUpload = createImageUpload(productUploadDir, 13);
+const settingsImageUpload = createImageUpload(settingsUploadDir, 1);
 
 function formatMoney(cents, currency = "CHF") {
     return new Intl.NumberFormat("fr-CH", {
@@ -433,15 +439,27 @@ function absoluteUrl(req, value) {
     return `${origin}${input.startsWith("/") ? "" : "/"}${input}`;
 }
 
-function productUploadUrl(file) {
+function uploadUrl(file, folder) {
     if (!file?.filename) {
         return "";
     }
 
-    return `/static/uploads/products/${file.filename}`;
+    return `/static/uploads/${folder}/${file.filename}`;
+}
+
+function productUploadUrl(file) {
+    return uploadUrl(file, "products");
+}
+
+function settingsUploadUrl(file) {
+    return uploadUrl(file, "settings");
 }
 
 function withProductUploads(req, res, next) {
+    if (req.productUploadsParsed) {
+        return next();
+    }
+
     fs.mkdirSync(productUploadDir, { recursive: true });
 
     productImageUpload.fields([
@@ -453,8 +471,38 @@ function withProductUploads(req, res, next) {
             return saveSessionAndRedirect(req, res, req.originalUrl);
         }
 
+        req.productUploadsParsed = true;
         return next();
     });
+}
+
+function withSettingsUpload(req, res, next) {
+    if (req.settingsUploadParsed) {
+        return next();
+    }
+
+    fs.mkdirSync(settingsUploadDir, { recursive: true });
+
+    settingsImageUpload.single("hero_image_file")(req, res, (error) => {
+        if (error) {
+            setFlash(req, "error", error.message || "L'import de l'image a échoué.");
+            return saveSessionAndRedirect(req, res, req.originalUrl);
+        }
+
+        req.settingsUploadParsed = true;
+        return next();
+    });
+}
+
+function isProductUploadRequest(req) {
+    return req.method === "POST" && (
+        req.path === "/admin/products/new" ||
+        /^\/admin\/products\/\d+\/edit$/.test(req.path)
+    ) && req.is("multipart/form-data");
+}
+
+function isSettingsUploadRequest(req) {
+    return req.method === "POST" && req.path === "/admin/settings" && req.is("multipart/form-data");
 }
 
 function productInputWithUploads(req) {
@@ -1970,6 +2018,22 @@ app.use((req, res, next) => {
 });
 
 app.use((req, res, next) => {
+    if (!req.currentAdmin) {
+        return next();
+    }
+
+    if (isProductUploadRequest(req)) {
+        return withProductUploads(req, res, next);
+    }
+
+    if (isSettingsUploadRequest(req)) {
+        return withSettingsUpload(req, res, next);
+    }
+
+    return next();
+});
+
+app.use((req, res, next) => {
     if (!["POST", "PUT", "PATCH", "DELETE"].includes(req.method) || req.path.startsWith("/webhooks/")) {
         return next();
     }
@@ -3077,7 +3141,7 @@ app.get("/admin/settings", requireAdmin, (req, res) => {
     });
 });
 
-app.post("/admin/settings", requireAdmin, (req, res) => {
+app.post("/admin/settings", requireAdmin, withSettingsUpload, (req, res) => {
     const currentSettings = getSettings(db);
     const nextSmtpPassword = String(req.body.smtp_password || "").trim();
     saveSettings(db, {
@@ -3085,7 +3149,7 @@ app.post("/admin/settings", requireAdmin, (req, res) => {
         tagline: String(req.body.tagline || "").trim(),
         hero_title: String(req.body.hero_title || "").trim(),
         hero_text: String(req.body.hero_text || "").trim(),
-        hero_image_url: String(req.body.hero_image_url || "").trim(),
+        hero_image_url: settingsUploadUrl(req.file) || String(req.body.hero_image_url || "").trim(),
         hero_points: String(req.body.hero_points || "")
             .split(/\r?\n/)
             .map((point) => point.trim())
