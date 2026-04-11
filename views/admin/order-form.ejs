@@ -1,0 +1,88 @@
+<%- include("../partials/head", { title }) %>
+<%- include("../partials/header") %>
+<%- include("../partials/flash") %>
+
+<main class="shell section-stack admin-page">
+    <section class="section-block">
+        <div class="section-heading admin-section-heading">
+            <div>
+                <p class="eyebrow">Administration</p>
+                <h1>Nouvelle commande manuelle</h1>
+            </div>
+            <a href="/admin/orders" class="button button-secondary">Retour aux commandes</a>
+        </div>
+
+        <% if (!products.length) { %>
+            <div class="empty-state compact">
+                <p>Aucun produit n'est disponible pour créer une commande.</p>
+                <div class="form-actions">
+                    <a href="/admin/products/new" class="button">Ajouter un produit</a>
+                </div>
+            </div>
+        <% } else { %>
+            <form action="/admin/orders/new" method="post" class="admin-form-grid">
+                <label>
+                    Nom du client
+                    <input type="text" name="customer_name" placeholder="Nom ou personne de contact" required>
+                </label>
+
+                <label>
+                    E-mail du client
+                    <input type="email" name="customer_email" placeholder="facultatif">
+                </label>
+
+                <label>
+                    Téléphone
+                    <input type="tel" name="customer_phone" placeholder="facultatif">
+                </label>
+
+                <label>
+                    Paiement
+                    <input type="text" name="payment_label" value="Vente hors site" placeholder="Espèces, Twint, virement...">
+                </label>
+
+                <label class="full-span">
+                    Produit
+                    <select name="product_id" required>
+                        <% products.forEach((product) => { %>
+                            <option value="<%= product.id %>" <%= product.inventory <= 0 ? "disabled" : "" %>>
+                                <%= product.name %> - <%= formatMoney(product.price_cents, product.currency) %> - stock <%= product.inventory %>
+                            </option>
+                        <% }) %>
+                    </select>
+                </label>
+
+                <label>
+                    Quantité
+                    <input type="number" name="quantity" min="1" step="1" value="1" required>
+                </label>
+
+                <label>
+                    Prix unitaire personnalisé (CHF)
+                    <input type="number" name="unit_price_chf" min="0" step="0.01" placeholder="Laisser vide = prix produit">
+                </label>
+
+                <label>
+                    Statut
+                    <select name="status">
+                        <% orderStatusOptions.forEach((option) => { %>
+                            <option value="<%= option.value %>" <%= option.value === "paid" ? "selected" : "" %>><%= option.label %></option>
+                        <% }) %>
+                    </select>
+                    <small>Un statut payé ou traité décrémente le stock automatiquement.</small>
+                </label>
+
+                <label class="full-span">
+                    Note interne
+                    <textarea name="internal_note" rows="4" placeholder="Contexte de la vente, retrait, paiement, accord spécial..."></textarea>
+                </label>
+
+                <div class="full-span form-actions">
+                    <button type="submit" class="button">Créer la commande</button>
+                </div>
+            </form>
+        <% } %>
+    </section>
+</main>
+
+<%- include("../partials/footer") %>

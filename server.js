@@ -170,6 +170,10 @@ function getOrderProviderLabel(provider) {
         return "Carte bancaire (Stripe)";
     }
 
+    if (provider === "manual") {
+        return "Commande manuelle";
+    }
+
     if (provider === "transfer") {
         return "Virement bancaire";
     }
@@ -2304,6 +2308,85 @@ function createOrderFromSessionCart(req, provider, customer, checkoutDetails) {
     });
 }
 
+function readManualOrderInput(values) {
+    const productId = Number.parseInt(values.product_id, 10);
+    const quantity = Math.max(1, Number.parseInt(values.quantity || "1", 10) || 1);
+    const customerName = normalizeSingleLineText(values.customer_name);
+    const customerEmail = normalizeSingleLineText(values.customer_email);
+    const customerPhone = normalizeSingleLineText(values.customer_phone);
+    const paymentLabel = normalizeSingleLineText(values.payment_label) || "Vente hors site";
+    const status = normalizeText(values.status) || "paid";
+    const internalNote = normalizeText(values.internal_note);
+    const priceOverrideRaw = String(values.unit_price_chf || "").trim();
+    const unitPriceOverrideCents = priceOverrideRaw ? parseMoneyToCents(priceOverrideRaw, Number.NaN) : null;
+
+    if (!customerName) {
+        throw new Error("Le nom du client est obligatoire.");
+    }
+
+    if (!Number.isInteger(productId) || productId <= 0) {
+        throw new Error("Produit invalide.");
+    }
+
+    if (!ORDER_STATUS_OPTIONS.some((option) => option.value === status)) {
+        throw new Error("Statut de commande invalide.");
+    }
+
+    if (unitPriceOverrideCents !== null && (!Number.isFinite(unitPriceOverrideCents) || unitPriceOverrideCents < 0)) {
+        throw new Error("Prix unitaire invalide.");
+    }
+
+    return {
+        productId,
+        quantity,
+        customerName,
+        customerEmail,
+        customerPhone,
+        paymentLabel,
+        status,
+        internalNote,
+        unitPriceOverrideCents,
+    };
+}
+
+function buildManualOrderItem(product, input) {
+    const unitPriceCents = input.unitPriceOverrideCents ?? product.price_cents;
+
+    return {
+        product_id: product.id,
+        item_key: `manual:${product.id}:${Date.now()}`,
+        slug: product.slug,
+        name: product.name,
+        short_description: product.short_description,
+        image_url: product.image_url,
+        selected_options: [],
+        quantity: input.quantity,
+        unit_price_cents: unitPriceCents,
+        line_total_cents: unitPriceCents * input.quantity,
+        inventory: product.inventory,
+    };
+}
+
+function finalizeManualOrderStatus(order, targetStatus, metadata) {
+    const stockReducingStatuses = new Set(["paid", "processing", "ready_for_pickup", "shipped", "completed"]);
+
+    if (!stockReducingStatuses.has(targetStatus)) {
+        return updateOrderRecord(db, order.id, {
+            status: targetStatus,
+            metadata,
+        });
+    }
+
+    const paidOrder = markOrderPaid(db, order.id, metadata);
+    if (targetStatus === "paid") {
+        return paidOrder;
+    }
+
+    return updateOrderRecord(db, paidOrder.id, {
+        status: targetStatus,
+    });
+}
+
 async function notifyNewOrder(order) {
     try {
         await sendNewOrderNotification(order);
@@ -2742,6 +2825,80 @@ app.get("/admin/orders", requireAdmin, (req, res) => {
     });
 });
 
+app.get("/admin/orders/new", requireAdmin, (req, res) => {
+    render(res, "admin/order-form", {
+        title: "Nouvelle commande",
+        products: listAdminProducts(db),
+        orderStatusOptions: ORDER_STATUS_OPTIONS,
+    });
+});
+
+app.post("/admin/orders/new", requireAdmin, (req, res) => {
+    try {
+        const input = readManualOrderInput(req.body);
+        const product = getProductById(db, input.productId);
+
+        if (!product) {
+            throw new Error("Produit introuvable.");
+        }
+
+        if (product.inventory <= 0) {
+            throw new Error("Ce produit est en rupture de stock.");
+        }
+
+        if (input.quantity > product.inventory) {
+            throw new Error(`Stock insuffisant : ${product.inventory} unité(s) disponible(s).`);
+        }
+
+        const item = buildManualOrderItem(product, input);
+        const amountCents = item.line_total_cents;
+        const metadata = {
+            checkout: {
+                customer_first_name: input.customerName,
+                shipping_phone: input.customerPhone,
+            },
+            delivery: {
+                method: "manual",
+                label: "Vente hors site",
+                amount_cents: 0,
+            },
+            additions: [],
+            manual: {
+                created_by_admin_id: req.currentAdmin?.id || null,
+                created_by_admin_username: req.currentAdmin?.username || "",
+                payment_label: input.paymentLabel,
+            },
+            admin: {
+                internal_note: input.internalNote,
+                customer_note: "",
+                fulfillment_note: "",
+                carrier: "",
+                tracking_number: "",
+                pickup_details: "",
+            },
+        };
+
+        const order = createOrder(db, {
+            provider: "manual",
+            provider_reference: null,
+            customer_name: input.customerName,
+            customer_email: input.customerEmail,
+            amount_cents: amountCents,
+            currency: product.currency || "CHF",
+            items: [item],
+            status: "pending",
+            metadata,
+        });
+        const finalizedOrder = finalizeManualOrderStatus(order, input.status, metadata);
+
+        setFlash(req, "success", `Commande ${finalizedOrder.order_number} créée.`);
+        return saveSessionAndRedirect(req, res, `/admin/orders/${finalizedOrder.id}`);
+    } catch (error) {
+        setFlash(req, "error", error.message);
+        return saveSessionAndRedirect(req, res, "/admin/orders/new");
+    }
+});
+
 app.get("/admin/orders/:id", requireAdmin, (req, res) => {
     const order = getOrderById(db, Number.parseInt(req.params.id, 10));
     if (!order) {
@@ -2808,6 +2965,11 @@ app.post("/admin/orders/:id/send-email", requireAdmin, async (req, res) => {
     const order = getOrderById(db, Number.parseInt(req.params.id, 10));
     if (!order) {
         return res.status(404).render("not-found", { title: "Commande introuvable" });
+    }
+
+    if (!order.customer_email) {
+        setFlash(req, "error", "Aucun e-mail client n'est renseigné pour cette commande.");
+        return saveSessionAndRedirect(req, res, `/admin/orders/${order.id}`);
     }
 
     const subject = normalizeSingleLineText(req.body.subject);
