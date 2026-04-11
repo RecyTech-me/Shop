@@ -138,6 +138,17 @@ document.querySelectorAll(".flash").forEach((flash) => {
     }, 5000);
 });
 
+document.querySelectorAll("[data-catalogue-auto-submit]").forEach((field) => {
+    field.addEventListener("change", () => {
+        if (typeof field.form?.requestSubmit === "function") {
+            field.form.requestSubmit();
+            return;
+        }
+
+        field.form?.submit();
+    });
+});
+
 const deliveryInputs = document.querySelectorAll('input[name="delivery_method"]');
 const paymentMethodInputs = document.querySelectorAll('input[name="payment_method"]');
 const billingSameInput = document.querySelector('input[name="billing_same_as_shipping"]');
