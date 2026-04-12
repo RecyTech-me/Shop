@@ -2,7 +2,7 @@
   "name": "recytech-shop-site",
   "version": "0.1.0",
   "private": true,
-  "description": "Standalone shop prototype for RecyTech with admin, Stripe, and BTCPay support.",
+  "description": "Standalone shop prototype for RecyTech with admin, Stripe, and Swiss Bitcoin Pay support.",
   "main": "server.js",
   "scripts": {
     "dev": "node --watch server.js",

@@ -123,6 +123,7 @@
                     <thead>
                         <tr>
                             <th>Numéro</th>
+                            <th>Date</th>
                             <th>Paiement</th>
                             <th>Client</th>
                             <th>Montant</th>
@@ -134,6 +135,7 @@
                         <% recentOrders.forEach((order) => { %>
                             <tr>
                                 <td data-label="Numéro"><%= order.order_number %></td>
+                                <td data-label="Date"><%= formatDateTime(order.created_at) %></td>
                                 <td data-label="Paiement"><%= getOrderProviderLabel(order.provider) %></td>
                                 <td data-label="Client"><%= order.customer_name %></td>
                                 <td data-label="Montant"><%= formatMoney(order.amount_cents, order.currency) %></td>

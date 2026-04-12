@@ -668,6 +668,18 @@ button,
     padding-inline: 0.95rem;
 }
 
+#catalogue .catalogue-grid,
+#catalogue .empty-state {
+    transition: opacity 160ms ease, transform 160ms ease;
+}
+
+#catalogue.catalogue-refreshing .catalogue-grid,
+#catalogue.catalogue-refreshing .empty-state {
+    opacity: 0.42;
+    pointer-events: none;
+    transform: translateY(4px);
+}
+
 .product-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -2358,6 +2370,14 @@ th {
 
     .catalogue-filter-compact {
         flex: 1 1 100%;
+    }
+
+    .catalogue-filter-compact:nth-of-type(2) {
+        flex: 1 1 calc(100% - 3.45rem);
+    }
+
+    .catalogue-filter-more {
+        flex: 0 0 2.95rem;
     }
 
     .catalogue-filter-compact select {
