@@ -10,6 +10,7 @@ const nodemailer = require("nodemailer");
 const Stripe = require("stripe");
 const { verifyPassword } = require("./lib/auth");
 const { SqliteSessionStore, SESSION_TTL_MS } = require("./lib/sqlite-session-store");
+const { buildOrderDocumentPdf, buildOrderDocumentFilename } = require("./lib/order-documents");
 const {
     initializeDatabase,
     getSettings,
@@ -421,6 +422,15 @@ function getLegalPages(settings) {
 
 function baseUrl(req) {
     return env.BASE_URL || `${req.protocol}://${req.get("host")}`;
+}
+
+function getOrderDocumentConfig(req) {
+    const publicBaseUrl = baseUrl(req).replace(/\/$/, "");
+
+    return {
+        termsUrl: String(env.TERMS_URL || "").trim() || (publicBaseUrl ? `${publicBaseUrl}/conditions-generales-de-vente` : ""),
+        websiteUrl: String(env.PUBLIC_WEBSITE_URL || "").trim() || publicBaseUrl,
+    };
 }
 
 function absoluteUrl(req, value) {
@@ -1186,8 +1196,8 @@ async function fetchSwissBitcoinPayInvoice(invoiceId) {
     return response.json();
 }
 
-function render(res, view, options = {}) {
-    res.render(view, {
+function getViewHelpers() {
+    return {
         formatMoney,
         formatDateTime,
         formatDateTimeInputValue,
@@ -1198,6 +1208,12 @@ function render(res, view, options = {}) {
         getAdminRoleLabel,
         getPromoCodeStatus,
         getPromoCodeStatusTone,
+    };
+}
+
+function render(res, view, options = {}) {
+    res.render(view, {
+        ...getViewHelpers(),
         ...options,
     });
 }
@@ -2044,6 +2060,7 @@ app.use((req, res, next) => {
     const currentAdmin = req.session.adminId ? getAdminById(db, req.session.adminId) : null;
     const hideFooter = req.path === "/cart" || req.path.startsWith("/admin");
 
+    Object.assign(res.locals, getViewHelpers());
     res.locals.currentPath = req.path;
     res.locals.settings = getSettings(db);
     res.locals.flash = getFlash(req);
@@ -2469,7 +2486,10 @@ function readManualOrderInput(values) {
     const internalNote = normalizeText(values.internal_note);
     const priceOverrideRaw = String(values.unit_price_chf || "").trim();
     const unitPriceOverrideCents = priceOverrideRaw ? parseMoneyToCents(priceOverrideRaw, Number.NaN) : null;
+    const discountRaw = String(values.discount_chf || "").trim();
+    const discountCents = discountRaw ? parseMoneyToCents(discountRaw, Number.NaN) : 0;
     const createdAt = normalizeOrderDateTimeField(values.order_created_at, new Date().toISOString());
+    const promoCode = normalizePromoCode(values.promo_code);
 
     if (!customerName) {
         throw new Error("Le nom du client est obligatoire.");
@@ -2487,6 +2507,10 @@ function readManualOrderInput(values) {
         throw new Error("Prix unitaire invalide.");
     }
 
+    if (!Number.isFinite(discountCents) || discountCents < 0) {
+        throw new Error("Remise invalide.");
+    }
+
     return {
         productId,
         quantity,
@@ -2498,6 +2522,54 @@ function readManualOrderInput(values) {
         internalNote,
         unitPriceOverrideCents,
         createdAt,
+        discountCents,
+        promoCode,
+    };
+}
+
+function buildManualOrderDiscount(input, subtotalCents) {
+    const manualDiscountCents = input.discountCents || 0;
+    const promoOutcome = input.promoCode ? getPromoCodeOutcome(input.promoCode, subtotalCents) : null;
+
+    if (manualDiscountCents > subtotalCents) {
+        throw new Error("La remise ne peut pas dépasser le total des articles.");
+    }
+
+    if (promoOutcome?.error && manualDiscountCents <= 0) {
+        throw new Error(promoOutcome.error);
+    }
+
+    const discountCents = manualDiscountCents > 0
+        ? manualDiscountCents
+        : promoOutcome?.discountCents || 0;
+    const promoCode = promoOutcome?.code || input.promoCode || "";
+    const validPromoCode = promoOutcome && !promoOutcome.error ? promoOutcome.promoCode : null;
+    const label = promoCode
+        ? getPromoCodeLabel({ code: promoCode })
+        : "Remise manuelle";
+
+    return {
+        discountCents,
+        discountLine: discountCents > 0
+            ? {
+                type: "discount",
+                code: promoCode,
+                label,
+                amount_cents: -discountCents,
+            }
+            : null,
+        promo: promoCode
+            ? {
+                id: validPromoCode?.id || null,
+                code: promoCode,
+                description: validPromoCode?.description || "",
+                discount_type: validPromoCode?.discount_type || (manualDiscountCents > 0 ? "manual" : ""),
+                discount_value: validPromoCode?.discount_value || discountCents,
+                discount_cents: discountCents,
+                label,
+                manual_override: manualDiscountCents > 0,
+            }
+            : null,
     };
 }
 
@@ -2982,6 +3054,7 @@ app.get("/admin/orders/new", requireAdmin, (req, res) => {
     render(res, "admin/order-form", {
         title: "Nouvelle commande",
         products: listAdminProducts(db),
+        promoCodes: listPromoCodes(db),
         orderStatusOptions: ORDER_STATUS_OPTIONS,
     });
 });
@@ -3004,7 +3077,8 @@ app.post("/admin/orders/new", requireAdmin, (req, res) => {
         }
 
         const item = buildManualOrderItem(product, input);
-        const amountCents = item.line_total_cents;
+        const discount = buildManualOrderDiscount(input, item.line_total_cents);
+        const amountCents = Math.max(0, item.line_total_cents - discount.discountCents);
         const metadata = {
             checkout: {
                 customer_first_name: input.customerName,
@@ -3015,11 +3089,13 @@ app.post("/admin/orders/new", requireAdmin, (req, res) => {
                 label: "Vente hors site",
                 amount_cents: 0,
             },
-            additions: [],
+            additions: discount.discountLine ? [discount.discountLine] : [],
+            promo: discount.promo,
             manual: {
                 created_by_admin_id: req.currentAdmin?.id || null,
                 created_by_admin_username: req.currentAdmin?.username || "",
                 payment_label: input.paymentLabel,
+                discount_cents: discount.discountCents,
             },
             admin: {
                 internal_note: input.internalNote,
@@ -3051,6 +3127,43 @@ app.post("/admin/orders/new", requireAdmin, (req, res) => {
         setFlash(req, "error", error.message);
         return saveSessionAndRedirect(req, res, "/admin/orders/new");
     }
+});
+
+function sendOrderDocumentPdf(req, res, type) {
+    const order = getOrderById(db, Number.parseInt(req.params.id, 10));
+    if (!order) {
+        return res.status(404).render("not-found", { title: "Commande introuvable" });
+    }
+
+    const pdf = buildOrderDocumentPdf({
+        type,
+        order,
+        settings: res.locals.settings || getSettings(db),
+        contact: getOrderContactSnapshot(order),
+        admin: getOrderAdminData(order),
+        getOrderStatusLabel,
+        getOrderProviderLabel,
+        baseUrl: baseUrl(req),
+        config: getOrderDocumentConfig(req),
+    });
+    const filename = buildOrderDocumentFilename(order, type);
+
+    res.set({
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `inline; filename="${filename}"`,
+        "Cache-Control": "private, no-store",
+        "Content-Length": String(pdf.length),
+    });
+
+    return res.send(pdf);
+}
+
+app.get("/admin/orders/:id/invoice.pdf", requireAdmin, (req, res) => {
+    return sendOrderDocumentPdf(req, res, "invoice");
+});
+
+app.get("/admin/orders/:id/delivery-slip.pdf", requireAdmin, (req, res) => {
+    return sendOrderDocumentPdf(req, res, "delivery-slip");
 });
 
 app.get("/admin/orders/:id", requireAdmin, (req, res) => {
