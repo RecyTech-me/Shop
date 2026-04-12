@@ -50,6 +50,9 @@
                         <p class="muted">Code promo : <strong><%= order.metadata.promo.code %></strong></p>
                         <p class="muted">Réduction appliquée : <%= formatMoney(order.metadata.promo.discount_cents || 0, order.currency) %></p>
                     <% } %>
+                    <% if (order.metadata?.manual?.discount_cents > 0 && !order.metadata?.promo?.code) { %>
+                        <p class="muted">Remise : <%= formatMoney(order.metadata.manual.discount_cents, order.currency) %></p>
+                    <% } %>
                     <% if (order.provider_reference) { %>
                         <p class="muted provider-reference">Référence de transaction : <%= order.provider_reference %></p>
                     <% } %>
@@ -177,6 +180,15 @@
                     <% }) %>
                 </article>
             <% } %>
+
+            <article class="detail-panel">
+                <p class="eyebrow">Documents</p>
+                <h2>PDF</h2>
+                <div class="form-actions">
+                    <a href="/admin/orders/<%= order.id %>/invoice.pdf" class="button button-secondary" target="_blank" rel="noopener">Facture</a>
+                    <a href="/admin/orders/<%= order.id %>/delivery-slip.pdf" class="button button-secondary" target="_blank" rel="noopener">Bon de livraison</a>
+                </div>
+            </article>
 
             <article class="section-block">
                 <div class="section-heading admin-section-heading">

@@ -68,6 +68,18 @@
                 </label>
 
                 <label>
+                    Remise (CHF)
+                    <input type="number" name="discount_chf" min="0" step="0.01" placeholder="0.00">
+                    <small>Montant déduit du total de cette commande.</small>
+                </label>
+
+                <label>
+                    Code promo utilisé
+                    <input type="text" name="promo_code" list="manual-order-promo-codes" placeholder="facultatif" autocapitalize="characters" autocomplete="off">
+                    <small>Si aucune remise manuelle n'est saisie, le code valide calcule la remise automatiquement.</small>
+                </label>
+
+                <label>
                     Statut
                     <select name="status">
                         <% orderStatusOptions.forEach((option) => { %>
@@ -85,6 +97,12 @@
                 <div class="full-span form-actions">
                     <button type="submit" class="button">Créer la commande</button>
                 </div>
+
+                <datalist id="manual-order-promo-codes">
+                    <% promoCodes.forEach((promoCode) => { %>
+                        <option value="<%= promoCode.code %>"><%= formatPromoCodeDiscount(promoCode) %></option>
+                    <% }) %>
+                </datalist>
             </form>
         <% } %>
     </section>
