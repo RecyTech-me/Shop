@@ -195,10 +195,6 @@ function getOrderProviderLabel(provider) {
         return "Bitcoin (Swiss Bitcoin Pay)";
     }
 
-    if (provider === "btcpay") {
-        return "Bitcoin (BTCPay)";
-    }
-
     return provider;
 }
 
@@ -241,7 +237,7 @@ function getLegalPages(settings) {
                         "le contenu du panier et certaines préférences de commande, au moyen d'une session technique et de cookies strictement nécessaires au fonctionnement du site",
                         "les coordonnées de contact et de commande : nom, e-mail, adresses de facturation et de livraison, téléphone si vous le fournissez, notes de commande",
                         "les détails de commande : produits commandés, mode de livraison, mode de paiement, montant, numéro de commande et statut de paiement",
-                        "les références techniques transmises par les prestataires de paiement lorsque vous choisissez Stripe, BTCPay ou le virement bancaire",
+                        "les références techniques transmises par les prestataires de paiement lorsque vous choisissez Stripe, Swiss Bitcoin Pay ou le virement bancaire",
                     ],
                 },
                 {
@@ -1194,6 +1190,7 @@ function render(res, view, options = {}) {
     res.render(view, {
         formatMoney,
         formatDateTime,
+        formatDateTimeInputValue,
         formatPromoCodeDiscount,
         getOrderStatusLabel,
         getOrderStatusTone,
@@ -1457,6 +1454,29 @@ function parseMoneyToCents(value, fallback = 0) {
 function normalizeDateField(value) {
     const normalized = String(value || "").trim();
     return /^\d{4}-\d{2}-\d{2}$/.test(normalized) ? normalized : "";
+}
+
+function normalizeOrderDateTimeField(value, fallback = "") {
+    const normalized = normalizeText(value);
+    if (!normalized) {
+        return fallback;
+    }
+
+    const parsed = new Date(normalized);
+    if (!Number.isFinite(parsed.valueOf())) {
+        throw new Error("Date de commande invalide.");
+    }
+
+    return parsed.toISOString();
+}
+
+function formatDateTimeInputValue(value = new Date()) {
+    const parsed = new Date(value);
+    if (!Number.isFinite(parsed.valueOf())) {
+        return "";
+    }
+
+    return new Date(parsed.getTime() - parsed.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 }
 
 function readPromoCodeInput(values) {
@@ -2449,6 +2469,7 @@ function readManualOrderInput(values) {
     const internalNote = normalizeText(values.internal_note);
     const priceOverrideRaw = String(values.unit_price_chf || "").trim();
     const unitPriceOverrideCents = priceOverrideRaw ? parseMoneyToCents(priceOverrideRaw, Number.NaN) : null;
+    const createdAt = normalizeOrderDateTimeField(values.order_created_at, new Date().toISOString());
 
     if (!customerName) {
         throw new Error("Le nom du client est obligatoire.");
@@ -2476,6 +2497,7 @@ function readManualOrderInput(values) {
         status,
         internalNote,
         unitPriceOverrideCents,
+        createdAt,
     };
 }
 
@@ -3019,6 +3041,7 @@ app.post("/admin/orders/new", requireAdmin, (req, res) => {
             items: [item],
             status: "pending",
             metadata,
+            created_at: input.createdAt,
         });
         const finalizedOrder = finalizeManualOrderStatus(order, input.status, metadata);
 
@@ -3066,6 +3089,14 @@ app.post("/admin/orders/:id/update", requireAdmin, (req, res) => {
         return saveSessionAndRedirect(req, res, `/admin/orders/${order.id}`);
     }
 
+    let createdAt = order.created_at;
+    try {
+        createdAt = normalizeOrderDateTimeField(req.body.order_created_at, order.created_at);
+    } catch (error) {
+        setFlash(req, "error", error.message);
+        return saveSessionAndRedirect(req, res, `/admin/orders/${order.id}`);
+    }
+
     const currentAdminData = getOrderAdminData(order);
     const nextAdminData = {
         ...currentAdminData,
@@ -3077,16 +3108,22 @@ app.post("/admin/orders/:id/update", requireAdmin, (req, res) => {
         pickup_details: normalizeText(req.body.pickup_details),
     };
 
-    const nextOrder = status === "paid" && order.status !== "paid"
-        ? markOrderPaid(db, order.id, {
+    let nextOrder = null;
+    if (status === "paid" && order.status !== "paid") {
+        const paidOrder = markOrderPaid(db, order.id, {
             admin: nextAdminData,
-        })
-        : updateOrderRecord(db, order.id, {
-            status,
-            metadata: {
-                admin: nextAdminData,
-            },
         });
+        nextOrder = updateOrderRecord(db, paidOrder.id, {
+            created_at: createdAt,
+            metadata: { admin: nextAdminData },
+        });
+    } else {
+        nextOrder = updateOrderRecord(db, order.id, {
+            status,
+            created_at: createdAt,
+            metadata: { admin: nextAdminData },
+        });
+    }
 
     setFlash(req, "success", "Commande mise à jour.");
     return saveSessionAndRedirect(req, res, `/admin/orders/${nextOrder.id}`);

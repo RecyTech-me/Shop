@@ -9,6 +9,7 @@
 
         <% if (order) { %>
             <p>Commande <strong><%= order.order_number %></strong> pour <strong><%= formatMoney(order.amount_cents, order.currency) %></strong>.</p>
+            <p>Date : <%= formatDateTime(order.created_at) %>.</p>
             <p>Statut actuel: <strong><%= getOrderStatusLabel(order.status) %></strong>.</p>
             <p>Client: <%= order.customer_name %> - <%= order.customer_email %></p>
             <% if (order.provider === "transfer") { %>

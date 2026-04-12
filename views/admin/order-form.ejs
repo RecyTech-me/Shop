@@ -41,6 +41,11 @@
                     <input type="text" name="payment_label" value="Vente hors site" placeholder="Espèces, Twint, virement...">
                 </label>
 
+                <label>
+                    Date de commande
+                    <input type="datetime-local" name="order_created_at" value="<%= formatDateTimeInputValue() %>" required>
+                </label>
+
                 <label class="full-span">
                     Produit
                     <select name="product_id" required>
