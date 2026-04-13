@@ -39,8 +39,10 @@ Stripe:
 Swiss Bitcoin Pay:
 
 - `SWISS_BITCOIN_PAY_API_URL`
-- `SWISS_BITCOIN_PAY_API_KEY`
-- `SWISS_BITCOIN_PAY_WEBHOOK_SECRET` (API secret used to verify the `sbp-sig` webhook HMAC signature)
+- `SWISS_BITCOIN_PAY_API_KEY` (merchant API key from the Swiss Bitcoin Pay dashboard)
+- `SWISS_BITCOIN_PAY_WEBHOOK_SECRET` (a long random secret you choose; the app sends it to Swiss Bitcoin Pay in the invoice webhook headers and verifies it on callbacks)
+
+Swiss Bitcoin Pay checkout requires a public `BASE_URL` so the hosted invoice can redirect back to `/checkout/success` and their backend can reach `/webhooks/swiss-bitcoin-pay`. `localhost` is only suitable when testing with a public tunnel.
 
 Buttons stay disabled on the checkout page until the corresponding provider is configured.
 

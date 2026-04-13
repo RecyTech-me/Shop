@@ -62,6 +62,7 @@ const stripePublishableKey = env.STRIPE_PUBLISHABLE_KEY || "";
 const swissBitcoinPayApiUrl = (env.SWISS_BITCOIN_PAY_API_URL || "https://api.swiss-bitcoin-pay.ch").replace(/\/$/, "");
 const swissBitcoinPayApiKey = String(env.SWISS_BITCOIN_PAY_API_KEY || "").trim();
 const swissBitcoinPayWebhookSecret = String(env.SWISS_BITCOIN_PAY_WEBHOOK_SECRET || "").trim();
+const swissBitcoinPayWebhookSecretHeader = "x-recytech-webhook-secret";
 const orderViewTokenSecret = String(env.ORDER_VIEW_TOKEN_SECRET || env.SESSION_SECRET || "").trim();
 const loginAttemptTracker = new Map();
 
@@ -1231,6 +1232,9 @@ async function createSwissBitcoinPayInvoice(order, req) {
                 redirectAfterPaid: `${baseUrl(req)}/checkout/success?provider=swissbitcoinpay&order=${encodeURIComponent(order.order_number)}&view=${encodeURIComponent(createOrderViewToken(order))}`,
                 webhook: {
                     url: `${baseUrl(req)}/webhooks/swiss-bitcoin-pay`,
+                    headers: {
+                        [swissBitcoinPayWebhookSecretHeader]: swissBitcoinPayWebhookSecret,
+                    },
                 },
                 device: {
                     name: "RecyTech Shop",
@@ -1661,6 +1665,34 @@ function verifySwissBitcoinPaySignature(rawBody, signatureHeader) {
     return false;
 }
 
+function timingSafeEqualText(actual, expected) {
+    const actualBuffer = Buffer.from(String(actual || ""), "utf8");
+    const expectedBuffer = Buffer.from(String(expected || ""), "utf8");
+
+    if (!actualBuffer.length || actualBuffer.length !== expectedBuffer.length) {
+        return false;
+    }
+
+    return crypto.timingSafeEqual(actualBuffer, expectedBuffer);
+}
+
+function verifySwissBitcoinPayWebhook(req) {
+    if (!swissBitcoinPayWebhookSecret) {
+        return false;
+    }
+
+    const customSecret = Array.isArray(req.headers[swissBitcoinPayWebhookSecretHeader])
+        ? req.headers[swissBitcoinPayWebhookSecretHeader][0]
+        : req.headers[swissBitcoinPayWebhookSecretHeader];
+
+    if (timingSafeEqualText(customSecret, swissBitcoinPayWebhookSecret)) {
+        return true;
+    }
+
+    // Backward-compatible fallback for older/manual integrations that send an HMAC signature.
+    return verifySwissBitcoinPaySignature(req.body, req.headers["sbp-sig"]);
+}
+
 function getMailSettings(settings) {
     return {
         host: normalizeText(settings.smtp_host || env.SMTP_HOST),
@@ -2057,8 +2089,8 @@ app.post("/webhooks/stripe", express.raw({ type: "application/json" }), (req, re
 
 app.post("/webhooks/swiss-bitcoin-pay", express.raw({ type: "application/json" }), (req, res) => {
     try {
-        if (!verifySwissBitcoinPaySignature(req.body, req.headers["sbp-sig"])) {
-            return res.status(401).json({ error: "Invalid webhook signature" });
+        if (!verifySwissBitcoinPayWebhook(req)) {
+            return res.status(401).json({ error: "Invalid webhook secret" });
         }
 
         const invoice = JSON.parse(req.body.toString("utf8") || "{}");
@@ -2328,9 +2360,9 @@ function readCatalogueFilters(values) {
     const minPriceCents = parseMoneyToCents(priceMin, Number.NaN);
     const maxPriceCents = parseMoneyToCents(priceMax, Number.NaN);
     const availability = normalizeText(values.availability);
-    const sort = normalizeText(values.sort) || "featured";
+    const sort = normalizeText(values.sort) || "random";
     const allowedAvailability = new Set(["", "in_stock", "out_of_stock"]);
-    const allowedSorts = new Set(["featured", "newest", "price_asc", "price_desc", "name_asc"]);
+    const allowedSorts = new Set(["random", "featured", "newest", "price_asc", "price_desc", "name_asc"]);
 
     const view = {
         q: normalizeText(values.q),
@@ -2338,7 +2370,7 @@ function readCatalogueFilters(values) {
         price_min: priceMin,
         price_max: priceMax,
         availability: allowedAvailability.has(availability) ? availability : "",
-        sort: allowedSorts.has(sort) ? sort : "featured",
+        sort: allowedSorts.has(sort) ? sort : "random",
     };
 
     return {
@@ -2357,7 +2389,7 @@ function readCatalogueFilters(values) {
             view.price_min ||
             view.price_max ||
             view.availability ||
-            view.sort !== "featured"
+            view.sort !== "random"
         ),
     };
 }

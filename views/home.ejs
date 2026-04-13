@@ -47,6 +47,7 @@
                 <label class="catalogue-filter-compact">
                     <span>Tri</span>
                     <select name="sort" data-catalogue-auto-submit>
+                        <option value="random" <%= catalogueFilters.sort === "random" ? "selected" : "" %>>Aléatoire</option>
                         <option value="featured" <%= catalogueFilters.sort === "featured" ? "selected" : "" %>>Mis en avant</option>
                         <option value="newest" <%= catalogueFilters.sort === "newest" ? "selected" : "" %>>Plus récents</option>
                         <option value="price_asc" <%= catalogueFilters.sort === "price_asc" ? "selected" : "" %>>Prix croissant</option>
