@@ -127,7 +127,11 @@ function makeUniqueSlug(db, desiredSlug, productId = null) {
 
 function buildProductPayload(sourceProduct) {
     const infoRows = [...(Array.isArray(sourceProduct.info_rows) ? sourceProduct.info_rows : [])];
-    const categories = Array.isArray(sourceProduct.categories) ? sourceProduct.categories.filter(Boolean) : [];
+    const categories = uniqueStrings(
+        (Array.isArray(sourceProduct.categories) ? sourceProduct.categories : [])
+            .map((category) => normalizeText(category))
+            .filter(Boolean)
+    );
 
     if (categories.length && !infoRows.some((row) => normalizeText(row.label).toLowerCase() === "catégories")) {
         infoRows.push({
@@ -173,6 +177,8 @@ function buildProductPayload(sourceProduct) {
     return {
         name: normalizeText(sourceProduct.name),
         slug: normalizeText(sourceProduct.slug),
+        category: categories[0] || "",
+        categories_json: JSON.stringify(categories),
         short_description: normalizeText(sourceProduct.short_description),
         description: normalizeText(sourceProduct.description),
         image_url: imageUrl,
@@ -297,6 +303,8 @@ function main() {
         UPDATE products
         SET slug = @slug,
             name = @name,
+            category = @category,
+            categories_json = @categories_json,
             short_description = @short_description,
             description = @description,
             image_url = @image_url,
@@ -315,13 +323,13 @@ function main() {
 
     const insertProduct = db.prepare(`
         INSERT INTO products (
-            slug, name, short_description, description, image_url,
+            slug, name, category, categories_json, short_description, description, image_url,
             image_gallery_json, option_groups_json, info_rows_json, valid_configurations_json,
             price_cents, currency, inventory, featured, published,
             created_at, updated_at
         )
         VALUES (
-            @slug, @name, @short_description, @description, @image_url,
+            @slug, @name, @category, @categories_json, @short_description, @description, @image_url,
             @image_gallery_json, @option_groups_json, @info_rows_json, @valid_configurations_json,
             @price_cents, @currency, @inventory, @featured, @published,
             @created_at, @updated_at

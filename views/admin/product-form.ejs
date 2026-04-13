@@ -19,16 +19,13 @@
                 <input type="text" name="name" value="<%= product?.name || '' %>" required>
             </label>
 
-            <label>
-                Catégorie
-                <input
-                    type="text"
-                    name="category"
-                    value="<%= product?.category || '' %>"
-                    list="product-category-options"
-                    placeholder="Écran, ordinateur, accessoire..."
-                >
-                <small>Si la catégorie n'existe pas encore, elle sera créée à l'enregistrement.</small>
+            <label class="full-span">
+                Catégories
+                <textarea name="categories" rows="3" placeholder="Ordinateur&#10;Portable&#10;Lenovo"><%= product?.categories_text || product?.category || '' %></textarea>
+                <small>Une catégorie par ligne, ou séparées par des virgules. Les nouvelles catégories seront créées à l'enregistrement.</small>
+                <% if (categories.length) { %>
+                    <small>Déjà utilisées : <%= categories.join(", ") %></small>
+                <% } %>
             </label>
 
             <label>
@@ -133,12 +130,6 @@
                     </button>
                 <% } %>
             </div>
-
-            <datalist id="product-category-options">
-                <% categories.forEach((category) => { %>
-                    <option value="<%= category %>"></option>
-                <% }) %>
-            </datalist>
         </form>
         <% if (product) { %>
             <form

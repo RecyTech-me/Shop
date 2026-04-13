@@ -119,9 +119,10 @@
                         </a>
                         <div class="product-body catalogue-body">
                             <div class="product-meta">
-                                <% if (product.category) { %>
-                                    <span class="chip chip-muted"><%= product.category %></span>
-                                <% } %>
+                                <% const productCategories = product.categories?.length ? product.categories : (product.category ? [product.category] : []); %>
+                                <% productCategories.forEach((category) => { %>
+                                    <span class="chip chip-muted"><%= category %></span>
+                                <% }) %>
                                 <% if (product.featured) { %>
                                     <span class="chip">À la une</span>
                                 <% } %>

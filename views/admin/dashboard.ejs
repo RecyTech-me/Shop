@@ -80,7 +80,7 @@
                                         <div class="muted">Note privée : <%= product.admin_notes.length > 90 ? `${product.admin_notes.slice(0, 90)}...` : product.admin_notes %></div>
                                     <% } %>
                                 </td>
-                                <td data-label="Catégorie"><%= product.category || "Non définie" %></td>
+                                <td data-label="Catégorie"><%= (product.categories?.length ? product.categories : (product.category ? [product.category] : [])).join(", ") || "Non définie" %></td>
                                 <td data-label="Prix"><%= formatMoney(product.price_cents, product.currency) %></td>
                                 <td data-label="Stock"><%= product.inventory %></td>
                                 <td data-label="État"><%= product.published ? "Publié" : "Brouillon" %></td>
