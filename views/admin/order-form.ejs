@@ -21,6 +21,7 @@
             </div>
         <% } else { %>
             <form action="/admin/orders/new" method="post" class="admin-form-grid">
+                <%- include("../partials/csrf-field") %>
                 <label>
                     Nom du client
                     <input type="text" name="customer_name" placeholder="Nom ou personne de contact" required>

@@ -908,6 +908,12 @@ document.querySelectorAll("[data-product-gallery]").forEach((gallery) => {
 document.querySelectorAll("[data-product-configurator]").forEach((form) => {
     const selects = [...form.querySelectorAll("select[data-option-group]")];
     const message = form.querySelector("[data-product-configurator-message]");
+    const productDetail = form.closest(".product-detail");
+    const priceTarget = productDetail?.querySelector("[data-product-price]") || document.querySelector("[data-product-price]");
+    const basePriceCents = Number.parseInt(form.dataset.basePriceCents || priceTarget?.dataset.basePriceCents || "0", 10) || 0;
+    const startingPriceCents = Number.parseInt(form.dataset.startingPriceCents || priceTarget?.dataset.startingPriceCents || `${basePriceCents}`, 10) || basePriceCents;
+    const currency = form.dataset.currency || priceTarget?.dataset.currency || "CHF";
+    const hasConfigurationPricing = priceTarget?.dataset.hasConfigurationPricing === "true";
 
     if (!selects.length) {
         return;
@@ -921,8 +927,40 @@ document.querySelectorAll("[data-product-configurator]").forEach((form) => {
         validConfigurations = [];
     }
 
-    if (!Array.isArray(validConfigurations) || !validConfigurations.length) {
+    validConfigurations = Array.isArray(validConfigurations)
+        ? validConfigurations
+            .map((configuration) => {
+                const selections = Array.isArray(configuration)
+                    ? configuration
+                    : Array.isArray(configuration?.selections)
+                        ? configuration.selections
+                        : [];
+                const rawPriceCents = !Array.isArray(configuration) ? configuration?.price_cents : null;
+                const priceCents = Number.parseInt(rawPriceCents, 10);
+
+                return {
+                    selections: selections
+                        .map((selection) => ({
+                            name: String(selection?.name || "").trim(),
+                            value: String(selection?.value || "").trim(),
+                        }))
+                        .filter((selection) => selection.name && selection.value),
+                    priceCents: Number.isInteger(priceCents) && priceCents >= 0 ? priceCents : null,
+                };
+            })
+            .filter((configuration) => configuration.selections.length)
+        : [];
+
+    if (!validConfigurations.length) {
         return;
+    }
+
+    function formatProductPrice(cents) {
+        return new Intl.NumberFormat("fr-CH", {
+            style: "currency",
+            currency,
+            maximumFractionDigits: 2,
+        }).format((cents || 0) / 100);
     }
 
     function currentSelections() {
@@ -934,7 +972,7 @@ document.querySelectorAll("[data-product-configurator]").forEach((form) => {
     }
 
     function isConfigurationCompatible(configuration, targetGroupName, candidateValue, selections) {
-        return configuration.every((selection) => {
+        return configuration.selections.every((selection) => {
             if (selection.name === targetGroupName) {
                 return selection.value === candidateValue;
             }
@@ -942,6 +980,31 @@ document.querySelectorAll("[data-product-configurator]").forEach((form) => {
             const selectedValue = selections.get(selection.name);
             return !selectedValue || selectedValue === selection.value;
         });
+    }
+
+    function getCompleteConfiguration(selections) {
+        if (selects.some((select) => !select.value)) {
+            return null;
+        }
+
+        return validConfigurations.find((configuration) =>
+            configuration.selections.length === selects.length &&
+            configuration.selections.every((selection) =>
+                selections.get(selection.name) === selection.value
+            )
+        ) || null;
+    }
+
+    function syncProductPrice(selections) {
+        if (!priceTarget || !hasConfigurationPricing) {
+            return;
+        }
+
+        const configuration = getCompleteConfiguration(selections);
+        const priceCents = configuration ? (configuration.priceCents ?? basePriceCents) : startingPriceCents;
+        priceTarget.textContent = configuration
+            ? formatProductPrice(priceCents)
+            : `À partir de ${formatProductPrice(priceCents)}`;
     }
 
     function syncConfigurator() {
@@ -970,7 +1033,7 @@ document.querySelectorAll("[data-product-configurator]").forEach((form) => {
         const finalSelections = currentSelections();
         const hasPartialSelection = selects.some((select) => select.value);
         const hasAnyCompatibleConfiguration = validConfigurations.some((configuration) =>
-            configuration.every((selection) => {
+            configuration.selections.every((selection) => {
                 const selectedValue = finalSelections.get(selection.name);
                 return !selectedValue || selectedValue === selection.value;
             })
@@ -985,6 +1048,8 @@ document.querySelectorAll("[data-product-configurator]").forEach((form) => {
                 message.textContent = "";
             }
         }
+
+        syncProductPrice(finalSelections);
     }
 
     selects.forEach((select) => {

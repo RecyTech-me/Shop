@@ -16,6 +16,7 @@
             <% } %>
             <a href="/admin/settings" class="button button-secondary">Paramètres</a>
             <form action="/admin/logout" method="post">
+                <%- include("../partials/csrf-field") %>
                 <button class="button button-ghost" type="submit">Se déconnecter</button>
             </form>
         </div>
@@ -89,6 +90,7 @@
                                             data-confirm-message="Ce produit sera supprimé définitivement. Cette action est irréversible."
                                             data-confirm-submit="Supprimer"
                                         >
+                                            <%- include("../partials/csrf-field") %>
                                             <button type="submit">Supprimer</button>
                                         </form>
                                     </div>

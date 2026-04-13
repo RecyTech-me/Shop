@@ -32,6 +32,7 @@
                     <a href="/admin/products/new">Ajouter un produit</a>
                     <a href="/admin/settings">Paramètres</a>
                     <form action="/admin/logout" method="post">
+                        <%- include("csrf-field") %>
                         <button type="submit">Se déconnecter</button>
                     </form>
                 </div>

@@ -13,6 +13,7 @@
         </div>
 
         <form action="<%= formAction %>" method="post" class="admin-form-grid" enctype="multipart/form-data">
+            <%- include("../partials/csrf-field") %>
             <label>
                 Nom du produit
                 <input type="text" name="name" value="<%= product?.name || '' %>" required>
@@ -81,9 +82,9 @@
             </label>
 
             <label class="full-span">
-                Combinaisons autorisées
-                <textarea name="valid_configurations" rows="6" placeholder="État esthétique=Parfait ; Batterie=Bonne&#10;État esthétique=Bon ; Batterie=Excellente&#10;État esthétique=Bon ; Batterie=Bonne"><%= product?.valid_configurations_text || '' %></textarea>
-                <small>Laissez vide pour autoriser toutes les combinaisons possibles. Sinon, une ligne = une configuration disponible, au format `Option=valeur ; Option=valeur`.</small>
+                Combinaisons autorisées et prix
+                <textarea name="valid_configurations" rows="6" placeholder="État esthétique=Parfait ; Batterie=Bonne => 220.00&#10;État esthétique=Bon ; Batterie=Excellente => 240.00&#10;État esthétique=Bon ; Batterie=Bonne"><%= product?.valid_configurations_text || '' %></textarea>
+                <small>Laissez vide pour autoriser toutes les combinaisons possibles. Sinon, une ligne = une configuration disponible, au format `Option=valeur ; Option=valeur`. Ajoutez `=> 249.00` pour définir le prix final de cette configuration; sans prix, le prix du produit est utilisé.</small>
             </label>
 
             <label class="full-span">
@@ -143,7 +144,9 @@
                 data-confirm-title="Supprimer le produit"
                 data-confirm-message="Ce produit sera supprimé définitivement. Cette action est irréversible."
                 data-confirm-submit="Supprimer"
-            ></form>
+            >
+                <%- include("../partials/csrf-field") %>
+            </form>
         <% } %>
     </section>
 </main>

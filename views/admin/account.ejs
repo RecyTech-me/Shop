@@ -13,6 +13,7 @@
         </div>
 
         <form action="/admin/account" method="post" class="admin-form-grid">
+            <%- include("../partials/csrf-field") %>
             <label>
                 Nom d'utilisateur
                 <input type="text" name="username" value="<%= currentAdmin.username %>" autocomplete="username" required>

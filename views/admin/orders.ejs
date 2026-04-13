@@ -78,6 +78,7 @@
                                             data-confirm-message="Cette commande sera supprimée définitivement. Cette action est irréversible."
                                             data-confirm-submit="Supprimer"
                                         >
+                                            <%- include("../partials/csrf-field") %>
                                             <button type="submit">Supprimer</button>
                                         </form>
                                     </div>

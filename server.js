@@ -118,6 +118,14 @@ function formatMoney(cents, currency = "CHF") {
     }).format((cents || 0) / 100);
 }
 
+function formatProductPrice(product) {
+    if (product?.has_configuration_pricing) {
+        return `À partir de ${formatMoney(product.starting_price_cents, product.currency)}`;
+    }
+
+    return formatMoney(product?.price_cents || 0, product?.currency || "CHF");
+}
+
 const SHIPPING_OPTIONS = {
     ship: {
         key: "ship",
@@ -568,6 +576,7 @@ function serializePublicProduct(req, product) {
             alt: product.name,
             position: index,
         }));
+    const displayPriceCents = product.starting_price_cents ?? product.price_cents;
 
     return {
         id: product.id,
@@ -575,8 +584,15 @@ function serializePublicProduct(req, product) {
         name: product.name,
         short_description: product.short_description || "",
         description: product.description || "",
-        price: ((product.price_cents || 0) / 100).toFixed(2),
-        regular_price: ((product.price_cents || 0) / 100).toFixed(2),
+        price: ((displayPriceCents || 0) / 100).toFixed(2),
+        regular_price: ((displayPriceCents || 0) / 100).toFixed(2),
+        price_html: product.has_configuration_pricing ? formatProductPrice(product) : "",
+        price_range: product.has_configuration_pricing
+            ? {
+                min_price: ((product.starting_price_cents || 0) / 100).toFixed(2),
+                max_price: ((product.maximum_price_cents || 0) / 100).toFixed(2),
+            }
+            : null,
         currency: product.currency || "CHF",
         categories: product.category ? [{ id: product.category, name: product.category, slug: product.category.toLowerCase() }] : [],
         featured: Boolean(product.featured),
@@ -629,6 +645,55 @@ function setCartItems(req, items) {
     req.session.cart = items;
 }
 
+function getConfigurationSelections(configuration) {
+    if (Array.isArray(configuration)) {
+        return configuration;
+    }
+
+    if (Array.isArray(configuration?.selections)) {
+        return configuration.selections;
+    }
+
+    return [];
+}
+
+function findProductConfiguration(product, selectedOptions = []) {
+    const configurations = Array.isArray(product.valid_configurations)
+        ? product.valid_configurations
+        : [];
+
+    if (!configurations.length) {
+        return null;
+    }
+
+    return configurations.find((configuration) => {
+        const selections = getConfigurationSelections(configuration);
+        return selections.length === selectedOptions.length && selections.every((selection, index) =>
+            selection.name === selectedOptions[index]?.name &&
+            selection.value === selectedOptions[index]?.value
+        );
+    }) || null;
+}
+
+function getProductUnitPriceCents(product, selectedOptions = []) {
+    const configurations = Array.isArray(product.valid_configurations)
+        ? product.valid_configurations
+        : [];
+
+    if (!configurations.length) {
+        return product.price_cents;
+    }
+
+    const configuration = findProductConfiguration(product, selectedOptions);
+    if (!configuration) {
+        throw new Error("Cette combinaison d'options n'est pas disponible.");
+    }
+
+    return Number.isInteger(configuration.price_cents)
+        ? configuration.price_cents
+        : product.price_cents;
+}
+
 function buildCart(req) {
     const rawItems = getCartItems(req);
     const items = [];
@@ -648,6 +713,13 @@ function buildCart(req) {
                 }))
                 .filter((option) => option.name && option.value)
             : [];
+        let unitPriceCents = product.price_cents;
+
+        try {
+            unitPriceCents = getProductUnitPriceCents(product, selectedOptions);
+        } catch {
+            continue;
+        }
 
         items.push({
             product_id: product.id,
@@ -659,8 +731,8 @@ function buildCart(req) {
             image_url: product.image_url,
             selected_options: selectedOptions,
             quantity,
-            unit_price_cents: product.price_cents,
-            line_total_cents: product.price_cents * quantity,
+            unit_price_cents: unitPriceCents,
+            line_total_cents: unitPriceCents * quantity,
             inventory: product.inventory,
         });
     }
@@ -1199,6 +1271,7 @@ async function fetchSwissBitcoinPayInvoice(invoiceId) {
 function getViewHelpers() {
     return {
         formatMoney,
+        formatProductPrice,
         formatDateTime,
         formatDateTimeInputValue,
         formatPromoCodeDiscount,
@@ -1773,24 +1846,15 @@ function readSelectedProductOptions(product, body) {
         };
     });
 
-    if (Array.isArray(product.valid_configurations) && product.valid_configurations.length) {
-        const isAllowed = product.valid_configurations.some((configuration) =>
-            configuration.every((selection, index) =>
-                selection.name === selectedOptions[index]?.name &&
-                selection.value === selectedOptions[index]?.value
-            )
-        );
-
-        if (!isAllowed) {
-            throw new Error("Cette combinaison d'options n'est pas disponible.");
-        }
-    }
+    getProductUnitPriceCents(product, selectedOptions);
 
     return selectedOptions;
 }
 
 function getCartSignature(cart) {
-    return cart.items.map((item) => `${item.product_id}:${item.quantity}`).join("|");
+    return cart.items
+        .map((item) => `${item.item_key}:${item.quantity}:${item.unit_price_cents}`)
+        .join("|");
 }
 
 function validateCheckoutInput(values) {

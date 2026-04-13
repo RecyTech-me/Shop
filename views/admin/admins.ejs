@@ -50,6 +50,7 @@
                                             data-confirm-message="Cet administrateur perdra l'accès au back-office. Cette action est irréversible."
                                             data-confirm-submit="Supprimer"
                                         >
+                                            <%- include("../partials/csrf-field") %>
                                             <button type="submit">Supprimer</button>
                                         </form>
                                     <% } %>

@@ -20,6 +20,7 @@
                 data-stripe-intent-url="/checkout/stripe/intent"
                 data-stripe-prepare-url="/checkout/stripe/prepare"
             >
+                <%- include("partials/csrf-field") %>
                 <div class="checkout-group">
                     <h2>Coordonnées</h2>
                     <div class="checkout-grid checkout-grid-two">

@@ -128,7 +128,7 @@
                             </div>
                             <h3><a href="/products/<%= product.slug %>"><%= product.name %></a></h3>
                             <div class="product-footer catalogue-footer">
-                                <strong class="catalogue-price"><%= formatMoney(product.price_cents, product.currency) %></strong>
+                                <strong class="catalogue-price"><%= formatProductPrice(product) %></strong>
                                 <% if (product.inventory > 0) { %>
                                     <div class="catalogue-action">
                                         <a href="/products/<%= product.slug %>" class="button button-block">Voir plus</a>
