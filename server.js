@@ -567,6 +567,16 @@ function setPublicApiHeaders(res) {
     res.set("Cache-Control", "public, max-age=120");
 }
 
+function productCategoryList(product) {
+    const categories = Array.isArray(product?.categories)
+        ? product.categories.filter(Boolean)
+        : [];
+
+    return categories.length || !product?.category
+        ? categories
+        : [product.category];
+}
+
 function serializePublicProduct(req, product) {
     const images = (product.gallery_images || [])
         .map((src) => absoluteUrl(req, src))
@@ -578,6 +588,7 @@ function serializePublicProduct(req, product) {
             position: index,
         }));
     const displayPriceCents = product.starting_price_cents ?? product.price_cents;
+    const categories = productCategoryList(product);
 
     return {
         id: product.id,
@@ -595,7 +606,11 @@ function serializePublicProduct(req, product) {
             }
             : null,
         currency: product.currency || "CHF",
-        categories: product.category ? [{ id: product.category, name: product.category, slug: product.category.toLowerCase() }] : [],
+        categories: categories.map((category) => ({
+            id: category,
+            name: category,
+            slug: category.toLowerCase().replace(/\s+/g, "-"),
+        })),
         featured: Boolean(product.featured),
         stock_quantity: Math.max(0, Number(product.inventory || 0)),
         stock_status: product.inventory > 0 ? "instock" : "outofstock",
@@ -728,6 +743,7 @@ function buildCart(req) {
             slug: product.slug,
             name: product.name,
             category: product.category,
+            categories: productCategoryList(product),
             short_description: product.short_description,
             image_url: product.image_url,
             selected_options: selectedOptions,
@@ -1863,11 +1879,11 @@ function getOrderAdminData(order) {
     return order.metadata?.admin || {};
 }
 
-function readSelectedProductOptions(product, body) {
+function readSelectedProductOptions(product, body, fieldNameForIndex = (index) => `selected_option_${index}`) {
     const groups = Array.isArray(product.option_groups) ? product.option_groups : [];
 
     const selectedOptions = groups.map((group, index) => {
-        const value = normalizeText(body[`selected_option_${index}`]);
+        const value = normalizeText(body[fieldNameForIndex(index, group)]);
         if (!group.values.includes(value)) {
             throw new Error(`Veuillez choisir une option valide pour « ${group.name} ».`);
         }
@@ -2670,17 +2686,19 @@ function buildManualOrderDiscount(input, subtotalCents) {
 }
 
 function buildManualOrderItem(product, input) {
-    const unitPriceCents = input.unitPriceOverrideCents ?? product.price_cents;
+    const selectedOptions = Array.isArray(input.selectedOptions) ? input.selectedOptions : [];
+    const unitPriceCents = input.unitPriceOverrideCents ?? getProductUnitPriceCents(product, selectedOptions);
 
     return {
         product_id: product.id,
-        item_key: `manual:${product.id}:${Date.now()}`,
+        item_key: `manual:${product.id}:${JSON.stringify(selectedOptions)}:${Date.now()}`,
         slug: product.slug,
         name: product.name,
         category: product.category,
+        categories: productCategoryList(product),
         short_description: product.short_description,
         image_url: product.image_url,
-        selected_options: [],
+        selected_options: selectedOptions,
         quantity: input.quantity,
         unit_price_cents: unitPriceCents,
         line_total_cents: unitPriceCents * input.quantity,
@@ -3172,7 +3190,8 @@ app.post("/admin/orders/new", requireAdmin, (req, res) => {
             throw new Error(`Stock insuffisant : ${product.inventory} unité(s) disponible(s).`);
         }
 
-        const item = buildManualOrderItem(product, input);
+        const selectedOptions = readSelectedProductOptions(product, req.body);
+        const item = buildManualOrderItem(product, { ...input, selectedOptions });
         const discount = buildManualOrderDiscount(input, item.line_total_cents);
         const amountCents = Math.max(0, item.line_total_cents - discount.discountCents);
         const metadata = {

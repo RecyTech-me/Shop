@@ -1759,6 +1759,26 @@ button,
     line-height: 1.45;
 }
 
+.manual-order-option-panel {
+    display: grid;
+    gap: 0.85rem;
+    padding: 1rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: rgba(255, 253, 248, 0.72);
+}
+
+.manual-order-option-panel strong,
+.manual-order-option-panel small {
+    display: block;
+}
+
+.manual-order-option-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+}
+
 .full-span {
     grid-column: 1 / -1;
 }
@@ -2414,6 +2434,7 @@ th {
     }
 
     .admin-form-grid,
+    .manual-order-option-grid,
     .admin-order-summary-grid,
     .admin-order-filters {
         grid-template-columns: 1fr;

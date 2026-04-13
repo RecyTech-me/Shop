@@ -86,7 +86,8 @@
         </div>
 
         <div class="product-detail">
-            <p class="eyebrow"><%= product.category ? `Catégorie : ${product.category}` : "Produit" %></p>
+            <% const productCategories = product.categories?.length ? product.categories : (product.category ? [product.category] : []); %>
+            <p class="eyebrow"><%= productCategories.length ? `Catégories : ${productCategories.join(", ")}` : "Produit" %></p>
             <h1><%= product.name %></h1>
             <p
                 class="price-large"

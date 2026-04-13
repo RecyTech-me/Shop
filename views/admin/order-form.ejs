@@ -20,7 +20,8 @@
                 </div>
             </div>
         <% } else { %>
-            <form action="/admin/orders/new" method="post" class="admin-form-grid">
+            <% const manualOrderDefaultProduct = products.find((product) => product.inventory > 0) || products[0]; %>
+            <form action="/admin/orders/new" method="post" class="admin-form-grid" data-manual-order-form>
                 <%- include("../partials/csrf-field") %>
                 <label>
                     Nom du client
@@ -49,14 +50,68 @@
 
                 <label class="full-span">
                     Produit
-                    <select name="product_id" required>
+                    <select name="product_id" required data-manual-order-product-select>
                         <% products.forEach((product) => { %>
-                            <option value="<%= product.id %>" <%= product.inventory <= 0 ? "disabled" : "" %>>
-                                <%= product.category ? `${product.category} - ` : "" %><%= product.name %> - <%= formatMoney(product.price_cents, product.currency) %> - stock <%= product.inventory %>
+                            <% const productCategories = (product.categories?.length ? product.categories : (product.category ? [product.category] : [])).join(", "); %>
+                            <option
+                                value="<%= product.id %>"
+                                data-base-price-cents="<%= product.price_cents %>"
+                                data-starting-price-cents="<%= product.starting_price_cents %>"
+                                data-currency="<%= product.currency %>"
+                                <%= product.inventory <= 0 ? "disabled" : "" %>
+                                <%= product.id === manualOrderDefaultProduct?.id ? "selected" : "" %>
+                            >
+                                <%= productCategories ? `${productCategories} - ` : "" %><%= product.name %> - <%= formatMoney(product.price_cents, product.currency) %> - stock <%= product.inventory %>
                             </option>
                         <% }) %>
                     </select>
                 </label>
+
+                <% const productsWithOptions = products.filter((product) => (product.option_groups || []).length); %>
+                <% if (productsWithOptions.length) { %>
+                    <div class="full-span manual-order-options" data-manual-order-options>
+                        <% productsWithOptions.forEach((product) => { %>
+                            <% const panelActive = product.id === manualOrderDefaultProduct?.id; %>
+                            <div
+                                class="manual-order-option-panel"
+                                data-manual-order-option-panel
+                                data-product-id="<%= product.id %>"
+                                data-base-price-cents="<%= product.price_cents %>"
+                                data-starting-price-cents="<%= product.starting_price_cents %>"
+                                data-currency="<%= product.currency %>"
+                                data-valid-configurations="<%= JSON.stringify(product.valid_configurations || []) %>"
+                                <%= panelActive ? "" : "hidden" %>
+                            >
+                                <div>
+                                    <p class="eyebrow">Options du produit</p>
+                                    <strong><%= product.name %></strong>
+                                </div>
+                                <div class="manual-order-option-grid">
+                                    <% product.option_groups.forEach((group, index) => { %>
+                                        <label>
+                                            <%= group.name %>
+                                            <select
+                                                name="selected_option_<%= index %>"
+                                                data-manual-order-option-select
+                                                data-option-index="<%= index %>"
+                                                data-option-group="<%= group.name %>"
+                                                <%= panelActive ? "required" : "" %>
+                                                <%= panelActive ? "" : "disabled" %>
+                                            >
+                                                <option value="">Choisir une option</option>
+                                                <% group.values.forEach((value) => { %>
+                                                    <option value="<%= value %>"><%= value %></option>
+                                                <% }) %>
+                                            </select>
+                                        </label>
+                                    <% }) %>
+                                </div>
+                                <p class="product-option-message" data-manual-order-option-message hidden></p>
+                                <small data-manual-order-price-hint></small>
+                            </div>
+                        <% }) %>
+                    </div>
+                <% } %>
 
                 <label>
                     Quantité
@@ -65,7 +120,7 @@
 
                 <label>
                     Prix unitaire personnalisé (CHF)
-                    <input type="number" name="unit_price_chf" min="0" step="0.01" placeholder="Laisser vide = prix produit">
+                    <input type="number" name="unit_price_chf" min="0" step="0.01" placeholder="Laisser vide = prix produit" data-manual-order-unit-price>
                 </label>
 
                 <label>
