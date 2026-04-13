@@ -54,6 +54,7 @@
                             </div>
                             <div class="cart-item-actions">
                                 <form action="/cart/update" method="post" class="cart-inline-form">
+                                    <%- include("partials/csrf-field") %>
                                     <input type="hidden" name="product_id" value="<%= item.product_id %>">
                                     <input type="hidden" name="item_key" value="<%= item.item_key %>">
                                     <label>
@@ -63,6 +64,7 @@
                                     <button class="button button-secondary button-small" type="submit">Mettre à jour</button>
                                 </form>
                                 <form action="/cart/remove" method="post">
+                                    <%- include("partials/csrf-field") %>
                                     <input type="hidden" name="item_key" value="<%= item.item_key %>">
                                     <button class="button button-ghost button-small" type="submit">Retirer</button>
                                 </form>

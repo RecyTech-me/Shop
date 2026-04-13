@@ -13,6 +13,7 @@
         </div>
 
         <form action="<%= formAction %>" method="post" class="admin-form-grid">
+            <%- include("../partials/csrf-field") %>
             <label>
                 Nom d'utilisateur
                 <input type="text" name="username" value="<%= adminUser?.username || '' %>" required>
@@ -54,6 +55,7 @@
                         data-confirm-message="Cet administrateur perdra l'accès au back-office. Cette action est irréversible."
                         data-confirm-submit="Supprimer"
                     >
+                        <%- include("../partials/csrf-field") %>
                         <button type="submit" class="button button-ghost">Supprimer l'administrateur</button>
                     </form>
                 <% } %>

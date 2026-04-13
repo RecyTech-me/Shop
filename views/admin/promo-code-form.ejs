@@ -13,6 +13,7 @@
         </div>
 
         <form action="<%= formAction %>" method="post" class="admin-form-grid">
+            <%- include("../partials/csrf-field") %>
             <label>
                 Code
                 <input type="text" name="code" value="<%= promoCode?.code || '' %>" placeholder="BIENVENUE10" required>
@@ -109,7 +110,9 @@
                 data-confirm-title="Supprimer le code promo"
                 data-confirm-message="Ce code promo sera supprimé définitivement. Cette action est irréversible."
                 data-confirm-submit="Supprimer"
-            ></form>
+            >
+                <%- include("../partials/csrf-field") %>
+            </form>
         <% } %>
     </section>
 </main>

@@ -13,6 +13,7 @@
         </div>
 
         <form action="/admin/settings" method="post" class="admin-form-grid" enctype="multipart/form-data">
+            <%- include("../partials/csrf-field") %>
             <label>
                 Nom de la boutique
                 <input type="text" name="store_name" value="<%= settings.store_name %>" required>

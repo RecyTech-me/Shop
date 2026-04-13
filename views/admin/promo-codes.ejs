@@ -66,6 +66,7 @@
                                             data-confirm-message="Ce code promo sera supprimé définitivement. Cette action est irréversible."
                                             data-confirm-submit="Supprimer"
                                         >
+                                            <%- include("../partials/csrf-field") %>
                                             <button type="submit">Supprimer</button>
                                         </form>
                                     </div>
