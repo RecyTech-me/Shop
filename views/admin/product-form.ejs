@@ -76,6 +76,12 @@
             </label>
 
             <label class="full-span">
+                Notes privées admin
+                <textarea name="admin_notes" rows="5" placeholder="État interne, accessoires manquants, diagnostic, suivi de préparation..."><%= product?.admin_notes || '' %></textarea>
+                <small>Visible uniquement dans l'administration. Ces notes ne sont pas affichées sur la boutique.</small>
+            </label>
+
+            <label class="full-span">
                 Options du produit
                 <textarea name="option_groups" rows="5" placeholder="État esthétique: Parfait | Bon | Acceptable&#10;Batterie: Excellente | Bonne | Moyenne"><%= product?.option_groups_text || '' %></textarea>
                 <small>Une ligne par groupe, au format `Nom: valeur 1 | valeur 2 | valeur 3`.</small>
