@@ -74,7 +74,12 @@
                     <tbody>
                         <% products.forEach((product) => { %>
                             <tr>
-                                <td data-label="Nom"><%= product.name %></td>
+                                <td data-label="Nom">
+                                    <strong><%= product.name %></strong>
+                                    <% if (product.admin_notes) { %>
+                                        <div class="muted">Note privée : <%= product.admin_notes.length > 90 ? `${product.admin_notes.slice(0, 90)}...` : product.admin_notes %></div>
+                                    <% } %>
+                                </td>
                                 <td data-label="Catégorie"><%= product.category || "Non définie" %></td>
                                 <td data-label="Prix"><%= formatMoney(product.price_cents, product.currency) %></td>
                                 <td data-label="Stock"><%= product.inventory %></td>
