@@ -62,6 +62,7 @@ const stripePublishableKey = env.STRIPE_PUBLISHABLE_KEY || "";
 const swissBitcoinPayApiUrl = (env.SWISS_BITCOIN_PAY_API_URL || "https://api.swiss-bitcoin-pay.ch").replace(/\/$/, "");
 const swissBitcoinPayApiKey = String(env.SWISS_BITCOIN_PAY_API_KEY || "").trim();
 const swissBitcoinPayWebhookSecret = String(env.SWISS_BITCOIN_PAY_WEBHOOK_SECRET || "").trim();
+const swissBitcoinPayWebhookSecretHeader = "x-recytech-webhook-secret";
 const orderViewTokenSecret = String(env.ORDER_VIEW_TOKEN_SECRET || env.SESSION_SECRET || "").trim();
 const loginAttemptTracker = new Map();
 
@@ -116,6 +117,14 @@ function formatMoney(cents, currency = "CHF") {
         currency,
         maximumFractionDigits: 2,
     }).format((cents || 0) / 100);
+}
+
+function formatProductPrice(product) {
+    if (product?.has_configuration_pricing) {
+        return `À partir de ${formatMoney(product.starting_price_cents, product.currency)}`;
+    }
+
+    return formatMoney(product?.price_cents || 0, product?.currency || "CHF");
 }
 
 const SHIPPING_OPTIONS = {
@@ -621,6 +630,16 @@ function setPublicApiHeaders(res) {
     res.set("Cache-Control", "public, max-age=120");
 }
 
+function productCategoryList(product) {
+    const categories = Array.isArray(product?.categories)
+        ? product.categories.filter(Boolean)
+        : [];
+
+    return categories.length || !product?.category
+        ? categories
+        : [product.category];
+}
+
 function serializePublicProduct(req, product) {
     const images = (product.gallery_images || [])
         .map((src) => absoluteUrl(req, src))
@@ -631,6 +650,8 @@ function serializePublicProduct(req, product) {
             alt: product.name,
             position: index,
         }));
+    const displayPriceCents = product.starting_price_cents ?? product.price_cents;
+    const categories = productCategoryList(product);
 
     return {
         id: product.id,
@@ -638,10 +659,21 @@ function serializePublicProduct(req, product) {
         name: product.name,
         short_description: product.short_description || "",
         description: product.description || "",
-        price: ((product.price_cents || 0) / 100).toFixed(2),
-        regular_price: ((product.price_cents || 0) / 100).toFixed(2),
+        price: ((displayPriceCents || 0) / 100).toFixed(2),
+        regular_price: ((displayPriceCents || 0) / 100).toFixed(2),
+        price_html: product.has_configuration_pricing ? formatProductPrice(product) : "",
+        price_range: product.has_configuration_pricing
+            ? {
+                min_price: ((product.starting_price_cents || 0) / 100).toFixed(2),
+                max_price: ((product.maximum_price_cents || 0) / 100).toFixed(2),
+            }
+            : null,
         currency: product.currency || "CHF",
-        categories: product.category ? [{ id: product.category, name: product.category, slug: product.category.toLowerCase() }] : [],
+        categories: categories.map((category) => ({
+            id: category,
+            name: category,
+            slug: category.toLowerCase().replace(/\s+/g, "-"),
+        })),
         featured: Boolean(product.featured),
         stock_quantity: Math.max(0, Number(product.inventory || 0)),
         stock_status: product.inventory > 0 ? "instock" : "outofstock",
@@ -692,6 +724,55 @@ function setCartItems(req, items) {
     req.session.cart = items;
 }
 
+function getConfigurationSelections(configuration) {
+    if (Array.isArray(configuration)) {
+        return configuration;
+    }
+
+    if (Array.isArray(configuration?.selections)) {
+        return configuration.selections;
+    }
+
+    return [];
+}
+
+function findProductConfiguration(product, selectedOptions = []) {
+    const configurations = Array.isArray(product.valid_configurations)
+        ? product.valid_configurations
+        : [];
+
+    if (!configurations.length) {
+        return null;
+    }
+
+    return configurations.find((configuration) => {
+        const selections = getConfigurationSelections(configuration);
+        return selections.length === selectedOptions.length && selections.every((selection, index) =>
+            selection.name === selectedOptions[index]?.name &&
+            selection.value === selectedOptions[index]?.value
+        );
+    }) || null;
+}
+
+function getProductUnitPriceCents(product, selectedOptions = []) {
+    const configurations = Array.isArray(product.valid_configurations)
+        ? product.valid_configurations
+        : [];
+
+    if (!configurations.length) {
+        return product.price_cents;
+    }
+
+    const configuration = findProductConfiguration(product, selectedOptions);
+    if (!configuration) {
+        throw new Error("Cette combinaison d'options n'est pas disponible.");
+    }
+
+    return Number.isInteger(configuration.price_cents)
+        ? configuration.price_cents
+        : product.price_cents;
+}
+
 function buildCart(req) {
     const rawItems = getCartItems(req);
     const items = [];
@@ -711,6 +792,13 @@ function buildCart(req) {
                 }))
                 .filter((option) => option.name && option.value)
             : [];
+        let unitPriceCents = product.price_cents;
+
+        try {
+            unitPriceCents = getProductUnitPriceCents(product, selectedOptions);
+        } catch {
+            continue;
+        }
 
         items.push({
             product_id: product.id,
@@ -718,12 +806,13 @@ function buildCart(req) {
             slug: product.slug,
             name: product.name,
             category: product.category,
+            categories: productCategoryList(product),
             short_description: product.short_description,
             image_url: product.image_url,
             selected_options: selectedOptions,
             quantity,
-            unit_price_cents: product.price_cents,
-            line_total_cents: product.price_cents * quantity,
+            unit_price_cents: unitPriceCents,
+            line_total_cents: unitPriceCents * quantity,
             inventory: product.inventory,
         });
     }
@@ -1222,6 +1311,9 @@ async function createSwissBitcoinPayInvoice(order, req) {
                 redirectAfterPaid: `${baseUrl(req)}/checkout/success?provider=swissbitcoinpay&order=${encodeURIComponent(order.order_number)}&view=${encodeURIComponent(createOrderViewToken(order))}`,
                 webhook: {
                     url: `${baseUrl(req)}/webhooks/swiss-bitcoin-pay`,
+                    headers: {
+                        [swissBitcoinPayWebhookSecretHeader]: swissBitcoinPayWebhookSecret,
+                    },
                 },
                 device: {
                     name: "RecyTech Shop",
@@ -1262,6 +1354,7 @@ async function fetchSwissBitcoinPayInvoice(invoiceId) {
 function getViewHelpers() {
     return {
         formatMoney,
+        formatProductPrice,
         formatDateTime,
         formatDateTimeInputValue,
         formatPromoCodeDiscount,
@@ -1651,6 +1744,34 @@ function verifySwissBitcoinPaySignature(rawBody, signatureHeader) {
     return false;
 }
 
+function timingSafeEqualText(actual, expected) {
+    const actualBuffer = Buffer.from(String(actual || ""), "utf8");
+    const expectedBuffer = Buffer.from(String(expected || ""), "utf8");
+
+    if (!actualBuffer.length || actualBuffer.length !== expectedBuffer.length) {
+        return false;
+    }
+
+    return crypto.timingSafeEqual(actualBuffer, expectedBuffer);
+}
+
+function verifySwissBitcoinPayWebhook(req) {
+    if (!swissBitcoinPayWebhookSecret) {
+        return false;
+    }
+
+    const customSecret = Array.isArray(req.headers[swissBitcoinPayWebhookSecretHeader])
+        ? req.headers[swissBitcoinPayWebhookSecretHeader][0]
+        : req.headers[swissBitcoinPayWebhookSecretHeader];
+
+    if (timingSafeEqualText(customSecret, swissBitcoinPayWebhookSecret)) {
+        return true;
+    }
+
+    // Backward-compatible fallback for older/manual integrations that send an HMAC signature.
+    return verifySwissBitcoinPaySignature(req.body, req.headers["sbp-sig"]);
+}
+
 function getMailSettings(settings) {
     return {
         host: normalizeText(settings.smtp_host || env.SMTP_HOST),
@@ -1821,11 +1942,11 @@ function getOrderAdminData(order) {
     return order.metadata?.admin || {};
 }
 
-function readSelectedProductOptions(product, body) {
+function readSelectedProductOptions(product, body, fieldNameForIndex = (index) => `selected_option_${index}`) {
     const groups = Array.isArray(product.option_groups) ? product.option_groups : [];
 
     const selectedOptions = groups.map((group, index) => {
-        const value = normalizeText(body[`selected_option_${index}`]);
+        const value = normalizeText(body[fieldNameForIndex(index, group)]);
         if (!group.values.includes(value)) {
             throw new Error(`Veuillez choisir une option valide pour « ${group.name} ».`);
         }
@@ -1836,24 +1957,15 @@ function readSelectedProductOptions(product, body) {
         };
     });
 
-    if (Array.isArray(product.valid_configurations) && product.valid_configurations.length) {
-        const isAllowed = product.valid_configurations.some((configuration) =>
-            configuration.every((selection, index) =>
-                selection.name === selectedOptions[index]?.name &&
-                selection.value === selectedOptions[index]?.value
-            )
-        );
-
-        if (!isAllowed) {
-            throw new Error("Cette combinaison d'options n'est pas disponible.");
-        }
-    }
+    getProductUnitPriceCents(product, selectedOptions);
 
     return selectedOptions;
 }
 
 function getCartSignature(cart) {
-    return cart.items.map((item) => `${item.product_id}:${item.quantity}`).join("|");
+    return cart.items
+        .map((item) => `${item.item_key}:${item.quantity}:${item.unit_price_cents}`)
+        .join("|");
 }
 
 function validateCheckoutInput(values) {
@@ -2056,8 +2168,8 @@ app.post("/webhooks/stripe", express.raw({ type: "application/json" }), (req, re
 
 app.post("/webhooks/swiss-bitcoin-pay", express.raw({ type: "application/json" }), (req, res) => {
     try {
-        if (!verifySwissBitcoinPaySignature(req.body, req.headers["sbp-sig"])) {
-            return res.status(401).json({ error: "Invalid webhook signature" });
+        if (!verifySwissBitcoinPayWebhook(req)) {
+            return res.status(401).json({ error: "Invalid webhook secret" });
         }
 
         const invoice = JSON.parse(req.body.toString("utf8") || "{}");
@@ -2327,9 +2439,9 @@ function readCatalogueFilters(values) {
     const minPriceCents = parseMoneyToCents(priceMin, Number.NaN);
     const maxPriceCents = parseMoneyToCents(priceMax, Number.NaN);
     const availability = normalizeText(values.availability);
-    const sort = normalizeText(values.sort) || "featured";
+    const sort = normalizeText(values.sort) || "random";
     const allowedAvailability = new Set(["", "in_stock", "out_of_stock"]);
-    const allowedSorts = new Set(["featured", "newest", "price_asc", "price_desc", "name_asc"]);
+    const allowedSorts = new Set(["random", "featured", "newest", "price_asc", "price_desc", "name_asc"]);
 
     const view = {
         q: normalizeText(values.q),
@@ -2337,7 +2449,7 @@ function readCatalogueFilters(values) {
         price_min: priceMin,
         price_max: priceMax,
         availability: allowedAvailability.has(availability) ? availability : "",
-        sort: allowedSorts.has(sort) ? sort : "featured",
+        sort: allowedSorts.has(sort) ? sort : "random",
     };
 
     return {
@@ -2356,7 +2468,7 @@ function readCatalogueFilters(values) {
             view.price_min ||
             view.price_max ||
             view.availability ||
-            view.sort !== "featured"
+            view.sort !== "random"
         ),
     };
 }
@@ -2637,17 +2749,19 @@ function buildManualOrderDiscount(input, subtotalCents) {
 }
 
 function buildManualOrderItem(product, input) {
-    const unitPriceCents = input.unitPriceOverrideCents ?? product.price_cents;
+    const selectedOptions = Array.isArray(input.selectedOptions) ? input.selectedOptions : [];
+    const unitPriceCents = input.unitPriceOverrideCents ?? getProductUnitPriceCents(product, selectedOptions);
 
     return {
         product_id: product.id,
-        item_key: `manual:${product.id}:${Date.now()}`,
+        item_key: `manual:${product.id}:${JSON.stringify(selectedOptions)}:${Date.now()}`,
         slug: product.slug,
         name: product.name,
         category: product.category,
+        categories: productCategoryList(product),
         short_description: product.short_description,
         image_url: product.image_url,
-        selected_options: [],
+        selected_options: selectedOptions,
         quantity: input.quantity,
         unit_price_cents: unitPriceCents,
         line_total_cents: unitPriceCents * input.quantity,
@@ -3139,7 +3253,8 @@ app.post("/admin/orders/new", requireAdmin, (req, res) => {
             throw new Error(`Stock insuffisant : ${product.inventory} unité(s) disponible(s).`);
         }
 
-        const item = buildManualOrderItem(product, input);
+        const selectedOptions = readSelectedProductOptions(product, req.body);
+        const item = buildManualOrderItem(product, { ...input, selectedOptions });
         const discount = buildManualOrderDiscount(input, item.line_total_cents);
         const amountCents = Math.max(0, item.line_total_cents - discount.discountCents);
         const metadata = {

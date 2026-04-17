@@ -47,6 +47,7 @@
                 <label class="catalogue-filter-compact">
                     <span>Tri</span>
                     <select name="sort" data-catalogue-auto-submit>
+                        <option value="random" <%= catalogueFilters.sort === "random" ? "selected" : "" %>>Aléatoire</option>
                         <option value="featured" <%= catalogueFilters.sort === "featured" ? "selected" : "" %>>Mis en avant</option>
                         <option value="newest" <%= catalogueFilters.sort === "newest" ? "selected" : "" %>>Plus récents</option>
                         <option value="price_asc" <%= catalogueFilters.sort === "price_asc" ? "selected" : "" %>>Prix croissant</option>
@@ -118,9 +119,10 @@
                         </a>
                         <div class="product-body catalogue-body">
                             <div class="product-meta">
-                                <% if (product.category) { %>
-                                    <span class="chip chip-muted"><%= product.category %></span>
-                                <% } %>
+                                <% const productCategories = product.categories?.length ? product.categories : (product.category ? [product.category] : []); %>
+                                <% productCategories.forEach((category) => { %>
+                                    <span class="chip chip-muted"><%= category %></span>
+                                <% }) %>
                                 <% if (product.featured) { %>
                                     <span class="chip">À la une</span>
                                 <% } %>
@@ -128,7 +130,7 @@
                             </div>
                             <h3><a href="/products/<%= product.slug %>"><%= product.name %></a></h3>
                             <div class="product-footer catalogue-footer">
-                                <strong class="catalogue-price"><%= formatMoney(product.price_cents, product.currency) %></strong>
+                                <strong class="catalogue-price"><%= formatProductPrice(product) %></strong>
                                 <% if (product.inventory > 0) { %>
                                     <div class="catalogue-action">
                                         <a href="/products/<%= product.slug %>" class="button button-block">Voir plus</a>

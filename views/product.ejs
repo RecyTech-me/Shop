@@ -86,9 +86,17 @@
         </div>
 
         <div class="product-detail">
-            <p class="eyebrow"><%= product.category ? `Catégorie : ${product.category}` : "Produit" %></p>
+            <% const productCategories = product.categories?.length ? product.categories : (product.category ? [product.category] : []); %>
+            <p class="eyebrow"><%= productCategories.length ? `Catégories : ${productCategories.join(", ")}` : "Produit" %></p>
             <h1><%= product.name %></h1>
-            <p class="price-large"><%= formatMoney(product.price_cents, product.currency) %></p>
+            <p
+                class="price-large"
+                data-product-price
+                data-base-price-cents="<%= product.price_cents %>"
+                data-starting-price-cents="<%= product.starting_price_cents %>"
+                data-currency="<%= product.currency %>"
+                data-has-configuration-pricing="<%= product.has_configuration_pricing ? 'true' : 'false' %>"
+            ><%= formatProductPrice(product) %></p>
             <% if (currentAdmin) { %>
                 <div class="product-admin-actions">
                     <a href="/admin/products/<%= product.id %>/edit" class="button button-secondary button-small">Modifier le produit</a>
@@ -106,7 +114,11 @@
                 class="product-purchase-form"
                 data-product-configurator
                 data-valid-configurations="<%= JSON.stringify(product.valid_configurations || []) %>"
+                data-base-price-cents="<%= product.price_cents %>"
+                data-starting-price-cents="<%= product.starting_price_cents %>"
+                data-currency="<%= product.currency %>"
             >
+                <%- include("partials/csrf-field") %>
                 <input type="hidden" name="product_id" value="<%= product.id %>">
                 <input type="hidden" name="redirect_to" value="/products/<%= product.slug %>">
 
