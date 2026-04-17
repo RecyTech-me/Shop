@@ -25,6 +25,7 @@
                 data-confirm-message="Cette commande sera supprimée définitivement. Cette action est irréversible."
                 data-confirm-submit="Supprimer"
             >
+                <%- include("../partials/csrf-field") %>
                 <button type="submit" class="button button-ghost">Supprimer la commande</button>
             </form>
         </div>
@@ -68,6 +69,7 @@
                 </div>
 
                 <form action="/admin/orders/<%= order.id %>/update" method="post" class="admin-form-grid">
+                    <%- include("../partials/csrf-field") %>
                     <label>
                         Statut
                         <select name="status">
@@ -207,6 +209,7 @@
                     </div>
                 <% } else { %>
                     <form action="/admin/orders/<%= order.id %>/send-email" method="post" class="form-stack">
+                        <%- include("../partials/csrf-field") %>
                         <label>
                             Sujet
                             <input type="text" name="subject" value="<%= defaultEmailSubject %>" required>

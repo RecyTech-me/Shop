@@ -13,21 +13,19 @@
         </div>
 
         <form action="<%= formAction %>" method="post" class="admin-form-grid" enctype="multipart/form-data">
+            <%- include("../partials/csrf-field") %>
             <label>
                 Nom du produit
                 <input type="text" name="name" value="<%= product?.name || '' %>" required>
             </label>
 
-            <label>
-                Catégorie
-                <input
-                    type="text"
-                    name="category"
-                    value="<%= product?.category || '' %>"
-                    list="product-category-options"
-                    placeholder="Écran, ordinateur, accessoire..."
-                >
-                <small>Si la catégorie n'existe pas encore, elle sera créée à l'enregistrement.</small>
+            <label class="full-span">
+                Catégories
+                <textarea name="categories" rows="3" placeholder="Ordinateur&#10;Portable&#10;Lenovo"><%= product?.categories_text || product?.category || '' %></textarea>
+                <small>Une catégorie par ligne, ou séparées par des virgules. Les nouvelles catégories seront créées à l'enregistrement.</small>
+                <% if (categories.length) { %>
+                    <small>Déjà utilisées : <%= categories.join(", ") %></small>
+                <% } %>
             </label>
 
             <label>
@@ -75,15 +73,21 @@
             </label>
 
             <label class="full-span">
+                Notes privées admin
+                <textarea name="admin_notes" rows="5" placeholder="État interne, accessoires manquants, diagnostic, suivi de préparation..."><%= product?.admin_notes || '' %></textarea>
+                <small>Visible uniquement dans l'administration. Ces notes ne sont pas affichées sur la boutique.</small>
+            </label>
+
+            <label class="full-span">
                 Options du produit
                 <textarea name="option_groups" rows="5" placeholder="État esthétique: Parfait | Bon | Acceptable&#10;Batterie: Excellente | Bonne | Moyenne"><%= product?.option_groups_text || '' %></textarea>
                 <small>Une ligne par groupe, au format `Nom: valeur 1 | valeur 2 | valeur 3`.</small>
             </label>
 
             <label class="full-span">
-                Combinaisons autorisées
-                <textarea name="valid_configurations" rows="6" placeholder="État esthétique=Parfait ; Batterie=Bonne&#10;État esthétique=Bon ; Batterie=Excellente&#10;État esthétique=Bon ; Batterie=Bonne"><%= product?.valid_configurations_text || '' %></textarea>
-                <small>Laissez vide pour autoriser toutes les combinaisons possibles. Sinon, une ligne = une configuration disponible, au format `Option=valeur ; Option=valeur`.</small>
+                Combinaisons autorisées et prix
+                <textarea name="valid_configurations" rows="6" placeholder="État esthétique=Parfait ; Batterie=Bonne => 220.00&#10;État esthétique=Bon ; Batterie=Excellente => 240.00&#10;État esthétique=Bon ; Batterie=Bonne"><%= product?.valid_configurations_text || '' %></textarea>
+                <small>Laissez vide pour autoriser toutes les combinaisons possibles. Sinon, une ligne = une configuration disponible, au format `Option=valeur ; Option=valeur`. Ajoutez `=> 249.00` pour définir le prix final de cette configuration; sans prix, le prix du produit est utilisé.</small>
             </label>
 
             <label class="full-span">
@@ -126,12 +130,6 @@
                     </button>
                 <% } %>
             </div>
-
-            <datalist id="product-category-options">
-                <% categories.forEach((category) => { %>
-                    <option value="<%= category %>"></option>
-                <% }) %>
-            </datalist>
         </form>
         <% if (product) { %>
             <form
@@ -143,7 +141,9 @@
                 data-confirm-title="Supprimer le produit"
                 data-confirm-message="Ce produit sera supprimé définitivement. Cette action est irréversible."
                 data-confirm-submit="Supprimer"
-            ></form>
+            >
+                <%- include("../partials/csrf-field") %>
+            </form>
         <% } %>
     </section>
 </main>

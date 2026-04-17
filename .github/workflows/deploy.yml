@@ -47,5 +47,5 @@ jobs:
             npm ci --omit=dev
             sudo systemctl restart shopsite
             sleep 2
-            curl -fsS http://127.0.0.1:3001/ >/dev/null
+            curl -fsS "${{ secrets.DEPLOY_URL }}" >/dev/null
           EOF

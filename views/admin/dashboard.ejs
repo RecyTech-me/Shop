@@ -16,6 +16,7 @@
             <% } %>
             <a href="/admin/settings" class="button button-secondary">Paramètres</a>
             <form action="/admin/logout" method="post">
+                <%- include("../partials/csrf-field") %>
                 <button class="button button-ghost" type="submit">Se déconnecter</button>
             </form>
         </div>
@@ -73,8 +74,13 @@
                     <tbody>
                         <% products.forEach((product) => { %>
                             <tr>
-                                <td data-label="Nom"><%= product.name %></td>
-                                <td data-label="Catégorie"><%= product.category || "Non définie" %></td>
+                                <td data-label="Nom">
+                                    <strong><%= product.name %></strong>
+                                    <% if (product.admin_notes) { %>
+                                        <div class="muted">Note privée : <%= product.admin_notes.length > 90 ? `${product.admin_notes.slice(0, 90)}...` : product.admin_notes %></div>
+                                    <% } %>
+                                </td>
+                                <td data-label="Catégorie"><%= (product.categories?.length ? product.categories : (product.category ? [product.category] : [])).join(", ") || "Non définie" %></td>
                                 <td data-label="Prix"><%= formatMoney(product.price_cents, product.currency) %></td>
                                 <td data-label="Stock"><%= product.inventory %></td>
                                 <td data-label="État"><%= product.published ? "Publié" : "Brouillon" %></td>
@@ -89,6 +95,7 @@
                                             data-confirm-message="Ce produit sera supprimé définitivement. Cette action est irréversible."
                                             data-confirm-submit="Supprimer"
                                         >
+                                            <%- include("../partials/csrf-field") %>
                                             <button type="submit">Supprimer</button>
                                         </form>
                                     </div>

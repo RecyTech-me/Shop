@@ -8,6 +8,7 @@
         <h1>Connexion</h1>
         <p>Connectez-vous pour gérer la boutique.</p>
         <form action="/admin/login" method="post" class="form-stack">
+            <%- include("../partials/csrf-field") %>
             <label>Nom d'utilisateur
                 <input type="text" name="username" required>
             </label>
