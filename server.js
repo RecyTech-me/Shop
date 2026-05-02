@@ -625,6 +625,31 @@ function productInputWithUploads(req) {
     return input;
 }
 
+function buildProductFormState(input = {}, baseProduct = null) {
+    const rawPrice = input.price_chf;
+    const derivedPrice = baseProduct && Number.isFinite(baseProduct.price_cents)
+        ? (baseProduct.price_cents / 100).toFixed(2)
+        : "";
+
+    return {
+        ...(baseProduct || {}),
+        name: input.name ?? baseProduct?.name ?? "",
+        categories_text: input.categories ?? baseProduct?.categories_text ?? baseProduct?.category ?? "",
+        price_chf: rawPrice ?? derivedPrice,
+        inventory: input.inventory ?? baseProduct?.inventory ?? 0,
+        image_url: input.image_url ?? baseProduct?.image_url ?? "",
+        image_gallery_text: input.image_gallery_urls ?? baseProduct?.image_gallery_text ?? "",
+        short_description: input.short_description ?? baseProduct?.short_description ?? "",
+        description: input.description ?? baseProduct?.description ?? "",
+        admin_notes: input.admin_notes ?? baseProduct?.admin_notes ?? "",
+        option_groups_text: input.option_groups ?? baseProduct?.option_groups_text ?? "",
+        valid_configurations_text: input.valid_configurations ?? baseProduct?.valid_configurations_text ?? "",
+        info_rows_text: input.info_rows ?? baseProduct?.info_rows_text ?? "",
+        featured: input.featured ? 1 : 0,
+        published: input.published ? 1 : 0,
+    };
+}
+
 function setPublicApiHeaders(res) {
     res.set("Access-Control-Allow-Origin", "*");
     res.set("Access-Control-Allow-Methods", "GET, OPTIONS");
@@ -3599,13 +3624,24 @@ app.get("/admin/products/new", requireAdmin, (req, res) => {
 });
 
 app.post("/admin/products/new", requireAdmin, withProductUploads, (req, res) => {
+    const productInput = productInputWithUploads(req);
+
     try {
-        createProduct(db, productInputWithUploads(req));
+        createProduct(db, productInput);
         setFlash(req, "success", "Produit créé.");
         return saveSessionAndRedirect(req, res, "/admin");
     } catch (error) {
-        setFlash(req, "error", `Création impossible : ${error.message}`);
-        return saveSessionAndRedirect(req, res, "/admin/products/new");
+        return res.status(400).render("admin/product-form", {
+            ...getViewHelpers(),
+            title: "Nouveau produit",
+            formAction: "/admin/products/new",
+            product: buildProductFormState(productInput),
+            categories: listProductCategories(db),
+            flash: {
+                type: "error",
+                message: `Création impossible : ${error.message}`,
+            },
+        });
     }
 });
 
@@ -3624,17 +3660,30 @@ app.get("/admin/products/:id/edit", requireAdmin, (req, res) => {
 });
 
 app.post("/admin/products/:id/edit", requireAdmin, withProductUploads, (req, res) => {
-    try {
-        const product = updateProduct(db, Number.parseInt(req.params.id, 10), productInputWithUploads(req));
-        if (!product) {
-            return res.status(404).render("not-found", { title: "Produit introuvable" });
-        }
+    const productId = Number.parseInt(req.params.id, 10);
+    const existingProduct = getProductById(db, productId);
+    const productInput = productInputWithUploads(req);
 
+    if (!existingProduct) {
+        return res.status(404).render("not-found", { title: "Produit introuvable" });
+    }
+
+    try {
+        updateProduct(db, productId, productInput);
         setFlash(req, "success", "Produit mis à jour.");
         return saveSessionAndRedirect(req, res, "/admin");
     } catch (error) {
-        setFlash(req, "error", `Mise à jour impossible : ${error.message}`);
-        return saveSessionAndRedirect(req, res, `/admin/products/${req.params.id}/edit`);
+        return res.status(400).render("admin/product-form", {
+            ...getViewHelpers(),
+            title: `Modifier ${existingProduct.name}`,
+            formAction: `/admin/products/${productId}/edit`,
+            product: buildProductFormState(productInput, existingProduct),
+            categories: listProductCategories(db),
+            flash: {
+                type: "error",
+                message: `Mise à jour impossible : ${error.message}`,
+            },
+        });
     }
 });
 

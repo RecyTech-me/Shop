@@ -24,12 +24,6 @@
                     <a href="/">Voir la boutique</a>
                     <a href="/admin">Tableau de bord</a>
                     <a href="/admin/account">Mon compte</a>
-                    <a href="/admin/orders">Commandes</a>
-                    <a href="/admin/promo-codes">Codes promo</a>
-                    <% if (currentAdmin.role === "superadmin") { %>
-                        <a href="/admin/admins">Admins</a>
-                    <% } %>
-                    <a href="/admin/products/new">Ajouter un produit</a>
                     <a href="/admin/settings">Paramètres</a>
                     <form action="/admin/logout" method="post">
                         <%- include("csrf-field") %>
