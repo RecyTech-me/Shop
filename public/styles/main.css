@@ -1667,7 +1667,7 @@ button,
 
 .admin-stat-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
     gap: 1rem;
 }
 
@@ -1684,7 +1684,9 @@ button,
     display: block;
     margin-top: 0.5rem;
     font-size: 1.7rem;
+    line-height: 1.15;
     font-family: "Raleway-SemiBold", sans-serif;
+    overflow-wrap: anywhere;
 }
 
 .admin-form-grid {
