@@ -107,6 +107,12 @@
                                     <% }) %>
                                 </div>
                                 <p class="product-option-message" data-manual-order-option-message hidden></p>
+                                <small data-manual-order-stock-hint></small>
+                                <label class="full-span" data-manual-order-service-tags-wrap hidden>
+                                    Tags de service
+                                    <select data-manual-order-service-tags multiple size="4" disabled></select>
+                                    <small data-manual-order-service-tags-hint></small>
+                                </label>
                                 <small data-manual-order-price-hint></small>
                             </div>
                         <% }) %>
@@ -115,7 +121,7 @@
 
                 <label>
                     Quantité
-                    <input type="number" name="quantity" min="1" step="1" value="1" required>
+                    <input type="number" name="quantity" min="1" step="1" value="1" required data-manual-order-quantity>
                 </label>
 
                 <label>

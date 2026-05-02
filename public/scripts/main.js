@@ -908,12 +908,15 @@ document.querySelectorAll("[data-product-gallery]").forEach((gallery) => {
 document.querySelectorAll("[data-product-configurator]").forEach((form) => {
     const selects = [...form.querySelectorAll("select[data-option-group]")];
     const message = form.querySelector("[data-product-configurator-message]");
+    const quantityInput = form.querySelector("input[name=\"quantity\"]");
+    const submitButton = form.querySelector("button[type=\"submit\"]");
     const productDetail = form.closest(".product-detail");
     const priceTarget = productDetail?.querySelector("[data-product-price]") || document.querySelector("[data-product-price]");
     const basePriceCents = Number.parseInt(form.dataset.basePriceCents || priceTarget?.dataset.basePriceCents || "0", 10) || 0;
     const startingPriceCents = Number.parseInt(form.dataset.startingPriceCents || priceTarget?.dataset.startingPriceCents || `${basePriceCents}`, 10) || basePriceCents;
     const currency = form.dataset.currency || priceTarget?.dataset.currency || "CHF";
     const hasConfigurationPricing = priceTarget?.dataset.hasConfigurationPricing === "true";
+    const defaultMaxQuantity = Number.parseInt(quantityInput?.getAttribute("max") || "1", 10) || 1;
 
     if (!selects.length) {
         return;
@@ -936,7 +939,9 @@ document.querySelectorAll("[data-product-configurator]").forEach((form) => {
                         ? configuration.selections
                         : [];
                 const rawPriceCents = !Array.isArray(configuration) ? configuration?.price_cents : null;
+                const rawQuantity = !Array.isArray(configuration) ? configuration?.quantity : null;
                 const priceCents = Number.parseInt(rawPriceCents, 10);
+                const quantity = Number.parseInt(rawQuantity, 10);
 
                 return {
                     selections: selections
@@ -946,6 +951,7 @@ document.querySelectorAll("[data-product-configurator]").forEach((form) => {
                         }))
                         .filter((selection) => selection.name && selection.value),
                     priceCents: Number.isInteger(priceCents) && priceCents >= 0 ? priceCents : null,
+                    quantity: Number.isInteger(quantity) && quantity >= 0 ? quantity : null,
                 };
             })
             .filter((configuration) => configuration.selections.length)
@@ -1007,6 +1013,31 @@ document.querySelectorAll("[data-product-configurator]").forEach((form) => {
             : `À partir de ${formatProductPrice(priceCents)}`;
     }
 
+    function syncQuantityControls(configuration, incompatibleSelection) {
+        if (!quantityInput) {
+            return;
+        }
+
+        const maxQuantity = incompatibleSelection
+            ? 0
+            : configuration && Number.isInteger(configuration.quantity)
+                ? Math.max(0, Math.min(defaultMaxQuantity, configuration.quantity))
+                : defaultMaxQuantity;
+
+        quantityInput.max = String(Math.max(maxQuantity, 1));
+
+        if (maxQuantity > 0) {
+            quantityInput.disabled = false;
+            quantityInput.value = String(Math.min(Math.max(1, Number.parseInt(quantityInput.value || "1", 10) || 1), maxQuantity));
+        } else {
+            quantityInput.value = "1";
+        }
+
+        if (submitButton) {
+            submitButton.disabled = maxQuantity <= 0;
+        }
+    }
+
     function syncConfigurator() {
         const selections = currentSelections();
 
@@ -1031,6 +1062,7 @@ document.querySelectorAll("[data-product-configurator]").forEach((form) => {
         });
 
         const finalSelections = currentSelections();
+        const completeConfiguration = getCompleteConfiguration(finalSelections);
         const hasPartialSelection = selects.some((select) => select.value);
         const hasAnyCompatibleConfiguration = validConfigurations.some((configuration) =>
             configuration.selections.every((selection) => {
@@ -1038,9 +1070,13 @@ document.querySelectorAll("[data-product-configurator]").forEach((form) => {
                 return !selectedValue || selectedValue === selection.value;
             })
         );
+        const outOfStockConfiguration = completeConfiguration && Number.isInteger(completeConfiguration.quantity) && completeConfiguration.quantity <= 0;
 
         if (message) {
-            if (hasPartialSelection && !hasAnyCompatibleConfiguration) {
+            if (outOfStockConfiguration) {
+                message.hidden = false;
+                message.textContent = "Cette combinaison n'est plus en stock.";
+            } else if (hasPartialSelection && !hasAnyCompatibleConfiguration) {
                 message.hidden = false;
                 message.textContent = "Cette combinaison n'est pas disponible.";
             } else {
@@ -1050,6 +1086,7 @@ document.querySelectorAll("[data-product-configurator]").forEach((form) => {
         }
 
         syncProductPrice(finalSelections);
+        syncQuantityControls(completeConfiguration, hasPartialSelection && !hasAnyCompatibleConfiguration);
     }
 
     selects.forEach((select) => {
@@ -1062,6 +1099,7 @@ document.querySelectorAll("[data-product-configurator]").forEach((form) => {
 document.querySelectorAll("[data-manual-order-form]").forEach((form) => {
     const productSelect = form.querySelector("[data-manual-order-product-select]");
     const unitPriceInput = form.querySelector("[data-manual-order-unit-price]");
+    const quantityInput = form.querySelector("[data-manual-order-quantity]");
     const panels = [...form.querySelectorAll("[data-manual-order-option-panel]")];
 
     if (!productSelect) {
@@ -1098,7 +1136,9 @@ document.querySelectorAll("[data-manual-order-form]").forEach((form) => {
                             ? configuration.selections
                             : [];
                     const rawPriceCents = !Array.isArray(configuration) ? configuration?.price_cents : null;
+                    const rawQuantity = !Array.isArray(configuration) ? configuration?.quantity : null;
                     const priceCents = Number.parseInt(rawPriceCents, 10);
+                    const quantity = Number.parseInt(rawQuantity, 10);
 
                     return {
                         selections: selections
@@ -1108,6 +1148,10 @@ document.querySelectorAll("[data-manual-order-form]").forEach((form) => {
                             }))
                             .filter((selection) => selection.name && selection.value),
                         priceCents: Number.isInteger(priceCents) && priceCents >= 0 ? priceCents : null,
+                        quantity: Number.isInteger(quantity) && quantity >= 0 ? quantity : null,
+                        serviceTags: !Array.isArray(configuration) && Array.isArray(configuration?.service_tags)
+                            ? configuration.service_tags.map((tag) => String(tag || "").trim()).filter(Boolean)
+                            : [],
                     };
                 })
                 .filter((configuration) => configuration.selections.length)
@@ -1159,6 +1203,10 @@ document.querySelectorAll("[data-manual-order-form]").forEach((form) => {
     function syncPanel(panel) {
         const selects = [...panel.querySelectorAll("[data-manual-order-option-select]")];
         const message = panel.querySelector("[data-manual-order-option-message]");
+        const stockHint = panel.querySelector("[data-manual-order-stock-hint]");
+        const serviceTagsWrap = panel.querySelector("[data-manual-order-service-tags-wrap]");
+        const serviceTagsSelect = panel.querySelector("[data-manual-order-service-tags]");
+        const serviceTagsHint = panel.querySelector("[data-manual-order-service-tags-hint]");
         const priceHint = panel.querySelector("[data-manual-order-price-hint]");
         const configurations = parsePanelConfigurations(panel);
         const basePriceCents = Number.parseInt(panel.dataset.basePriceCents || "0", 10) || 0;
@@ -1170,8 +1218,25 @@ document.querySelectorAll("[data-manual-order-form]").forEach((form) => {
                 message.hidden = true;
                 message.textContent = "";
             }
+            if (stockHint) {
+                stockHint.textContent = "";
+            }
+            if (serviceTagsWrap) {
+                serviceTagsWrap.hidden = true;
+            }
+            if (serviceTagsSelect) {
+                serviceTagsSelect.disabled = true;
+                serviceTagsSelect.name = "";
+                serviceTagsSelect.innerHTML = "";
+            }
+            if (serviceTagsHint) {
+                serviceTagsHint.textContent = "";
+            }
             if (priceHint) {
                 priceHint.textContent = `Prix utilisé sans prix personnalisé : ${formatManualOrderPrice(basePriceCents, currency)}`;
+            }
+            if (quantityInput) {
+                quantityInput.removeAttribute("max");
             }
             syncUnitPricePlaceholder(basePriceCents, currency);
             return;
@@ -1213,13 +1278,72 @@ document.querySelectorAll("[data-manual-order-form]").forEach((form) => {
             : startingPriceCents;
 
         if (message) {
-            if (hasPartialSelection && !hasAnyCompatibleConfiguration) {
+            const outOfStockConfiguration = completeConfiguration && Number.isInteger(completeConfiguration.quantity) && completeConfiguration.quantity <= 0;
+            if (outOfStockConfiguration) {
+                message.hidden = false;
+                message.textContent = "Cette combinaison n'est plus disponible.";
+            } else if (hasPartialSelection && !hasAnyCompatibleConfiguration) {
                 message.hidden = false;
                 message.textContent = "Cette combinaison n'est pas disponible.";
             } else {
                 message.hidden = true;
                 message.textContent = "";
             }
+        }
+
+        if (stockHint) {
+            if (completeConfiguration && Number.isInteger(completeConfiguration.quantity)) {
+                const tagText = completeConfiguration.serviceTags.length
+                    ? ` Tags de service disponibles : ${completeConfiguration.serviceTags.join(", ")}`
+                    : "";
+                stockHint.textContent = `Disponible pour cette combinaison : ${completeConfiguration.quantity} unité(s).${tagText}`;
+            } else {
+                stockHint.textContent = "";
+            }
+        }
+
+        if (serviceTagsWrap && serviceTagsSelect && serviceTagsHint) {
+            const availableServiceTags = completeConfiguration?.serviceTags || [];
+            const requestedQuantity = Math.max(1, Number.parseInt(quantityInput?.value || "1", 10) || 1);
+            const requiredTagCount = Math.min(requestedQuantity, availableServiceTags.length);
+            const previousSelection = [...serviceTagsSelect.selectedOptions]
+                .map((option) => option.value)
+                .filter((value) => availableServiceTags.includes(value));
+            const nextSelection = previousSelection.slice(0, requiredTagCount);
+
+            for (const tag of availableServiceTags) {
+                if (nextSelection.length >= requiredTagCount) {
+                    break;
+                }
+                if (!nextSelection.includes(tag)) {
+                    nextSelection.push(tag);
+                }
+            }
+
+            serviceTagsSelect.innerHTML = availableServiceTags
+                .map((tag) => `<option value="${tag.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")}"${nextSelection.includes(tag) ? " selected" : ""}>${tag.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</option>`)
+                .join("");
+            serviceTagsSelect.disabled = !availableServiceTags.length;
+            serviceTagsSelect.name = availableServiceTags.length ? "service_tags" : "";
+            serviceTagsSelect.size = Math.min(Math.max(availableServiceTags.length, 2), 6);
+            serviceTagsWrap.hidden = !availableServiceTags.length;
+            if (availableServiceTags.length) {
+                serviceTagsHint.textContent = requiredTagCount > 0
+                    ? (requiredTagCount === 1
+                        ? "Choisissez le tag de service de l'unité vendue."
+                        : `Choisissez exactement ${requiredTagCount} tags de service pour cette vente.`)
+                    : "Aucun tag de service requis pour cette quantité.";
+            } else {
+                serviceTagsHint.textContent = "";
+            }
+        }
+
+        if (quantityInput) {
+            const maxQuantity = completeConfiguration && Number.isInteger(completeConfiguration.quantity)
+                ? Math.max(1, completeConfiguration.quantity)
+                : 1;
+            quantityInput.max = String(maxQuantity);
+            quantityInput.value = String(Math.min(Math.max(1, Number.parseInt(quantityInput.value || "1", 10) || 1), maxQuantity));
         }
 
         if (priceHint) {
@@ -1242,11 +1366,22 @@ document.querySelectorAll("[data-manual-order-form]").forEach((form) => {
 
             panel.hidden = !isActive;
 
+            const serviceTagsSelect = panel.querySelector("[data-manual-order-service-tags]");
+            const serviceTagsWrap = panel.querySelector("[data-manual-order-service-tags-wrap]");
+
             selects.forEach((select, index) => {
                 select.disabled = !isActive;
                 select.required = isActive;
                 select.name = isActive ? `selected_option_${select.dataset.optionIndex || index}` : "";
             });
+
+            if (serviceTagsSelect) {
+                serviceTagsSelect.disabled = !isActive;
+                serviceTagsSelect.name = isActive ? serviceTagsSelect.name : "";
+            }
+            if (!isActive && serviceTagsWrap) {
+                serviceTagsWrap.hidden = true;
+            }
 
             if (isActive) {
                 activePanel = panel;
@@ -1260,6 +1395,9 @@ document.querySelectorAll("[data-manual-order-form]").forEach((form) => {
 
         const basePriceCents = Number.parseInt(selectedProductOption?.dataset.basePriceCents || "0", 10) || 0;
         const currency = selectedProductOption?.dataset.currency || "CHF";
+        if (quantityInput) {
+            quantityInput.removeAttribute("max");
+        }
         syncUnitPricePlaceholder(basePriceCents, currency);
     }
 
@@ -1267,6 +1405,19 @@ document.querySelectorAll("[data-manual-order-form]").forEach((form) => {
         panel.querySelectorAll("[data-manual-order-option-select]").forEach((select) => {
             select.addEventListener("change", () => syncPanel(panel));
         });
+    });
+
+    panels.forEach((panel) => {
+        panel.querySelectorAll("[data-manual-order-service-tags]").forEach((select) => {
+            select.addEventListener("change", () => syncPanel(panel));
+        });
+    });
+
+    quantityInput?.addEventListener("input", () => {
+        const activePanel = panels.find((panel) => !panel.hidden);
+        if (activePanel) {
+            syncPanel(activePanel);
+        }
     });
 
     productSelect.addEventListener("change", syncProductOptions);

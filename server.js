@@ -22,6 +22,8 @@ const {
     listFeaturedProducts,
     listAdminProducts,
     listProductCategories,
+    listAdminCategories,
+    deleteProductCategory,
     getProductBySlug,
     getProductById,
     getAdminByUsername,
@@ -754,6 +756,76 @@ function findProductConfiguration(product, selectedOptions = []) {
     }) || null;
 }
 
+function getConfigurationAvailableQuantity(product, selectedOptions = []) {
+    const configurations = Array.isArray(product.valid_configurations)
+        ? product.valid_configurations
+        : [];
+
+    if (!configurations.length) {
+        return Math.max(0, product.inventory);
+    }
+
+    const configuration = findProductConfiguration(product, selectedOptions);
+    if (!configuration) {
+        return 0;
+    }
+
+    const configurationQuantity = Number.isInteger(configuration.quantity) && configuration.quantity >= 0
+        ? configuration.quantity
+        : product.inventory;
+
+    return Math.max(0, Math.min(product.inventory, configurationQuantity));
+}
+
+function ensureAvailableProductQuantity(product, selectedOptions = [], requestedQuantity = 1) {
+    const availableQuantity = getConfigurationAvailableQuantity(product, selectedOptions);
+
+    if (availableQuantity <= 0) {
+        throw new Error(product.option_groups?.length
+            ? "Cette combinaison d'options est en rupture de stock."
+            : "Ce produit est en rupture de stock.");
+    }
+
+    if (requestedQuantity > availableQuantity) {
+        throw new Error(`Stock insuffisant : ${availableQuantity} unité(s) disponible(s).`);
+    }
+
+    return availableQuantity;
+}
+
+function validateRequestedServiceTags(product, selectedOptions = [], requestedServiceTags = [], requestedQuantity = 1) {
+    const configuration = findProductConfiguration(product, selectedOptions);
+    const availableServiceTags = Array.isArray(configuration?.service_tags)
+        ? [...new Set(configuration.service_tags.map((tag) => normalizeSingleLineText(tag)).filter(Boolean))]
+        : [];
+    const normalizedRequestedTags = [...new Set(
+        (Array.isArray(requestedServiceTags) ? requestedServiceTags : [requestedServiceTags])
+            .map((tag) => normalizeSingleLineText(tag))
+            .filter(Boolean)
+    )];
+
+    if (!normalizedRequestedTags.length && !availableServiceTags.length) {
+        return [];
+    }
+
+    if (normalizedRequestedTags.some((tag) => !availableServiceTags.includes(tag))) {
+        throw new Error("Le ou les tags de service choisis ne correspondent pas à cette combinaison.");
+    }
+
+    if (normalizedRequestedTags.length > requestedQuantity) {
+        throw new Error("Le nombre de tags de service choisis dépasse la quantité vendue.");
+    }
+
+    const requiredTagCount = Math.min(requestedQuantity, availableServiceTags.length);
+    if (requiredTagCount > 0 && normalizedRequestedTags.length !== requiredTagCount) {
+        throw new Error(requiredTagCount === 1
+            ? "Veuillez choisir le tag de service vendu."
+            : `Veuillez choisir exactement ${requiredTagCount} tags de service.`);
+    }
+
+    return normalizedRequestedTags;
+}
+
 function getProductUnitPriceCents(product, selectedOptions = []) {
     const configurations = Array.isArray(product.valid_configurations)
         ? product.valid_configurations
@@ -783,7 +855,6 @@ function buildCart(req) {
             continue;
         }
 
-        const quantity = product.inventory > 0 ? Math.min(Math.max(1, rawItem.quantity), product.inventory) : Math.max(1, rawItem.quantity);
         const selectedOptions = Array.isArray(rawItem.selectedOptions)
             ? rawItem.selectedOptions
                 .map((option) => ({
@@ -793,12 +864,20 @@ function buildCart(req) {
                 .filter((option) => option.name && option.value)
             : [];
         let unitPriceCents = product.price_cents;
+        let availableQuantity = product.inventory;
 
         try {
             unitPriceCents = getProductUnitPriceCents(product, selectedOptions);
+            availableQuantity = getConfigurationAvailableQuantity(product, selectedOptions);
         } catch {
             continue;
         }
+
+        if (availableQuantity <= 0) {
+            continue;
+        }
+
+        const quantity = Math.min(Math.max(1, rawItem.quantity), availableQuantity);
 
         items.push({
             product_id: product.id,
@@ -813,7 +892,7 @@ function buildCart(req) {
             quantity,
             unit_price_cents: unitPriceCents,
             line_total_cents: unitPriceCents * quantity,
-            inventory: product.inventory,
+            inventory: availableQuantity,
         });
     }
 
@@ -2528,12 +2607,13 @@ app.post("/cart/add", (req, res) => {
 
     try {
         selectedOptions = readSelectedProductOptions(product, req.body);
+        ensureAvailableProductQuantity(product, selectedOptions, quantity);
     } catch (error) {
         setFlash(req, "error", error.message);
         return saveSessionAndRedirect(req, res, redirectTarget);
     }
 
-    upsertCartItem(req, productId, Math.min(quantity, product.inventory), selectedOptions);
+    upsertCartItem(req, productId, quantity, selectedOptions);
     setFlash(req, "success", `${product.name} a été ajouté au panier.`, {
         actionHref: "/cart",
         actionLabel: "Voir le panier",
@@ -2562,7 +2642,14 @@ app.post("/cart/update", (req, res) => {
         return saveSessionAndRedirect(req, res, "/cart");
     }
 
-    upsertCartItem(req, productId, Math.min(quantity, product.inventory), cartItem?.selectedOptions || []);
+    try {
+        ensureAvailableProductQuantity(product, cartItem?.selectedOptions || [], quantity);
+    } catch (error) {
+        setFlash(req, "error", error.message);
+        return saveSessionAndRedirect(req, res, "/cart");
+    }
+
+    upsertCartItem(req, productId, quantity, cartItem?.selectedOptions || []);
     setFlash(req, "success", "Le panier a été mis à jour.");
     saveSessionAndRedirect(req, res, "/cart");
 });
@@ -2665,6 +2752,11 @@ function readManualOrderInput(values) {
     const discountCents = discountRaw ? parseMoneyToCents(discountRaw, Number.NaN) : 0;
     const createdAt = normalizeOrderDateTimeField(values.order_created_at, new Date().toISOString());
     const promoCode = normalizePromoCode(values.promo_code);
+    const serviceTags = [...new Set(
+        (Array.isArray(values.service_tags) ? values.service_tags : [values.service_tags])
+            .map((tag) => normalizeSingleLineText(tag))
+            .filter(Boolean)
+    )];
 
     if (!customerName) {
         throw new Error("Le nom du client est obligatoire.");
@@ -2699,6 +2791,7 @@ function readManualOrderInput(values) {
         createdAt,
         discountCents,
         promoCode,
+        serviceTags,
     };
 }
 
@@ -2751,6 +2844,7 @@ function buildManualOrderDiscount(input, subtotalCents) {
 function buildManualOrderItem(product, input) {
     const selectedOptions = Array.isArray(input.selectedOptions) ? input.selectedOptions : [];
     const unitPriceCents = input.unitPriceOverrideCents ?? getProductUnitPriceCents(product, selectedOptions);
+    const availableQuantity = getConfigurationAvailableQuantity(product, selectedOptions);
 
     return {
         product_id: product.id,
@@ -2762,10 +2856,11 @@ function buildManualOrderItem(product, input) {
         short_description: product.short_description,
         image_url: product.image_url,
         selected_options: selectedOptions,
+        service_tags: Array.isArray(input.serviceTags) ? input.serviceTags : [],
         quantity: input.quantity,
         unit_price_cents: unitPriceCents,
         line_total_cents: unitPriceCents * input.quantity,
-        inventory: product.inventory,
+        inventory: availableQuantity,
     };
 }
 
@@ -3001,6 +3096,31 @@ app.get("/admin/account", requireAdmin, (req, res) => {
     render(res, "admin/account", {
         title: "Mon compte",
     });
+});
+
+app.get("/admin/categories", requireAdmin, (req, res) => {
+    render(res, "admin/categories", {
+        title: "Catégories",
+        categories: listAdminCategories(db),
+    });
+});
+
+app.post("/admin/categories/delete", requireAdmin, (req, res) => {
+    const categoryName = normalizeText(req.body.category);
+
+    if (!categoryName) {
+        setFlash(req, "error", "Catégorie invalide.");
+        return saveSessionAndRedirect(req, res, "/admin/categories");
+    }
+
+    const result = deleteProductCategory(db, categoryName);
+    if (!result.updatedProducts) {
+        setFlash(req, "error", "Aucun produit n'utilise cette catégorie.");
+        return saveSessionAndRedirect(req, res, "/admin/categories");
+    }
+
+    setFlash(req, "success", `La catégorie ${categoryName} a été retirée de ${result.updatedProducts} produit(s).`);
+    return saveSessionAndRedirect(req, res, "/admin/categories");
 });
 
 app.post("/admin/account", requireAdmin, (req, res) => {
@@ -3249,12 +3369,10 @@ app.post("/admin/orders/new", requireAdmin, (req, res) => {
             throw new Error("Ce produit est en rupture de stock.");
         }
 
-        if (input.quantity > product.inventory) {
-            throw new Error(`Stock insuffisant : ${product.inventory} unité(s) disponible(s).`);
-        }
-
         const selectedOptions = readSelectedProductOptions(product, req.body);
-        const item = buildManualOrderItem(product, { ...input, selectedOptions });
+        ensureAvailableProductQuantity(product, selectedOptions, input.quantity);
+        const serviceTags = validateRequestedServiceTags(product, selectedOptions, input.serviceTags, input.quantity);
+        const item = buildManualOrderItem(product, { ...input, selectedOptions, serviceTags });
         const discount = buildManualOrderDiscount(input, item.line_total_cents);
         const amountCents = Math.max(0, item.line_total_cents - discount.discountCents);
         const metadata = {
