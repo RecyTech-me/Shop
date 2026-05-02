@@ -67,10 +67,14 @@ const swissBitcoinPayWebhookSecret = String(env.SWISS_BITCOIN_PAY_WEBHOOK_SECRET
 const swissBitcoinPayWebhookSecretHeader = "x-recytech-webhook-secret";
 const orderViewTokenSecret = String(env.ORDER_VIEW_TOKEN_SECRET || env.SESSION_SECRET || "").trim();
 const loginAttemptTracker = new Map();
+const stripeIntentTracker = new Map();
 
 const LOGIN_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_RATE_LIMIT_BLOCK_MS = 15 * 60 * 1000;
 const LOGIN_RATE_LIMIT_MAX_ATTEMPTS = 5;
+const STRIPE_INTENT_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
+const STRIPE_INTENT_RATE_LIMIT_BLOCK_MS = 10 * 60 * 1000;
+const STRIPE_INTENT_RATE_LIMIT_MAX_ATTEMPTS = 20;
 
 app.disable("x-powered-by");
 app.set("trust proxy", 1);
@@ -112,6 +116,71 @@ function createImageUpload(uploadDir, maxFiles) {
 
 const productImageUpload = createImageUpload(productUploadDir, 13);
 const settingsImageUpload = createImageUpload(settingsUploadDir, 1);
+
+function detectStoredImageFormat(filePath) {
+    try {
+        const header = fs.readFileSync(filePath, { encoding: null, flag: "r" }).subarray(0, 16);
+
+        if (header.length >= 3 && header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff) {
+            return "jpeg";
+        }
+
+        if (
+            header.length >= 8 &&
+            header[0] === 0x89 &&
+            header[1] === 0x50 &&
+            header[2] === 0x4e &&
+            header[3] === 0x47 &&
+            header[4] === 0x0d &&
+            header[5] === 0x0a &&
+            header[6] === 0x1a &&
+            header[7] === 0x0a
+        ) {
+            return "png";
+        }
+
+        const gifHeader = header.subarray(0, 6).toString("ascii");
+        if (gifHeader === "GIF87a" || gifHeader === "GIF89a") {
+            return "gif";
+        }
+
+        if (
+            header.length >= 12 &&
+            header.subarray(0, 4).toString("ascii") === "RIFF" &&
+            header.subarray(8, 12).toString("ascii") === "WEBP"
+        ) {
+            return "webp";
+        }
+    } catch {
+        return "";
+    }
+
+    return "";
+}
+
+function cleanupUploadedFiles(files = []) {
+    for (const file of files) {
+        if (!file?.path) {
+            continue;
+        }
+
+        try {
+            fs.unlinkSync(file.path);
+        } catch {
+            // Ignore cleanup failures.
+        }
+    }
+}
+
+function validateStoredImageUploads(files = []) {
+    const invalidFiles = files.filter((file) => !detectStoredImageFormat(file.path));
+    if (!invalidFiles.length) {
+        return;
+    }
+
+    cleanupUploadedFiles(invalidFiles);
+    throw new Error("Une ou plusieurs images importées sont invalides ou corrompues.");
+}
 
 function formatMoney(cents, currency = "CHF") {
     return new Intl.NumberFormat("fr-CH", {
@@ -566,6 +635,16 @@ function withProductUploads(req, res, next) {
             return saveSessionAndRedirect(req, res, req.get("referer") || req.originalUrl || "/admin/products/new");
         }
 
+        try {
+            validateStoredImageUploads([
+                ...(req.files?.image_file || []),
+                ...(req.files?.gallery_files || []),
+            ]);
+        } catch (validationError) {
+            setFlash(req, "error", validationError.message);
+            return saveSessionAndRedirect(req, res, req.get("referer") || req.originalUrl || "/admin/products/new");
+        }
+
         req.productUploadsParsed = true;
         return next();
     });
@@ -583,6 +662,13 @@ function withSettingsUpload(req, res, next) {
     settingsImageUpload.single("hero_image_file")(req, res, (error) => {
         if (error) {
             setFlash(req, "error", error.message || "L'import de l'image a échoué.");
+            return saveSessionAndRedirect(req, res, req.get("referer") || req.originalUrl || "/admin/settings");
+        }
+
+        try {
+            validateStoredImageUploads(req.file ? [req.file] : []);
+        } catch (validationError) {
+            setFlash(req, "error", validationError.message);
             return saveSessionAndRedirect(req, res, req.get("referer") || req.originalUrl || "/admin/settings");
         }
 
@@ -1559,6 +1645,55 @@ function clearLoginFailures(req) {
     loginAttemptTracker.delete(getRequestIp(req));
 }
 
+function getStripeIntentRateLimitKey(req) {
+    return `${getRequestIp(req)}:${normalizeText(req.sessionID) || "anonymous"}`;
+}
+
+function getStripeIntentRateLimitState(req) {
+    const key = getStripeIntentRateLimitKey(req);
+    const now = Date.now();
+    const current = stripeIntentTracker.get(key);
+
+    if (!current) {
+        return { key, attempts: 0, blockedUntil: 0 };
+    }
+
+    if (current.blockedUntil && current.blockedUntil > now) {
+        return {
+            key,
+            attempts: current.attempts || STRIPE_INTENT_RATE_LIMIT_MAX_ATTEMPTS,
+            blockedUntil: current.blockedUntil,
+        };
+    }
+
+    if (!current.firstAttemptAt || (now - current.firstAttemptAt) > STRIPE_INTENT_RATE_LIMIT_WINDOW_MS) {
+        stripeIntentTracker.delete(key);
+        return { key, attempts: 0, blockedUntil: 0 };
+    }
+
+    return {
+        key,
+        attempts: current.attempts || 0,
+        blockedUntil: 0,
+    };
+}
+
+function registerStripeIntentAttempt(req) {
+    const state = getStripeIntentRateLimitState(req);
+    const now = Date.now();
+    const nextAttempts = state.attempts + 1;
+
+    stripeIntentTracker.set(state.key, {
+        firstAttemptAt: state.attempts ? stripeIntentTracker.get(state.key)?.firstAttemptAt || now : now,
+        attempts: nextAttempts,
+        blockedUntil: nextAttempts >= STRIPE_INTENT_RATE_LIMIT_MAX_ATTEMPTS ? now + STRIPE_INTENT_RATE_LIMIT_BLOCK_MS : 0,
+    });
+}
+
+function clearStripeIntentAttempts(req) {
+    stripeIntentTracker.delete(getStripeIntentRateLimitKey(req));
+}
+
 function getOrCreateCsrfToken(req) {
     if (!req.session.csrfToken) {
         req.session.csrfToken = crypto.randomBytes(24).toString("hex");
@@ -2206,6 +2341,13 @@ async function createOrReuseStripeIntent(req, values = {}) {
         return draft;
     }
 
+    const rateLimitState = getStripeIntentRateLimitState(req);
+    if (rateLimitState.blockedUntil > Date.now()) {
+        throw new Error("Trop de tentatives de paiement carte. Réessayez dans quelques minutes.");
+    }
+
+    registerStripeIntentAttempt(req);
+
     const paymentIntent = await stripe.paymentIntents.create({
         amount: amountCents,
         currency: "chf",
@@ -2318,7 +2460,7 @@ app.use(
         saveUninitialized: false,
         cookie: {
             httpOnly: true,
-            secure: /^https:\/\//i.test(env.BASE_URL || "") ? "auto" : false,
+            secure: "auto",
             sameSite: "lax",
             maxAge: SESSION_TTL_MS,
         },
@@ -2433,7 +2575,8 @@ app.post("/checkout/stripe/intent", async (req, res) => {
             });
         });
     } catch (error) {
-        res.status(400).json({ error: error.message });
+        const statusCode = /Trop de tentatives de paiement carte/i.test(error.message) ? 429 : 400;
+        res.status(statusCode).json({ error: error.message });
     }
 });
 
@@ -3543,20 +3686,25 @@ app.post("/admin/orders/:id/update", requireAdmin, (req, res) => {
     };
 
     let nextOrder = null;
-    if (status === "paid" && order.status !== "paid") {
-        const paidOrder = markOrderPaid(db, order.id, {
-            admin: nextAdminData,
-        });
-        nextOrder = updateOrderRecord(db, paidOrder.id, {
-            created_at: createdAt,
-            metadata: { admin: nextAdminData },
-        });
-    } else {
-        nextOrder = updateOrderRecord(db, order.id, {
-            status,
-            created_at: createdAt,
-            metadata: { admin: nextAdminData },
-        });
+    try {
+        if (status === "paid" && order.status !== "paid") {
+            const paidOrder = markOrderPaid(db, order.id, {
+                admin: nextAdminData,
+            });
+            nextOrder = updateOrderRecord(db, paidOrder.id, {
+                created_at: createdAt,
+                metadata: { admin: nextAdminData },
+            });
+        } else {
+            nextOrder = updateOrderRecord(db, order.id, {
+                status,
+                created_at: createdAt,
+                metadata: { admin: nextAdminData },
+            });
+        }
+    } catch (error) {
+        setFlash(req, "error", error.message);
+        return saveSessionAndRedirect(req, res, `/admin/orders/${order.id}`);
     }
 
     setFlash(req, "success", "Commande mise à jour.");
