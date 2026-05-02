@@ -11,6 +11,7 @@
         <div class="admin-actions">
             <a href="/admin/account" class="button button-secondary">Mon compte</a>
             <a href="/admin/promo-codes" class="button button-secondary">Codes promo</a>
+            <a href="/admin/categories" class="button button-secondary">Catégories</a>
             <% if (currentAdmin?.role === "superadmin") { %>
                 <a href="/admin/admins" class="button button-secondary">Gérer les admins</a>
             <% } %>
@@ -51,7 +52,10 @@
                 <p class="eyebrow">Catalogue</p>
                 <h2>Produits</h2>
             </div>
-            <a href="/admin/products/new" class="button">Ajouter un produit</a>
+            <div class="admin-actions">
+                <a href="/admin/categories" class="button button-secondary">Gérer les catégories</a>
+                <a href="/admin/products/new" class="button">Ajouter un produit</a>
+            </div>
         </div>
 
         <% if (!products.length) { %>

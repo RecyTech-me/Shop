@@ -113,7 +113,7 @@
                 method="post"
                 class="product-purchase-form"
                 data-product-configurator
-                data-valid-configurations="<%= JSON.stringify(product.valid_configurations || []) %>"
+                data-valid-configurations="<%= JSON.stringify(product.public_valid_configurations || product.valid_configurations || []) %>"
                 data-base-price-cents="<%= product.price_cents %>"
                 data-starting-price-cents="<%= product.starting_price_cents %>"
                 data-currency="<%= product.currency %>"

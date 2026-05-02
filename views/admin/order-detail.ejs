@@ -141,6 +141,9 @@
                                         <% }) %>
                                     </ul>
                                 <% } %>
+                                <% if (item.service_tags?.length) { %>
+                                    <p class="muted"><strong>Tags de service :</strong> <%= item.service_tags.join(', ') %></p>
+                                <% } %>
                             </div>
                             <strong><%= formatMoney(item.line_total_cents, order.currency) %></strong>
                         </article>

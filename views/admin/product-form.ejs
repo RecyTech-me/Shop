@@ -30,12 +30,12 @@
 
             <label>
                 Prix en CHF
-                <input type="number" name="price_chf" min="0" step="0.01" value="<%= product ? (product.price_cents / 100).toFixed(2) : '' %>" required>
+                <input type="number" name="price_chf" min="0" step="0.01" value="<%= product ? (product.price_cents / 100).toFixed(2) : '' %>">
             </label>
 
             <label>
                 Stock
-                <input type="number" name="inventory" min="0" step="1" value="<%= product?.inventory || 0 %>" required>
+                <input type="number" name="inventory" min="0" step="1" value="<%= product?.inventory || 0 %>">
             </label>
 
             <label>
@@ -64,7 +64,7 @@
 
             <label class="full-span">
                 Résumé court
-                <input type="text" name="short_description" value="<%= product?.short_description || '' %>" required>
+                <input type="text" name="short_description" value="<%= product?.short_description || '' %>">
             </label>
 
             <label class="full-span">
@@ -86,8 +86,8 @@
 
             <label class="full-span">
                 Combinaisons autorisées et prix
-                <textarea name="valid_configurations" rows="6" placeholder="État esthétique=Parfait ; Batterie=Bonne => 220.00&#10;État esthétique=Bon ; Batterie=Excellente => 240.00&#10;État esthétique=Bon ; Batterie=Bonne"><%= product?.valid_configurations_text || '' %></textarea>
-                <small>Laissez vide pour autoriser toutes les combinaisons possibles. Sinon, une ligne = une configuration disponible, au format `Option=valeur ; Option=valeur`. Ajoutez `=> 249.00` pour définir le prix final de cette configuration; sans prix, le prix du produit est utilisé.</small>
+                <textarea name="valid_configurations" rows="6" placeholder="État esthétique=Parfait ; Batterie=Bonne ; stock=3 ; tags=RT-001 | RT-002 | RT-003 => 220.00&#10;État esthétique=Bon ; Batterie=Excellente ; stock=1 ; tags=RT-004 => 240.00&#10;État esthétique=Bon ; Batterie=Bonne"><%= product?.valid_configurations_text || '' %></textarea>
+                <small>Laissez vide pour autoriser toutes les combinaisons possibles. Sinon, une ligne = une configuration disponible, au format `Option=valeur ; Option=valeur`. Ajoutez `stock=3` pour limiter le nombre d'unités de cette combinaison, `tags=RT-001 | RT-002` pour rattacher un ou plusieurs tags de service, et `=> 249.00` pour définir le prix final; sans prix, le prix du produit est utilisé.</small>
             </label>
 
             <label class="full-span">

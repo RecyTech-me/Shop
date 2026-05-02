@@ -1,0 +1,61 @@
+<%- include("../partials/head", { title }) %>
+<%- include("../partials/header") %>
+<%- include("../partials/flash") %>
+
+<main class="shell section-stack admin-page">
+    <section class="section-block">
+        <div class="section-heading admin-section-heading">
+            <div>
+                <p class="eyebrow">Administration</p>
+                <h1>Catégories</h1>
+            </div>
+            <a href="/admin" class="button button-secondary">Retour au tableau de bord</a>
+        </div>
+
+        <% if (!categories.length) { %>
+            <div class="empty-state compact">
+                <p>Aucune catégorie enregistrée.</p>
+            </div>
+        <% } else { %>
+            <div class="table-wrap table-wrap-admin">
+                <table class="admin-table">
+                    <thead>
+                        <tr>
+                            <th>Nom</th>
+                            <th>Produits</th>
+                            <th>Publiés</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <% categories.forEach((category) => { %>
+                            <tr>
+                                <td data-label="Nom"><strong><%= category.name %></strong></td>
+                                <td data-label="Produits"><%= category.product_count %></td>
+                                <td data-label="Publiés"><%= category.published_product_count %></td>
+                                <td class="order-actions-cell" data-label="Actions">
+                                    <div class="row-actions">
+                                        <form
+                                            action="/admin/categories/delete"
+                                            method="post"
+                                            data-confirm-form
+                                            data-confirm-title="Supprimer la catégorie"
+                                            data-confirm-message="Cette catégorie sera retirée de tous les produits concernés."
+                                            data-confirm-submit="Supprimer"
+                                        >
+                                            <%- include("../partials/csrf-field") %>
+                                            <input type="hidden" name="category" value="<%= category.name %>">
+                                            <button type="submit">Supprimer</button>
+                                        </form>
+                                    </div>
+                                </td>
+                            </tr>
+                        <% }) %>
+                    </tbody>
+                </table>
+            </div>
+        <% } %>
+    </section>
+</main>
+
+<%- include("../partials/footer") %>
