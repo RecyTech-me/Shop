@@ -15,6 +15,15 @@
         <form action="<%= formAction %>" method="post" class="admin-form-grid" enctype="multipart/form-data">
             <%- include("../partials/csrf-field") %>
             <label>
+                Type
+                <select name="product_kind">
+                    <option value="product" <%= (product?.product_kind || "product") === "product" ? "selected" : "" %>>Produit simple</option>
+                    <option value="pack" <%= product?.product_kind === "pack" ? "selected" : "" %>>Pack</option>
+                </select>
+                <small>Un pack est vendu comme un seul article, mais son stock est calculé automatiquement depuis les produits qu'il contient.</small>
+            </label>
+
+            <label>
                 Nom du produit
                 <input type="text" name="name" value="<%= product?.name || '' %>" required>
             </label>
@@ -36,6 +45,7 @@
             <label>
                 Stock
                 <input type="number" name="inventory" min="0" step="1" value="<%= product?.inventory ?? 0 %>">
+                <small>Ignoré pour les packs : leur stock provient automatiquement de la composition ci-dessous.</small>
             </label>
 
             <label>
@@ -76,6 +86,12 @@
                 Notes privées admin
                 <textarea name="admin_notes" rows="5" placeholder="État interne, accessoires manquants, diagnostic, suivi de préparation..."><%= product?.admin_notes || '' %></textarea>
                 <small>Visible uniquement dans l'administration. Ces notes ne sont pas affichées sur la boutique.</small>
+            </label>
+
+            <label class="full-span">
+                Composition du pack
+                <textarea name="bundle_items" rows="6" placeholder="dell-latitude-e5550 ; qty=1&#10;clavier-dell-y-u0003-del ; qty=1&#10;souris-dell ; qty=1"><%= product?.bundle_items_text || '' %></textarea>
+                <small>Uniquement pour les packs. Une ligne par produit : `slug ; qty=2 ; Option=Valeur`. Vous pouvez aussi utiliser `#123` avec l'identifiant du produit. Les packs imbriqués ne sont pas autorisés.</small>
             </label>
 
             <label class="full-span">

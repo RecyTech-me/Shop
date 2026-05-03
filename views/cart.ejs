@@ -50,6 +50,18 @@
                                         <% }) %>
                                     </ul>
                                 <% } %>
+                                <% if (item.is_pack && item.bundle_items?.length) { %>
+                                    <ul class="cart-option-list">
+                                        <% item.bundle_items.forEach((bundleItem) => { %>
+                                            <li>
+                                                <strong>Contenu :</strong> <%= bundleItem.name %> x<%= bundleItem.quantity %>
+                                                <% if (bundleItem.selected_options?.length) { %>
+                                                    (<%= bundleItem.selected_options.map((option) => `${option.name}: ${option.value}`).join(", ") %>)
+                                                <% } %>
+                                            </li>
+                                        <% }) %>
+                                    </ul>
+                                <% } %>
                                 <strong class="cart-price"><%= formatMoney(item.unit_price_cents) %></strong>
                             </div>
                             <div class="cart-item-actions">
