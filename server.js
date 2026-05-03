@@ -18,6 +18,7 @@ const {
     createProduct,
     updateProduct,
     deleteProduct,
+    listPacksContainingProduct,
     listPublishedProducts,
     listFeaturedProducts,
     listAdminProducts,
@@ -719,6 +720,7 @@ function buildProductFormState(input = {}, baseProduct = null) {
 
     return {
         ...(baseProduct || {}),
+        product_kind: input.product_kind ?? baseProduct?.product_kind ?? "product",
         name: input.name ?? baseProduct?.name ?? "",
         categories_text: input.categories ?? baseProduct?.categories_text ?? baseProduct?.category ?? "",
         price_chf: rawPrice ?? derivedPrice,
@@ -730,6 +732,7 @@ function buildProductFormState(input = {}, baseProduct = null) {
         admin_notes: input.admin_notes ?? baseProduct?.admin_notes ?? "",
         option_groups_text: input.option_groups ?? baseProduct?.option_groups_text ?? "",
         valid_configurations_text: input.valid_configurations ?? baseProduct?.valid_configurations_text ?? "",
+        bundle_items_text: input.bundle_items ?? baseProduct?.bundle_items_text ?? "",
         info_rows_text: input.info_rows ?? baseProduct?.info_rows_text ?? "",
         featured: input.featured ? 1 : 0,
         published: input.published ? 1 : 0,
@@ -769,6 +772,7 @@ function serializePublicProduct(req, product) {
     return {
         id: product.id,
         slug: product.slug,
+        type: product.is_pack ? "pack" : "product",
         name: product.name,
         short_description: product.short_description || "",
         description: product.description || "",
@@ -787,6 +791,15 @@ function serializePublicProduct(req, product) {
             name: category,
             slug: category.toLowerCase().replace(/\s+/g, "-"),
         })),
+        bundle_items: product.is_pack
+            ? (product.bundle_items || []).map((item) => ({
+                product_id: item.product_id,
+                slug: item.slug,
+                name: item.name,
+                quantity: item.quantity,
+                selected_options: item.selected_options || [],
+            }))
+            : [],
         featured: Boolean(product.featured),
         stock_quantity: Math.max(0, Number(product.inventory || 0)),
         stock_status: product.inventory > 0 ? "instock" : "outofstock",
@@ -938,6 +951,10 @@ function validateRequestedServiceTags(product, selectedOptions = [], requestedSe
 }
 
 function getProductUnitPriceCents(product, selectedOptions = []) {
+    if (product?.is_pack) {
+        return product.price_cents;
+    }
+
     const configurations = Array.isArray(product.valid_configurations)
         ? product.valid_configurations
         : [];
@@ -954,6 +971,23 @@ function getProductUnitPriceCents(product, selectedOptions = []) {
     return Number.isInteger(configuration.price_cents)
         ? configuration.price_cents
         : product.price_cents;
+}
+
+function snapshotPackBundleItems(product) {
+    if (!product?.is_pack || !Array.isArray(product.bundle_items)) {
+        return [];
+    }
+
+    return product.bundle_items.map((item) => ({
+        product_id: item.product_id,
+        slug: item.slug,
+        name: item.name,
+        quantity: item.quantity,
+        selected_options: Array.isArray(item.selected_options)
+            ? item.selected_options.map((option) => ({ ...option }))
+            : [],
+        service_tags: [],
+    }));
 }
 
 function buildCart(req) {
@@ -995,11 +1029,14 @@ function buildCart(req) {
             item_key: rawItem.itemKey || `${product.id}:${JSON.stringify(selectedOptions)}`,
             slug: product.slug,
             name: product.name,
+            product_kind: product.product_kind,
+            is_pack: Boolean(product.is_pack),
             category: product.category,
             categories: productCategoryList(product),
             short_description: product.short_description,
             image_url: product.image_url,
             selected_options: selectedOptions,
+            bundle_items: snapshotPackBundleItems(product),
             quantity,
             unit_price_cents: unitPriceCents,
             line_total_cents: unitPriceCents * quantity,
@@ -3019,12 +3056,15 @@ function buildManualOrderItem(product, input) {
         item_key: `manual:${product.id}:${JSON.stringify(selectedOptions)}:${Date.now()}`,
         slug: product.slug,
         name: product.name,
+        product_kind: product.product_kind,
+        is_pack: Boolean(product.is_pack),
         category: product.category,
         categories: productCategoryList(product),
         short_description: product.short_description,
         image_url: product.image_url,
         selected_options: selectedOptions,
         service_tags: Array.isArray(input.serviceTags) ? input.serviceTags : [],
+        bundle_items: snapshotPackBundleItems(product),
         quantity: input.quantity,
         unit_price_cents: unitPriceCents,
         line_total_cents: unitPriceCents * input.quantity,
@@ -3836,7 +3876,14 @@ app.post("/admin/products/:id/edit", requireAdmin, withProductUploads, (req, res
 });
 
 app.post("/admin/products/:id/delete", requireAdmin, (req, res) => {
-    deleteProduct(db, Number.parseInt(req.params.id, 10));
+    const productId = Number.parseInt(req.params.id, 10);
+    const referencingPacks = listPacksContainingProduct(db, productId);
+    if (referencingPacks.length) {
+        setFlash(req, "error", `Suppression impossible : ce produit est utilisé dans ${referencingPacks.length} pack(s).`);
+        return saveSessionAndRedirect(req, res, `/admin/products/${productId}/edit`);
+    }
+
+    deleteProduct(db, productId);
     setFlash(req, "success", "Produit supprimé.");
     saveSessionAndRedirect(req, res, "/admin");
 });

@@ -89,6 +89,9 @@
             <% const productCategories = product.categories?.length ? product.categories : (product.category ? [product.category] : []); %>
             <p class="eyebrow"><%= productCategories.length ? `Catégories : ${productCategories.join(", ")}` : "Produit" %></p>
             <h1><%= product.name %></h1>
+            <% if (product.is_pack) { %>
+                <p class="muted">Pack composé de plusieurs produits vendus ensemble.</p>
+            <% } %>
             <p
                 class="price-large"
                 data-product-price
@@ -105,7 +108,7 @@
             <p class="product-intro"><%= product.short_description %></p>
 
             <div class="detail-panel product-highlight-list">
-                <p><strong>Stock :</strong> <%= product.inventory %> unité(s)</p>
+                <p><strong>Stock :</strong> <%= product.inventory %> unité(s)<%= product.is_pack ? " disponibles selon les composants du pack" : "" %></p>
             </div>
 
             <form
@@ -172,6 +175,25 @@
                         <div class="product-info-row">
                             <strong><%= row.label %></strong>
                             <span><%= row.value %></span>
+                        </div>
+                    <% }) %>
+                </div>
+            </article>
+        <% } %>
+
+        <% if (product.is_pack && product.bundle_items?.length) { %>
+            <article class="detail-panel product-info-panel">
+                <h2>Contenu du pack</h2>
+                <div class="product-info-table">
+                    <% product.bundle_items.forEach((item) => { %>
+                        <div class="product-info-row">
+                            <strong><%= item.name %></strong>
+                            <span>
+                                x<%= item.quantity %>
+                                <% if (item.selected_options?.length) { %>
+                                    · <%= item.selected_options.map((option) => `${option.name}: ${option.value}`).join(", ") %>
+                                <% } %>
+                            </span>
                         </div>
                     <% }) %>
                 </div>

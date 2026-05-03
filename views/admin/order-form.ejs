@@ -61,7 +61,7 @@
                                 <%= product.inventory <= 0 ? "disabled" : "" %>
                                 <%= product.id === manualOrderDefaultProduct?.id ? "selected" : "" %>
                             >
-                                <%= productCategories ? `${productCategories} - ` : "" %><%= product.name %> - <%= formatMoney(product.price_cents, product.currency) %> - stock <%= product.inventory %>
+                                <%= productCategories ? `${productCategories} - ` : "" %><%= product.is_pack ? "[Pack] " : "" %><%= product.name %> - <%= formatMoney(product.price_cents, product.currency) %> - stock <%= product.inventory %>
                             </option>
                         <% }) %>
                     </select>

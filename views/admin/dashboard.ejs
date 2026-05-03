@@ -84,6 +84,9 @@
                             <tr>
                                 <td data-label="Nom">
                                     <strong><%= product.name %></strong>
+                                    <% if (product.is_pack) { %>
+                                        <span class="chip chip-info">Pack</span>
+                                    <% } %>
                                     <% if (product.admin_notes) { %>
                                         <div class="muted">Note privée : <%= product.admin_notes.length > 90 ? `${product.admin_notes.slice(0, 90)}...` : product.admin_notes %></div>
                                     <% } %>
