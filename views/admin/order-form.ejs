@@ -136,6 +136,12 @@
                 </label>
 
                 <label>
+                    Montant réellement reçu (CHF)
+                    <input type="number" name="actual_received_chf" min="0" step="0.01" placeholder="Laisser vide = total dû">
+                    <small>Utilisé dans les statistiques si le client paie un peu plus que le montant dû.</small>
+                </label>
+
+                <label>
                     Code promo utilisé
                     <input type="text" name="promo_code" list="manual-order-promo-codes" placeholder="facultatif" autocapitalize="characters" autocomplete="off">
                     <small>Si aucune remise manuelle n'est saisie, le code valide calcule la remise automatiquement.</small>

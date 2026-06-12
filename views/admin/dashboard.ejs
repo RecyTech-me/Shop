@@ -37,7 +37,7 @@
             <strong><%= stats.paidOrders %></strong>
         </article>
         <article class="admin-stat-card">
-            <span>Chiffre d'affaires</span>
+            <span>Chiffre d'affaires encaissé</span>
             <strong><%= formatMoney(stats.revenueCents) %></strong>
         </article>
         <article class="admin-stat-card">
@@ -156,7 +156,13 @@
                                 <td data-label="Date"><%= formatDateTime(order.created_at) %></td>
                                 <td data-label="Paiement"><%= getOrderProviderLabel(order.provider) %></td>
                                 <td data-label="Client"><%= order.customer_name %></td>
-                                <td data-label="Montant"><%= formatMoney(order.amount_cents, order.currency) %></td>
+                                <td data-label="Montant">
+                                    <%= formatMoney(order.amount_cents, order.currency) %>
+                                    <% const receivedAmountCents = getOrderReceivedAmountCents(order); %>
+                                    <% if (receivedAmountCents !== null && receivedAmountCents !== order.amount_cents) { %>
+                                        <div class="muted">Reçu : <%= formatMoney(receivedAmountCents, order.currency) %></div>
+                                    <% } %>
+                                </td>
                                 <td data-label="Statut"><%= getOrderStatusLabel(order.status) %></td>
                                 <td class="order-actions-cell" data-label="Actions">
                                     <div class="row-actions">

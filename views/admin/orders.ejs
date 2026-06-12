@@ -65,7 +65,13 @@
                                     <div class="muted"><%= order.customer_email %></div>
                                 </td>
                                 <td data-label="Paiement"><%= getOrderProviderLabel(order.provider) %></td>
-                                <td data-label="Montant"><%= formatMoney(order.amount_cents, order.currency) %></td>
+                                <td data-label="Montant">
+                                    <%= formatMoney(order.amount_cents, order.currency) %>
+                                    <% const receivedAmountCents = getOrderReceivedAmountCents(order); %>
+                                    <% if (receivedAmountCents !== null && receivedAmountCents !== order.amount_cents) { %>
+                                        <div class="muted">Reçu : <%= formatMoney(receivedAmountCents, order.currency) %></div>
+                                    <% } %>
+                                </td>
                                 <td data-label="Statut"><span class="chip chip-<%= getOrderStatusTone(order.status) %>"><%= getOrderStatusLabel(order.status) %></span></td>
                                 <td class="order-actions-cell" data-label="Actions">
                                     <div class="row-actions">

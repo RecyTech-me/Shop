@@ -1578,6 +1578,42 @@ async function fetchSwissBitcoinPayInvoice(invoiceId) {
     return response.json();
 }
 
+function getOrderPaymentData(order) {
+    return order?.metadata?.payment && typeof order.metadata.payment === "object"
+        ? order.metadata.payment
+        : {};
+}
+
+function getOrderReceivedAmountCents(order) {
+    const amountCents = Number.parseInt(getOrderPaymentData(order).received_amount_cents, 10);
+    return Number.isInteger(amountCents) && amountCents >= 0 ? amountCents : null;
+}
+
+function getOrderReceivedDeltaCents(order) {
+    const receivedAmountCents = getOrderReceivedAmountCents(order);
+    return receivedAmountCents === null ? null : receivedAmountCents - (order.amount_cents || 0);
+}
+
+function canEditOrderReceivedAmount(order) {
+    return ["cash", "transfer", "manual"].includes(order?.provider);
+}
+
+function readReceivedPaymentInput(values, order) {
+    const currentPaymentData = getOrderPaymentData(order);
+    const nextPaymentData = { ...currentPaymentData };
+    const amountCents = parseOptionalMoneyToCents(values.actual_received_chf, "Montant réellement reçu");
+
+    if (amountCents === null) {
+        delete nextPaymentData.received_amount_cents;
+        delete nextPaymentData.received_amount_recorded_at;
+    } else {
+        nextPaymentData.received_amount_cents = amountCents;
+        nextPaymentData.received_amount_recorded_at = currentPaymentData.received_amount_recorded_at || new Date().toISOString();
+    }
+
+    return nextPaymentData;
+}
+
 function getViewHelpers() {
     return {
         formatMoney,
@@ -1591,6 +1627,9 @@ function getViewHelpers() {
         getAdminRoleLabel,
         getPromoCodeStatus,
         getPromoCodeStatusTone,
+        getOrderReceivedAmountCents,
+        getOrderReceivedDeltaCents,
+        canEditOrderReceivedAmount,
     };
 }
 
@@ -1897,6 +1936,20 @@ function parseMoneyToCents(value, fallback = 0) {
     }
 
     return Math.round(parsed * 100);
+}
+
+function parseOptionalMoneyToCents(value, fieldLabel) {
+    const rawValue = String(value || "").trim();
+    if (!rawValue) {
+        return null;
+    }
+
+    const amountCents = parseMoneyToCents(rawValue, Number.NaN);
+    if (!Number.isFinite(amountCents) || amountCents < 0) {
+        throw new Error(`${fieldLabel} invalide.`);
+    }
+
+    return amountCents;
 }
 
 function normalizeDateField(value) {
@@ -2955,6 +3008,7 @@ function readManualOrderInput(values) {
     const unitPriceOverrideCents = priceOverrideRaw ? parseMoneyToCents(priceOverrideRaw, Number.NaN) : null;
     const discountRaw = String(values.discount_chf || "").trim();
     const discountCents = discountRaw ? parseMoneyToCents(discountRaw, Number.NaN) : 0;
+    const receivedAmountCents = parseOptionalMoneyToCents(values.actual_received_chf, "Montant réellement reçu");
     const createdAt = normalizeOrderDateTimeField(values.order_created_at, new Date().toISOString());
     const promoCode = normalizePromoCode(values.promo_code);
     const serviceTags = [...new Set(
@@ -2995,6 +3049,7 @@ function readManualOrderInput(values) {
         unitPriceOverrideCents,
         createdAt,
         discountCents,
+        receivedAmountCents,
         promoCode,
         serviceTags,
     };
@@ -3601,6 +3656,12 @@ app.post("/admin/orders/new", requireAdmin, (req, res) => {
                 payment_label: input.paymentLabel,
                 discount_cents: discount.discountCents,
             },
+            payment: input.receivedAmountCents === null
+                ? {}
+                : {
+                    received_amount_cents: input.receivedAmountCents,
+                    received_amount_recorded_at: new Date().toISOString(),
+                },
             admin: {
                 internal_note: input.internalNote,
                 customer_note: "",
@@ -3727,19 +3788,27 @@ app.post("/admin/orders/:id/update", requireAdmin, (req, res) => {
 
     let nextOrder = null;
     try {
+        const nextPaymentData = canEditOrderReceivedAmount(order)
+            ? readReceivedPaymentInput(req.body, order)
+            : getOrderPaymentData(order);
+        const metadataUpdate = {
+            admin: nextAdminData,
+            payment: nextPaymentData,
+        };
+
         if (status === "paid" && order.status !== "paid") {
             const paidOrder = markOrderPaid(db, order.id, {
-                admin: nextAdminData,
+                ...metadataUpdate,
             });
             nextOrder = updateOrderRecord(db, paidOrder.id, {
                 created_at: createdAt,
-                metadata: { admin: nextAdminData },
+                metadata: metadataUpdate,
             });
         } else {
             nextOrder = updateOrderRecord(db, order.id, {
                 status,
                 created_at: createdAt,
-                metadata: { admin: nextAdminData },
+                metadata: metadataUpdate,
             });
         }
     } catch (error) {
