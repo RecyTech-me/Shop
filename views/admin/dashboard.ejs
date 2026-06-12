@@ -48,6 +48,67 @@
             <span>Codes promo actifs</span>
             <strong><%= stats.activePromoCodes %></strong>
         </article>
+        <article class="admin-stat-card">
+            <span>Avis à valider</span>
+            <strong><%= stats.pendingReviews %></strong>
+        </article>
+    </section>
+
+    <section class="section-block" id="reviews">
+        <div class="section-heading admin-section-heading">
+            <div>
+                <p class="eyebrow">Avis clients</p>
+                <h2>À valider</h2>
+            </div>
+        </div>
+
+        <% if (!pendingReviews.length) { %>
+            <div class="empty-state compact">
+                <p>Aucun avis en attente.</p>
+            </div>
+        <% } else { %>
+            <div class="review-moderation-list">
+                <% pendingReviews.forEach((review) => { %>
+                    <article class="detail-panel review-moderation-card">
+                        <div class="review-card-header">
+                            <div>
+                                <strong><%= review.reviewer_name %></strong>
+                                <p class="muted">Avis boutique · <%= formatDateTime(review.created_at) %></p>
+                                <% if (review.reviewer_email) { %>
+                                    <p class="muted"><%= review.reviewer_email %></p>
+                                <% } %>
+                            </div>
+                            <div class="review-stars" aria-label="<%= review.rating %> sur 5">
+                                <% for (let star = 1; star <= 5; star += 1) { %>
+                                    <span class="<%= star <= review.rating ? 'is-filled' : '' %>">★</span>
+                                <% } %>
+                            </div>
+                        </div>
+                        <% if (review.title) { %>
+                            <h3><%= review.title %></h3>
+                        <% } %>
+                        <p><%= review.body %></p>
+                        <div class="form-actions">
+                            <form action="/admin/reviews/<%= review.id %>/approve" method="post">
+                                <%- include("../partials/csrf-field") %>
+                                <button type="submit" class="button button-small">Publier</button>
+                            </form>
+                            <form
+                                action="/admin/reviews/<%= review.id %>/delete"
+                                method="post"
+                                data-confirm-form
+                                data-confirm-title="Supprimer l'avis"
+                                data-confirm-message="Cet avis sera supprimé définitivement."
+                                data-confirm-submit="Supprimer"
+                            >
+                                <%- include("../partials/csrf-field") %>
+                                <button type="submit" class="button button-ghost button-small">Supprimer</button>
+                            </form>
+                        </div>
+                    </article>
+                <% }) %>
+            </div>
+        <% } %>
     </section>
 
     <section class="section-block">
