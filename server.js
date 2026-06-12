@@ -34,6 +34,12 @@ const {
     createAdmin: createAdminUser,
     updateAdmin: updateAdminUser,
     deleteAdmin: deleteAdminUser,
+    listApprovedSiteReviews,
+    getSiteReviewSummary,
+    listPendingSiteReviews,
+    createSiteReview,
+    approveSiteReview,
+    deleteSiteReview,
     listPromoCodes,
     getPromoCodeById,
     getPromoCodeByCode,
@@ -313,12 +319,13 @@ function getLegalPages(settings) {
                     title: "Ce que nous collectons et stockons",
                     paragraphs: [
                         "Pendant votre visite et lors d'une commande, nous collectons uniquement les informations nécessaires au fonctionnement de la boutique et à l'exécution du contrat.",
-                        "Le site ne propose actuellement ni compte client, ni commentaires publics, ni système d'avis. Il ne stocke pas non plus les données complètes de carte bancaire sur ses propres serveurs.",
+                        "Le site ne propose actuellement pas de compte client. Les avis que vous envoyez sur la boutique sont modérés avant publication. Il ne stocke pas non plus les données complètes de carte bancaire sur ses propres serveurs.",
                     ],
                     bullets: [
                         "le contenu du panier et certaines préférences de commande, au moyen d'une session technique et de cookies strictement nécessaires au fonctionnement du site",
                         "les coordonnées de contact et de commande : nom, e-mail, adresses de facturation et de livraison, téléphone si vous le fournissez, notes de commande",
                         "les détails de commande : produits commandés, mode de livraison, mode de paiement, montant, numéro de commande et statut de paiement",
+                        "les avis envoyés sur la boutique : note, nom affiché, titre, message et e-mail si vous le fournissez",
                         "les références techniques transmises par les prestataires de paiement lorsque vous choisissez Stripe, Swiss Bitcoin Pay ou le virement bancaire",
                     ],
                 },
@@ -1663,6 +1670,43 @@ function normalizeSingleLineText(value) {
     return normalizeText(value).replace(/[\r\n]+/g, " ");
 }
 
+function truncateText(value, maxLength) {
+    const text = normalizeText(value);
+    return text.length > maxLength ? text.slice(0, maxLength).trim() : text;
+}
+
+function readSiteReviewInput(values) {
+    const rating = Number.parseInt(values.rating, 10);
+    const reviewerName = truncateText(values.reviewer_name, 80);
+    const reviewerEmail = normalizeSingleLineText(values.reviewer_email).slice(0, 160);
+    const title = truncateText(values.title, 120);
+    const body = truncateText(values.body, 1200);
+
+    if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+        throw new Error("Choisissez une note entre 1 et 5.");
+    }
+
+    if (!reviewerName) {
+        throw new Error("Votre nom est obligatoire.");
+    }
+
+    if (reviewerEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(reviewerEmail)) {
+        throw new Error("Adresse e-mail invalide.");
+    }
+
+    if (body.length < 10) {
+        throw new Error("Votre avis doit contenir au moins 10 caractères.");
+    }
+
+    return {
+        rating,
+        reviewer_name: reviewerName,
+        reviewer_email: reviewerEmail,
+        title,
+        body,
+    };
+}
+
 function getRequestIp(req) {
     return normalizeText(req.ip || req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "unknown");
 }
@@ -2819,6 +2863,8 @@ app.get("/", (req, res) => {
         catalogueFilters: catalogue.view,
         catalogueCategories: listProductCategories(db, { publishedOnly: true }),
         hasCatalogueFilters: catalogue.hasActiveFilters,
+        reviews: listApprovedSiteReviews(db),
+        reviewSummary: getSiteReviewSummary(db),
     });
 });
 
@@ -2842,6 +2888,18 @@ app.get("/products/:slug", (req, res) => {
         title: product.name,
         product,
     });
+});
+
+app.post("/reviews", (req, res) => {
+    try {
+        const input = readSiteReviewInput(req.body);
+        createSiteReview(db, input);
+        setFlash(req, "success", "Merci pour votre avis. Il sera affiché après validation.");
+    } catch (error) {
+        setFlash(req, "error", error.message);
+    }
+
+    return saveSessionAndRedirect(req, res, "/#reviews");
 });
 
 app.post("/cart/add", (req, res) => {
@@ -3352,7 +3410,29 @@ app.get("/admin", requireAdmin, (req, res) => {
         stats: getDashboardStats(db),
         products: listAdminProducts(db),
         recentOrders: listRecentOrders(db),
+        pendingReviews: listPendingSiteReviews(db),
     });
+});
+
+app.post("/admin/reviews/:id/approve", requireAdmin, (req, res) => {
+    const reviewId = Number.parseInt(req.params.id, 10);
+    const review = approveSiteReview(db, reviewId);
+
+    if (!review) {
+        setFlash(req, "error", "Avis introuvable.");
+    } else {
+        setFlash(req, "success", "Avis publié.");
+    }
+
+    return saveSessionAndRedirect(req, res, "/admin#reviews");
+});
+
+app.post("/admin/reviews/:id/delete", requireAdmin, (req, res) => {
+    const reviewId = Number.parseInt(req.params.id, 10);
+    const deleted = deleteSiteReview(db, reviewId);
+
+    setFlash(req, deleted ? "success" : "error", deleted ? "Avis supprimé." : "Avis introuvable.");
+    return saveSessionAndRedirect(req, res, "/admin#reviews");
 });
 
 app.get("/admin/account", requireAdmin, (req, res) => {

@@ -1232,6 +1232,100 @@ button,
     font-weight: 700;
 }
 
+.review-section {
+    display: grid;
+    gap: 1.25rem;
+}
+
+.review-summary {
+    display: grid;
+    justify-items: end;
+    gap: 0.1rem;
+    color: var(--text-soft);
+}
+
+.review-summary strong {
+    color: var(--text);
+    font-family: var(--font-price);
+    font-size: 1.45rem;
+}
+
+.review-list,
+.review-moderation-list {
+    display: grid;
+    gap: 1rem;
+}
+
+.review-card,
+.review-form {
+    border: 1px solid rgba(36, 76, 56, 0.14);
+    border-radius: var(--radius-lg);
+    background: rgba(255, 255, 255, 0.72);
+}
+
+.review-card {
+    padding: 1.1rem;
+}
+
+.review-card-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: start;
+}
+
+.review-card-header p,
+.review-card h3,
+.review-card p,
+.review-form h3,
+.review-moderation-card h3 {
+    margin: 0;
+}
+
+.review-card h3,
+.review-form h3,
+.review-moderation-card h3 {
+    font-family: "Raleway-SemiBold", sans-serif;
+}
+
+.review-card > * + * {
+    margin-top: 0.75rem;
+}
+
+.review-stars {
+    display: inline-flex;
+    gap: 0.12rem;
+    color: rgba(36, 76, 56, 0.22);
+    font-size: 1.1rem;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.review-stars .is-filled {
+    color: #c28a19;
+}
+
+.review-form {
+    display: grid;
+    gap: 1rem;
+    padding: 1.25rem;
+}
+
+.review-form-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1rem;
+}
+
+.review-moderation-card {
+    display: grid;
+    gap: 0.85rem;
+}
+
+.review-moderation-card .form-actions form {
+    margin: 0;
+}
+
 .cart-option-list {
     margin: 0.35rem 0 0;
     padding-left: 1rem;
@@ -2170,6 +2264,7 @@ th {
     .admin-stat-grid,
     .payment-grid,
     .admin-form-grid,
+    .review-form-grid,
     .admin-order-summary-grid,
     .footer-grid {
         grid-template-columns: 1fr 1fr;
@@ -2269,6 +2364,7 @@ th {
 
     .admin-stat-grid,
     .admin-form-grid,
+    .review-form-grid,
     .admin-order-summary-grid,
     .footer-grid {
         grid-template-columns: 1fr;

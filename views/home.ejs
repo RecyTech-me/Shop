@@ -148,6 +148,90 @@
             </div>
         <% } %>
     </section>
+
+    <section class="section-block review-section" id="reviews">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Avis clients</p>
+                <h2>Ce qu'ils pensent de RecyTech</h2>
+            </div>
+            <% if (reviewSummary?.count) { %>
+                <div class="review-summary">
+                    <strong><%= reviewSummary.averageRating.toFixed(1) %>/5</strong>
+                    <span><%= reviewSummary.count %> avis publié<%= reviewSummary.count > 1 ? "s" : "" %></span>
+                </div>
+            <% } %>
+        </div>
+
+        <% if (reviews?.length) { %>
+            <div class="review-list">
+                <% reviews.forEach((review) => { %>
+                    <article class="review-card">
+                        <div class="review-card-header">
+                            <div>
+                                <strong><%= review.reviewer_name %></strong>
+                                <p class="muted"><%= formatDateTime(review.created_at) %></p>
+                            </div>
+                            <div class="review-stars" aria-label="<%= review.rating %> sur 5">
+                                <% for (let star = 1; star <= 5; star += 1) { %>
+                                    <span class="<%= star <= review.rating ? 'is-filled' : '' %>">★</span>
+                                <% } %>
+                            </div>
+                        </div>
+                        <% if (review.title) { %>
+                            <h3><%= review.title %></h3>
+                        <% } %>
+                        <p><%= review.body %></p>
+                    </article>
+                <% }) %>
+            </div>
+        <% } else { %>
+            <div class="empty-state compact">
+                <p>Aucun avis publié pour l'instant.</p>
+            </div>
+        <% } %>
+
+        <form action="/reviews" method="post" class="review-form">
+            <%- include("partials/csrf-field") %>
+            <div>
+                <p class="eyebrow">Votre avis</p>
+                <h3>Partager votre expérience</h3>
+            </div>
+            <div class="review-form-grid">
+                <label>
+                    Note
+                    <select name="rating" required>
+                        <option value="">Choisir</option>
+                        <option value="5">5 - Excellent</option>
+                        <option value="4">4 - Très bien</option>
+                        <option value="3">3 - Bien</option>
+                        <option value="2">2 - Moyen</option>
+                        <option value="1">1 - Décevant</option>
+                    </select>
+                </label>
+                <label>
+                    Nom
+                    <input type="text" name="reviewer_name" maxlength="80" required>
+                </label>
+                <label>
+                    E-mail
+                    <input type="email" name="reviewer_email" maxlength="160" placeholder="Non publié">
+                </label>
+                <label class="full-span">
+                    Titre
+                    <input type="text" name="title" maxlength="120" placeholder="Résumé en quelques mots">
+                </label>
+                <label class="full-span">
+                    Avis
+                    <textarea name="body" rows="5" minlength="10" maxlength="1200" required></textarea>
+                    <small>Votre avis sera publié après validation par RecyTech.</small>
+                </label>
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="button">Envoyer l'avis</button>
+            </div>
+        </form>
+    </section>
 </main>
 
 <%- include("partials/footer") %>
