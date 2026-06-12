@@ -42,7 +42,20 @@
                 </article>
                 <article class="detail-panel">
                     <p class="eyebrow">Paiement</p>
-                    <h2><%= formatMoney(order.amount_cents, order.currency) %></h2>
+                    <% const receivedAmountCents = getOrderReceivedAmountCents(order); %>
+                    <% const receivedDeltaCents = getOrderReceivedDeltaCents(order); %>
+                    <h2><%= formatMoney(receivedAmountCents ?? order.amount_cents, order.currency) %></h2>
+                    <p class="muted">Montant dû : <%= formatMoney(order.amount_cents, order.currency) %></p>
+                    <% if (receivedAmountCents !== null) { %>
+                        <p class="muted">
+                            Reçu : <strong><%= formatMoney(receivedAmountCents, order.currency) %></strong>
+                            <% if (receivedDeltaCents > 0) { %>
+                                · générosité : +<%= formatMoney(receivedDeltaCents, order.currency) %>
+                            <% } else if (receivedDeltaCents < 0) { %>
+                                · écart : -<%= formatMoney(Math.abs(receivedDeltaCents), order.currency) %>
+                            <% } %>
+                        </p>
+                    <% } %>
                     <p class="muted">Paiement : <%= getOrderProviderLabel(order.provider) %></p>
                     <% if (order.metadata?.manual?.payment_label) { %>
                         <p class="muted">Détail : <%= order.metadata.manual.payment_label %></p>
@@ -84,6 +97,21 @@
                         <input type="datetime-local" name="order_created_at" value="<%= formatDateTimeInputValue(order.created_at) %>" required>
                         <small>Utilisée pour le tri et l'historique de commande.</small>
                     </label>
+
+                    <% if (canEditOrderReceivedAmount(order)) { %>
+                        <label>
+                            Montant réellement reçu (CHF)
+                            <input
+                                type="number"
+                                name="actual_received_chf"
+                                min="0"
+                                step="0.01"
+                                value="<%= receivedAmountCents === null ? '' : (receivedAmountCents / 100).toFixed(2) %>"
+                                placeholder="<%= (order.amount_cents / 100).toFixed(2) %>"
+                            >
+                            <small>Laissez vide pour utiliser le montant dû dans les statistiques.</small>
+                        </label>
+                    <% } %>
 
                     <label>
                         Transporteur
