@@ -816,6 +816,60 @@ function serializePublicProduct(req, product) {
     };
 }
 
+function productMetaDescription(product) {
+    return truncateText(product.short_description || product.description || "", 155) || "Matériel informatique reconditionné par RecyTech.";
+}
+
+function productStructuredData(req, product) {
+    const images = (product.gallery_images || [])
+        .map((src) => absoluteUrl(req, src))
+        .filter(Boolean);
+    const displayPriceCents = product.starting_price_cents ?? product.price_cents;
+
+    return {
+        "@context": "https://schema.org",
+        "@type": "Product",
+        name: product.name,
+        description: productMetaDescription(product),
+        image: images,
+        url: `${baseUrl(req).replace(/\/$/, "")}/products/${product.slug}`,
+        brand: {
+            "@type": "Brand",
+            name: "RecyTech",
+        },
+        category: productCategoryList(product).join(", "),
+        offers: {
+            "@type": "Offer",
+            priceCurrency: product.currency || "CHF",
+            price: ((displayPriceCents || 0) / 100).toFixed(2),
+            availability: product.inventory > 0 ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
+            itemCondition: "https://schema.org/RefurbishedCondition",
+            url: `${baseUrl(req).replace(/\/$/, "")}/products/${product.slug}`,
+            seller: {
+                "@type": "Organization",
+                name: "RecyTech",
+            },
+        },
+    };
+}
+
+function organizationStructuredData(req) {
+    const origin = baseUrl(req).replace(/\/$/, "");
+
+    return {
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        name: "RecyTech",
+        url: origin || "https://shop.recytech.me",
+        logo: absoluteUrl(req, "/static/images/recytech-logo.svg"),
+        sameAs: [
+            "https://recytech.me",
+            "https://www.instagram.com/recytech.me",
+            "https://github.com/RecyTech-me",
+        ],
+    };
+}
+
 function setFlash(req, type, message, options = {}) {
     req.session.flash = { type, message, ...options };
 }
@@ -2623,6 +2677,8 @@ app.use((req, res, next) => {
     res.locals.currentAdmin = currentAdmin;
     res.locals.paymentConfig = paymentState();
     res.locals.showFooter = !hideFooter;
+    res.locals.canonicalUrl = `${baseUrl(req).replace(/\/$/, "")}${req.path}`;
+    res.locals.absoluteUrl = (value) => absoluteUrl(req, value);
     req.currentAdmin = currentAdmin;
     next();
 });
@@ -2859,6 +2915,8 @@ app.get("/", (req, res) => {
 
     render(res, "home", {
         title: "Boutique RecyTech",
+        metaDescription: "Ordinateurs, écrans, vidéoprojecteurs et accessoires reconditionnés par RecyTech, avec Linux possible, garantie et prix accessibles.",
+        structuredData: organizationStructuredData(req),
         products: listPublishedProducts(db, catalogue.productFilters),
         catalogueFilters: catalogue.view,
         catalogueCategories: listProductCategories(db, { publishedOnly: true }),
@@ -2886,6 +2944,10 @@ app.get("/products/:slug", (req, res) => {
 
     render(res, "product", {
         title: product.name,
+        metaDescription: productMetaDescription(product),
+        metaImageUrl: product.gallery_images?.[0] || product.image_url || "/static/images/recytech-logo.svg",
+        ogType: "product",
+        structuredData: productStructuredData(req, product),
         product,
     });
 });
@@ -2894,7 +2956,7 @@ app.post("/reviews", (req, res) => {
     try {
         const input = readSiteReviewInput(req.body);
         createSiteReview(db, input);
-        setFlash(req, "success", "Merci pour votre avis. Il sera affiché après validation.");
+        setFlash(req, "success", "Merci ! Nous vérifions les avis avant publication pour éviter le spam.");
     } catch (error) {
         setFlash(req, "error", error.message);
     }
