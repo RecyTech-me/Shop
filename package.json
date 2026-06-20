@@ -6,7 +6,8 @@
   "main": "server.js",
   "scripts": {
     "dev": "node --watch server.js",
-    "start": "node server.js"
+    "start": "node server.js",
+    "check": "node scripts/check-syntax.js"
   },
   "dependencies": {
     "better-sqlite3": "^11.8.1",
