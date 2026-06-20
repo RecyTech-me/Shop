@@ -156,8 +156,9 @@
                 <h2>Ce qu'ils pensent de RecyTech</h2>
             </div>
             <% if (reviewSummary?.count) { %>
+                <% const averageRatingLabel = Number.isInteger(reviewSummary.averageRating) ? String(reviewSummary.averageRating) : reviewSummary.averageRating.toFixed(1); %>
                 <div class="review-summary">
-                    <strong><%= reviewSummary.averageRating.toFixed(1) %>/5</strong>
+                    <strong><%= averageRatingLabel %>/5</strong>
                     <span><%= reviewSummary.count %> avis publié<%= reviewSummary.count > 1 ? "s" : "" %></span>
                 </div>
             <% } %>
@@ -224,7 +225,7 @@
                 <label class="full-span">
                     Avis
                     <textarea name="body" rows="5" minlength="10" maxlength="1200" required></textarea>
-                    <small>Votre avis sera publié après validation par RecyTech.</small>
+                    <small>Merci ! Nous vérifions les avis avant publication pour éviter le spam.</small>
                 </label>
             </div>
             <div class="form-actions">
