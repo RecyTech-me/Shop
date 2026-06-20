@@ -1174,6 +1174,23 @@ button,
     margin: 0;
 }
 
+.product-trust-panel {
+    display: grid;
+    gap: 0.45rem;
+}
+
+.product-trust-panel p,
+.product-trust-panel ul {
+    margin: 0;
+}
+
+.product-trust-panel ul {
+    display: grid;
+    gap: 0.35rem;
+    padding-left: 1.1rem;
+    color: var(--text-soft);
+}
+
 .product-option-stack,
 .product-sections {
     display: grid;

@@ -111,6 +111,15 @@
                 <p><strong>Stock :</strong> <%= product.inventory %> unité(s)<%= product.is_pack ? " disponibles selon les composants du pack" : "" %></p>
             </div>
 
+            <div class="detail-panel product-trust-panel" aria-label="Garanties RecyTech">
+                <p><strong>Testé par RecyTech</strong></p>
+                <ul>
+                    <li>Garantie contractuelle 12 mois sur les appareils reconditionnés.</li>
+                    <li>Retour commercial possible pendant 30 jours.</li>
+                    <li>Linux peut être préinstallé sur les machines compatibles.</li>
+                </ul>
+            </div>
+
             <form
                 action="/cart/add"
                 method="post"
