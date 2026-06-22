@@ -531,17 +531,17 @@
 
 .chip-success {
     background: rgba(53, 112, 72, 0.14);
-    color: #29583a;
+    color: var(--status-success);
 }
 
 .chip-danger {
     background: rgba(180, 35, 24, 0.1);
-    color: #8c1d18;
+    color: var(--status-error);
 }
 
 .chip-info {
     background: rgba(34, 94, 138, 0.12);
-    color: #1f5379;
+    color: var(--status-info);
 }
 
 .product-body h3 {

@@ -1,3 +1,11 @@
+import {
+    findCompleteConfiguration,
+    getCurrentSelections,
+    hasCompatibleConfiguration,
+    isConfigurationCompatible,
+    parseConfigurations,
+} from "./configurations.js";
+
 export function initManualOrderForms() {
     document.querySelectorAll("[data-manual-order-form]").forEach((form) => {
         const productSelect = form.querySelector("[data-manual-order-product-select]");
@@ -22,77 +30,11 @@ export function initManualOrderForms() {
                 return panel.manualOrderConfigurations;
             }
 
-            let configurations = [];
-
-            try {
-                configurations = JSON.parse(panel.dataset.validConfigurations || "[]");
-            } catch {
-                configurations = [];
-            }
-
-            panel.manualOrderConfigurations = Array.isArray(configurations)
-                ? configurations
-                    .map((configuration) => {
-                        const selections = Array.isArray(configuration)
-                            ? configuration
-                            : Array.isArray(configuration?.selections)
-                                ? configuration.selections
-                                : [];
-                        const rawPriceCents = !Array.isArray(configuration) ? configuration?.price_cents : null;
-                        const rawQuantity = !Array.isArray(configuration) ? configuration?.quantity : null;
-                        const priceCents = Number.parseInt(rawPriceCents, 10);
-                        const quantity = Number.parseInt(rawQuantity, 10);
-
-                        return {
-                            selections: selections
-                                .map((selection) => ({
-                                    name: String(selection?.name || "").trim(),
-                                    value: String(selection?.value || "").trim(),
-                                }))
-                                .filter((selection) => selection.name && selection.value),
-                            priceCents: Number.isInteger(priceCents) && priceCents >= 0 ? priceCents : null,
-                            quantity: Number.isInteger(quantity) && quantity >= 0 ? quantity : null,
-                            serviceTags: !Array.isArray(configuration) && Array.isArray(configuration?.service_tags)
-                                ? configuration.service_tags.map((tag) => String(tag || "").trim()).filter(Boolean)
-                                : [],
-                        };
-                    })
-                    .filter((configuration) => configuration.selections.length)
-                : [];
+            panel.manualOrderConfigurations = parseConfigurations(panel.dataset.validConfigurations, {
+                includeServiceTags: true,
+            });
 
             return panel.manualOrderConfigurations;
-        }
-
-        function getSelections(selects) {
-            return new Map(
-                selects
-                    .map((select) => [select.dataset.optionGroup || "", select.value])
-                    .filter(([name]) => name)
-            );
-        }
-
-        function isConfigurationCompatible(configuration, targetGroupName, candidateValue, selections) {
-            return configuration.selections.every((selection) => {
-                if (selection.name === targetGroupName) {
-                    return selection.value === candidateValue;
-                }
-
-                const selectedValue = selections.get(selection.name);
-                return !selectedValue || selectedValue === selection.value;
-            });
-        }
-
-        function getCompleteConfiguration(selects, configurations, selections) {
-            if (selects.some((select) => !select.value)) {
-                return null;
-            }
-
-            return configurations.find((configuration) =>
-                configuration.selections.length === selects.length &&
-                configuration.selections.every((selection) =>
-                    selections.get(selection.name) === selection.value
-                )
-            ) || null;
         }
 
         function syncUnitPricePlaceholder(cents, currency) {
@@ -145,7 +87,7 @@ export function initManualOrderForms() {
                 return;
             }
 
-            const selections = getSelections(selects);
+            const selections = getCurrentSelections(selects);
 
             selects.forEach((select) => {
                 const groupName = select.dataset.optionGroup || "";
@@ -167,15 +109,10 @@ export function initManualOrderForms() {
                 }
             });
 
-            const finalSelections = getSelections(selects);
-            const completeConfiguration = getCompleteConfiguration(selects, configurations, finalSelections);
+            const finalSelections = getCurrentSelections(selects);
+            const completeConfiguration = findCompleteConfiguration(selects, configurations, finalSelections);
             const hasPartialSelection = selects.some((select) => select.value);
-            const hasAnyCompatibleConfiguration = configurations.some((configuration) =>
-                configuration.selections.every((selection) => {
-                    const selectedValue = finalSelections.get(selection.name);
-                    return !selectedValue || selectedValue === selection.value;
-                })
-            );
+            const hasAnyCompatibleConfiguration = hasCompatibleConfiguration(configurations, finalSelections);
             const priceCents = completeConfiguration
                 ? (completeConfiguration.priceCents ?? basePriceCents)
                 : startingPriceCents;
@@ -223,9 +160,14 @@ export function initManualOrderForms() {
                     }
                 }
 
-                serviceTagsSelect.innerHTML = availableServiceTags
-                    .map((tag) => `<option value="${tag.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")}"${nextSelection.includes(tag) ? " selected" : ""}>${tag.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</option>`)
-                    .join("");
+                serviceTagsSelect.replaceChildren();
+                for (const tag of availableServiceTags) {
+                    const option = document.createElement("option");
+                    option.value = tag;
+                    option.textContent = tag;
+                    option.selected = nextSelection.includes(tag);
+                    serviceTagsSelect.append(option);
+                }
                 serviceTagsSelect.disabled = !availableServiceTags.length;
                 serviceTagsSelect.name = availableServiceTags.length ? "service_tags" : "";
                 serviceTagsSelect.size = Math.min(Math.max(availableServiceTags.length, 2), 6);

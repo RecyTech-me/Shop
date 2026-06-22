@@ -4,13 +4,17 @@
 }
 
 :root {
-    --bg: red;
+    --bg: #f7f2e7;
     --surface: #fffdf8;
     --surface-strong: #efe4cf;
     --surface-dark: #244c38;
     --surface-dark-soft: #305c45;
     --text: #23412f;
     --text-soft: #56705f;
+    --status-success: #29583a;
+    --status-error: #8c1d18;
+    --status-info: #1f5379;
+    --status-warning: #c28a19;
     --border: rgba(36, 76, 56, 0.12);
     --shadow: 0 18px 40px rgba(25, 44, 35, 0.08);
     --radius-xl: 28px;
@@ -37,7 +41,7 @@ body {
     color: var(--text);
     background:
         radial-gradient(circle at top left, rgba(232, 223, 202, 0.75), transparent 30rem),
-        linear-gradient(180deg, #f9f5ec 0%, #f4efe5 100%);
+        linear-gradient(180deg, #f9f5ec 0%, var(--bg) 100%);
 }
 
 body.modal-open {
@@ -314,4 +318,3 @@ button,
     background: rgba(36, 76, 56, 0.08);
     color: var(--text);
 }
-

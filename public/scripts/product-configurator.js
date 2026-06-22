@@ -1,3 +1,11 @@
+import {
+    findCompleteConfiguration,
+    getCurrentSelections,
+    hasCompatibleConfiguration,
+    isConfigurationCompatible,
+    parseConfigurations,
+} from "./configurations.js";
+
 export function initProductConfigurators() {
     document.querySelectorAll("[data-product-configurator]").forEach((form) => {
         const selects = [...form.querySelectorAll("select[data-option-group]")];
@@ -16,40 +24,7 @@ export function initProductConfigurators() {
             return;
         }
 
-        let validConfigurations = [];
-
-        try {
-            validConfigurations = JSON.parse(form.dataset.validConfigurations || "[]");
-        } catch {
-            validConfigurations = [];
-        }
-
-        validConfigurations = Array.isArray(validConfigurations)
-            ? validConfigurations
-                .map((configuration) => {
-                    const selections = Array.isArray(configuration)
-                        ? configuration
-                        : Array.isArray(configuration?.selections)
-                            ? configuration.selections
-                            : [];
-                    const rawPriceCents = !Array.isArray(configuration) ? configuration?.price_cents : null;
-                    const rawQuantity = !Array.isArray(configuration) ? configuration?.quantity : null;
-                    const priceCents = Number.parseInt(rawPriceCents, 10);
-                    const quantity = Number.parseInt(rawQuantity, 10);
-
-                    return {
-                        selections: selections
-                            .map((selection) => ({
-                                name: String(selection?.name || "").trim(),
-                                value: String(selection?.value || "").trim(),
-                            }))
-                            .filter((selection) => selection.name && selection.value),
-                        priceCents: Number.isInteger(priceCents) && priceCents >= 0 ? priceCents : null,
-                        quantity: Number.isInteger(quantity) && quantity >= 0 ? quantity : null,
-                    };
-                })
-                .filter((configuration) => configuration.selections.length)
-            : [];
+        const validConfigurations = parseConfigurations(form.dataset.validConfigurations);
 
         if (!validConfigurations.length) {
             return;
@@ -63,44 +38,12 @@ export function initProductConfigurators() {
             }).format((cents || 0) / 100);
         }
 
-        function currentSelections() {
-            return new Map(
-                selects
-                    .map((select) => [select.dataset.optionGroup || "", select.value])
-                    .filter(([name]) => name)
-            );
-        }
-
-        function isConfigurationCompatible(configuration, targetGroupName, candidateValue, selections) {
-            return configuration.selections.every((selection) => {
-                if (selection.name === targetGroupName) {
-                    return selection.value === candidateValue;
-                }
-
-                const selectedValue = selections.get(selection.name);
-                return !selectedValue || selectedValue === selection.value;
-            });
-        }
-
-        function getCompleteConfiguration(selections) {
-            if (selects.some((select) => !select.value)) {
-                return null;
-            }
-
-            return validConfigurations.find((configuration) =>
-                configuration.selections.length === selects.length &&
-                configuration.selections.every((selection) =>
-                    selections.get(selection.name) === selection.value
-                )
-            ) || null;
-        }
-
         function syncProductPrice(selections) {
             if (!priceTarget || !hasConfigurationPricing) {
                 return;
             }
 
-            const configuration = getCompleteConfiguration(selections);
+            const configuration = findCompleteConfiguration(selects, validConfigurations, selections);
             const priceCents = configuration ? (configuration.priceCents ?? basePriceCents) : startingPriceCents;
             priceTarget.textContent = configuration
                 ? formatProductPrice(priceCents)
@@ -133,7 +76,7 @@ export function initProductConfigurators() {
         }
 
         function syncConfigurator() {
-            const selections = currentSelections();
+            const selections = getCurrentSelections(selects);
 
             selects.forEach((select) => {
                 const groupName = select.dataset.optionGroup || "";
@@ -155,15 +98,10 @@ export function initProductConfigurators() {
                 }
             });
 
-            const finalSelections = currentSelections();
-            const completeConfiguration = getCompleteConfiguration(finalSelections);
+            const finalSelections = getCurrentSelections(selects);
+            const completeConfiguration = findCompleteConfiguration(selects, validConfigurations, finalSelections);
             const hasPartialSelection = selects.some((select) => select.value);
-            const hasAnyCompatibleConfiguration = validConfigurations.some((configuration) =>
-                configuration.selections.every((selection) => {
-                    const selectedValue = finalSelections.get(selection.name);
-                    return !selectedValue || selectedValue === selection.value;
-                })
-            );
+            const hasAnyCompatibleConfiguration = hasCompatibleConfiguration(validConfigurations, finalSelections);
             const outOfStockConfiguration = completeConfiguration && Number.isInteger(completeConfiguration.quantity) && completeConfiguration.quantity <= 0;
 
             if (message) {
