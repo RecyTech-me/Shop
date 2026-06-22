@@ -4,7 +4,6 @@ const path = require("path");
 const crypto = require("crypto");
 const express = require("express");
 const session = require("express-session");
-const nodemailer = require("nodemailer");
 const Stripe = require("stripe");
 const { SqliteSessionStore, SESSION_TTL_MS } = require("./lib/sqlite-session-store");
 const { registerAdminRoutes } = require("./routes/admin");
@@ -12,6 +11,9 @@ const { registerCheckoutRoutes } = require("./routes/checkout");
 const { registerPublicApiRoutes } = require("./routes/public-api");
 const { registerStorefrontRoutes } = require("./routes/storefront");
 const { registerWebhookRoutes } = require("./routes/webhooks");
+const { createCartSessionHelpers } = require("./lib/cart-session");
+const { createCheckoutStateHelpers } = require("./lib/checkout-state");
+const { createMailService } = require("./lib/mail-service");
 const { createPublicProductPresenters } = require("./lib/public-product-presenters");
 const { createUploadHandlers } = require("./lib/upload-handlers");
 const { createUrlHelpers } = require("./lib/url-helpers");
@@ -134,6 +136,70 @@ const {
     absoluteUrl,
     formatProductPrice,
 });
+const {
+    getCartItems,
+    setCartItems,
+    getConfigurationAvailableQuantity,
+    ensureAvailableProductQuantity,
+    validateRequestedServiceTags,
+    getProductUnitPriceCents,
+    snapshotPackBundleItems,
+    buildCart,
+    makeCartItemKey,
+    upsertCartItem,
+    removeCartItem,
+} = createCartSessionHelpers({
+    db,
+    getProductById,
+    normalizeText,
+    normalizeSingleLineText,
+    productCategoryList,
+});
+const {
+    getAllowedPaymentMethods,
+    getPreferredPaymentMethod,
+    normalizePromoCode,
+    formatPromoCodeDiscount,
+    getPromoCodeStatus,
+    getPromoCodeStatusTone,
+    getPromoCodeOutcome,
+    requirePromoCodeOutcome,
+    getCheckoutPricing,
+    getCheckoutForm,
+    buildCheckoutDraft,
+    setCheckoutForm,
+    clearCheckoutForm,
+    getStripeDraft,
+    setStripeDraft,
+    clearStripeDraft,
+    validateCheckoutInput,
+    getPromoCodeLabel,
+} = createCheckoutStateHelpers({
+    SHIPPING_OPTIONS,
+    PAYMENT_DISCOUNT_RATE,
+    formatMoney,
+    getPromoCodeByCode: (code) => getPromoCodeByCode(db, code),
+    normalizeText,
+    paymentState,
+});
+const {
+    getMailConfigError,
+    isMailConfigured,
+    buildOrderEmailDraft,
+    sendStoreEmail,
+    sendNewOrderNotification,
+} = createMailService({
+    env,
+    getSettings: () => getSettings(db),
+    normalizeText,
+    parseInteger,
+    toBoolean,
+    formatMoney,
+    formatDateTime,
+    getOrderContactSnapshot,
+    getOrderProviderLabel,
+    getOrderStatusLabel,
+});
 
 function setFlash(req, type, message, options = {}) {
     req.session.flash = { type, message, ...options };
@@ -166,640 +232,6 @@ function mapSwissBitcoinPayStatus(invoice) {
     }
 
     return "pending";
-}
-
-function getCartItems(req) {
-    return Array.isArray(req.session.cart) ? req.session.cart : [];
-}
-
-function setCartItems(req, items) {
-    req.session.cart = items;
-}
-
-function getConfigurationSelections(configuration) {
-    if (Array.isArray(configuration)) {
-        return configuration;
-    }
-
-    if (Array.isArray(configuration?.selections)) {
-        return configuration.selections;
-    }
-
-    return [];
-}
-
-function findProductConfiguration(product, selectedOptions = []) {
-    const configurations = Array.isArray(product.valid_configurations)
-        ? product.valid_configurations
-        : [];
-
-    if (!configurations.length) {
-        return null;
-    }
-
-    return configurations.find((configuration) => {
-        const selections = getConfigurationSelections(configuration);
-        return selections.length === selectedOptions.length && selections.every((selection, index) =>
-            selection.name === selectedOptions[index]?.name &&
-            selection.value === selectedOptions[index]?.value
-        );
-    }) || null;
-}
-
-function getConfigurationAvailableQuantity(product, selectedOptions = []) {
-    const configurations = Array.isArray(product.valid_configurations)
-        ? product.valid_configurations
-        : [];
-
-    if (!configurations.length) {
-        return Math.max(0, product.inventory);
-    }
-
-    const configuration = findProductConfiguration(product, selectedOptions);
-    if (!configuration) {
-        return 0;
-    }
-
-    const configurationQuantity = Number.isInteger(configuration.quantity) && configuration.quantity >= 0
-        ? configuration.quantity
-        : product.inventory;
-
-    return Math.max(0, Math.min(product.inventory, configurationQuantity));
-}
-
-function ensureAvailableProductQuantity(product, selectedOptions = [], requestedQuantity = 1) {
-    const availableQuantity = getConfigurationAvailableQuantity(product, selectedOptions);
-
-    if (availableQuantity <= 0) {
-        throw new Error(product.option_groups?.length
-            ? "Cette combinaison d'options est en rupture de stock."
-            : "Ce produit est en rupture de stock.");
-    }
-
-    if (requestedQuantity > availableQuantity) {
-        throw new Error(`Stock insuffisant : ${availableQuantity} unité(s) disponible(s).`);
-    }
-
-    return availableQuantity;
-}
-
-function validateRequestedServiceTags(product, selectedOptions = [], requestedServiceTags = [], requestedQuantity = 1) {
-    const configuration = findProductConfiguration(product, selectedOptions);
-    const availableServiceTags = Array.isArray(configuration?.service_tags)
-        ? [...new Set(configuration.service_tags.map((tag) => normalizeSingleLineText(tag)).filter(Boolean))]
-        : [];
-    const normalizedRequestedTags = [...new Set(
-        (Array.isArray(requestedServiceTags) ? requestedServiceTags : [requestedServiceTags])
-            .map((tag) => normalizeSingleLineText(tag))
-            .filter(Boolean)
-    )];
-
-    if (!normalizedRequestedTags.length && !availableServiceTags.length) {
-        return [];
-    }
-
-    if (normalizedRequestedTags.some((tag) => !availableServiceTags.includes(tag))) {
-        throw new Error("Le ou les tags de service choisis ne correspondent pas à cette combinaison.");
-    }
-
-    if (normalizedRequestedTags.length > requestedQuantity) {
-        throw new Error("Le nombre de tags de service choisis dépasse la quantité vendue.");
-    }
-
-    const requiredTagCount = Math.min(requestedQuantity, availableServiceTags.length);
-    if (requiredTagCount > 0 && normalizedRequestedTags.length !== requiredTagCount) {
-        throw new Error(requiredTagCount === 1
-            ? "Veuillez choisir le tag de service vendu."
-            : `Veuillez choisir exactement ${requiredTagCount} tags de service.`);
-    }
-
-    return normalizedRequestedTags;
-}
-
-function getProductUnitPriceCents(product, selectedOptions = []) {
-    if (product?.is_pack) {
-        return product.price_cents;
-    }
-
-    const configurations = Array.isArray(product.valid_configurations)
-        ? product.valid_configurations
-        : [];
-
-    if (!configurations.length) {
-        return product.price_cents;
-    }
-
-    const configuration = findProductConfiguration(product, selectedOptions);
-    if (!configuration) {
-        throw new Error("Cette combinaison d'options n'est pas disponible.");
-    }
-
-    return Number.isInteger(configuration.price_cents)
-        ? configuration.price_cents
-        : product.price_cents;
-}
-
-function snapshotPackBundleItems(product) {
-    if (!product?.is_pack || !Array.isArray(product.bundle_items)) {
-        return [];
-    }
-
-    return product.bundle_items.map((item) => ({
-        product_id: item.product_id,
-        slug: item.slug,
-        name: item.name,
-        quantity: item.quantity,
-        selected_options: Array.isArray(item.selected_options)
-            ? item.selected_options.map((option) => ({ ...option }))
-            : [],
-        service_tags: [],
-    }));
-}
-
-function buildCart(req) {
-    const rawItems = getCartItems(req);
-    const items = [];
-
-    for (const rawItem of rawItems) {
-        const product = getProductById(db, rawItem.productId);
-        if (!product || !product.published) {
-            continue;
-        }
-
-        const selectedOptions = Array.isArray(rawItem.selectedOptions)
-            ? rawItem.selectedOptions
-                .map((option) => ({
-                    name: normalizeText(option?.name),
-                    value: normalizeText(option?.value),
-                }))
-                .filter((option) => option.name && option.value)
-            : [];
-        let unitPriceCents = product.price_cents;
-        let availableQuantity = product.inventory;
-
-        try {
-            unitPriceCents = getProductUnitPriceCents(product, selectedOptions);
-            availableQuantity = getConfigurationAvailableQuantity(product, selectedOptions);
-        } catch {
-            continue;
-        }
-
-        if (availableQuantity <= 0) {
-            continue;
-        }
-
-        const quantity = Math.min(Math.max(1, rawItem.quantity), availableQuantity);
-
-        items.push({
-            product_id: product.id,
-            item_key: rawItem.itemKey || `${product.id}:${JSON.stringify(selectedOptions)}`,
-            slug: product.slug,
-            name: product.name,
-            product_kind: product.product_kind,
-            is_pack: Boolean(product.is_pack),
-            category: product.category,
-            categories: productCategoryList(product),
-            short_description: product.short_description,
-            image_url: product.image_url,
-            selected_options: selectedOptions,
-            bundle_items: snapshotPackBundleItems(product),
-            quantity,
-            unit_price_cents: unitPriceCents,
-            line_total_cents: unitPriceCents * quantity,
-            inventory: availableQuantity,
-        });
-    }
-
-    const subtotalCents = items.reduce((sum, item) => sum + item.line_total_cents, 0);
-
-    return {
-        items,
-        subtotalCents,
-        itemCount: items.reduce((sum, item) => sum + item.quantity, 0),
-    };
-}
-
-function getAllowedPaymentMethods(deliveryMethod) {
-    const methods = [];
-    const state = paymentState();
-
-    if (state.stripeEnabled) {
-        methods.push("card");
-    }
-
-    methods.push("transfer");
-
-    if (state.bitcoinEnabled) {
-        methods.push("bitcoin");
-    }
-
-    if (deliveryMethod === "pickup") {
-        methods.push("cash");
-    }
-
-    return methods;
-}
-
-function getPreferredPaymentMethod(deliveryMethod) {
-    return getAllowedPaymentMethods(deliveryMethod)[0] || "transfer";
-}
-
-function normalizePromoCode(value) {
-    return String(value || "")
-        .trim()
-        .toUpperCase()
-        .replace(/\s+/g, "");
-}
-
-function todayIsoDate() {
-    const value = new Date();
-    const year = value.getFullYear();
-    const month = String(value.getMonth() + 1).padStart(2, "0");
-    const day = String(value.getDate()).padStart(2, "0");
-    return `${year}-${month}-${day}`;
-}
-
-function getPaymentDiscountLabel(paymentMethod) {
-    if (paymentMethod === "bitcoin") {
-        return "Réduction Bitcoin (-10%)";
-    }
-
-    if (paymentMethod === "cash") {
-        return "Réduction retrait espèces (-10%)";
-    }
-
-    return "";
-}
-
-function getPromoCodeLabel(promoCode) {
-    return `Code promo ${promoCode.code}`;
-}
-
-function formatPromoCodeDiscount(promoCode) {
-    if (!promoCode) {
-        return "";
-    }
-
-    if (promoCode.discount_type === "percent") {
-        return `-${promoCode.discount_percent}%`;
-    }
-
-    return `-${formatMoney(promoCode.discount_cents || 0)}`;
-}
-
-function getPromoCodeStatus(promoCode) {
-    if (!promoCode) {
-        return "Inconnu";
-    }
-
-    if (!promoCode.active) {
-        return "Désactivé";
-    }
-
-    const today = todayIsoDate();
-
-    if (promoCode.starts_on && today < promoCode.starts_on) {
-        return "Planifié";
-    }
-
-    if (promoCode.expires_on && today > promoCode.expires_on) {
-        return "Expiré";
-    }
-
-    if (
-        Number.isInteger(promoCode.max_redemptions) &&
-        promoCode.max_redemptions > 0 &&
-        promoCode.times_redeemed >= promoCode.max_redemptions
-    ) {
-        return "Épuisé";
-    }
-
-    return "Actif";
-}
-
-function getPromoCodeStatusTone(promoCode) {
-    const status = getPromoCodeStatus(promoCode);
-
-    if (status === "Actif") {
-        return "success";
-    }
-
-    if (status === "Planifié") {
-        return "info";
-    }
-
-    if (["Expiré", "Épuisé", "Désactivé"].includes(status)) {
-        return "muted";
-    }
-
-    return "muted";
-}
-
-function getPromoCodeOutcome(codeValue, subtotalCents) {
-    const normalizedCode = normalizePromoCode(codeValue);
-    if (!normalizedCode) {
-        return {
-            code: "",
-            promoCode: null,
-            discountCents: 0,
-            label: "",
-            error: "",
-        };
-    }
-
-    const promoCode = getPromoCodeByCode(db, normalizedCode);
-    if (!promoCode) {
-        return {
-            code: normalizedCode,
-            promoCode: null,
-            discountCents: 0,
-            label: "",
-            error: "Ce code promo n'existe pas.",
-        };
-    }
-
-    if (!promoCode.active) {
-        return {
-            code: normalizedCode,
-            promoCode,
-            discountCents: 0,
-            label: "",
-            error: "Ce code promo est désactivé.",
-        };
-    }
-
-    const today = todayIsoDate();
-
-    if (promoCode.starts_on && today < promoCode.starts_on) {
-        return {
-            code: normalizedCode,
-            promoCode,
-            discountCents: 0,
-            label: "",
-            error: "Ce code promo n'est pas encore actif.",
-        };
-    }
-
-    if (promoCode.expires_on && today > promoCode.expires_on) {
-        return {
-            code: normalizedCode,
-            promoCode,
-            discountCents: 0,
-            label: "",
-            error: "Ce code promo a expiré.",
-        };
-    }
-
-    if (
-        Number.isInteger(promoCode.max_redemptions) &&
-        promoCode.max_redemptions > 0 &&
-        promoCode.times_redeemed >= promoCode.max_redemptions
-    ) {
-        return {
-            code: normalizedCode,
-            promoCode,
-            discountCents: 0,
-            label: "",
-            error: "Ce code promo a déjà atteint sa limite d'utilisation.",
-        };
-    }
-
-    if ((subtotalCents || 0) < (promoCode.minimum_order_cents || 0)) {
-        return {
-            code: normalizedCode,
-            promoCode,
-            discountCents: 0,
-            label: "",
-            error: `Ce code promo nécessite une commande d'au moins ${formatMoney(promoCode.minimum_order_cents || 0)}.`,
-        };
-    }
-
-    const discountCents = promoCode.discount_type === "percent"
-        ? Math.round((subtotalCents || 0) * ((promoCode.discount_percent || 0) / 100))
-        : Math.min(promoCode.discount_cents || 0, subtotalCents || 0);
-
-    if (discountCents <= 0) {
-        return {
-            code: normalizedCode,
-            promoCode,
-            discountCents: 0,
-            label: "",
-            error: "Ce code promo ne peut pas être appliqué à cette commande.",
-        };
-    }
-
-    return {
-        code: normalizedCode,
-        promoCode,
-        discountCents,
-        label: getPromoCodeLabel(promoCode),
-        error: "",
-    };
-}
-
-function requirePromoCodeOutcome(codeValue, subtotalCents) {
-    const outcome = getPromoCodeOutcome(codeValue, subtotalCents);
-    if (outcome.code && outcome.error) {
-        throw new Error(outcome.error);
-    }
-
-    return outcome;
-}
-
-function getCheckoutPricing(subtotalCents, shippingOption, paymentMethod, promoCodeOutcome = null) {
-    const shippingCents = shippingOption?.priceCents || 0;
-    const promoDiscountCents = promoCodeOutcome?.discountCents || 0;
-    const remainingSubtotalCents = Math.max((subtotalCents || 0) - promoDiscountCents, 0);
-    const paymentDiscountCents = ["bitcoin", "cash"].includes(paymentMethod)
-        ? Math.round(remainingSubtotalCents * PAYMENT_DISCOUNT_RATE)
-        : 0;
-    const discountLines = [];
-
-    if (promoDiscountCents > 0 && promoCodeOutcome?.promoCode) {
-        discountLines.push({
-            type: "discount",
-            code: promoCodeOutcome.promoCode.code,
-            label: promoCodeOutcome.label,
-            amount_cents: -promoDiscountCents,
-        });
-    }
-
-    if (paymentDiscountCents > 0) {
-        discountLines.push({
-            type: "discount",
-            label: getPaymentDiscountLabel(paymentMethod),
-            amount_cents: -paymentDiscountCents,
-        });
-    }
-
-    const discountCents = promoDiscountCents + paymentDiscountCents;
-
-    return {
-        subtotalCents: subtotalCents || 0,
-        shippingCents,
-        promoDiscountCents,
-        promoDiscountLabel: promoDiscountCents > 0 ? promoCodeOutcome.label : "",
-        paymentDiscountCents,
-        paymentDiscountLabel: paymentDiscountCents > 0 ? getPaymentDiscountLabel(paymentMethod) : "",
-        discountCents,
-        discountLabel: discountLines.map((line) => line.label).join(" + "),
-        discountLines,
-        totalCents: Math.max(0, (subtotalCents || 0) + shippingCents - discountCents),
-    };
-}
-
-function normalizeCheckoutFormState(form) {
-    const nextForm = {
-        ...form,
-    };
-
-    if (!["ship", "pickup"].includes(nextForm.delivery_method)) {
-        nextForm.delivery_method = "ship";
-    }
-
-    const allowedPaymentMethods = getAllowedPaymentMethods(nextForm.delivery_method);
-    if (!allowedPaymentMethods.includes(nextForm.payment_method)) {
-        nextForm.payment_method = getPreferredPaymentMethod(nextForm.delivery_method);
-    }
-
-    if (nextForm.delivery_method === "pickup") {
-        nextForm.billing_same_as_shipping = "0";
-    }
-
-    return nextForm;
-}
-
-function getDefaultCheckoutForm() {
-    return {
-        customer_email: "",
-        customer_first_name: "",
-        customer_last_name: "",
-        delivery_method: "ship",
-        pickup_location: "recytech-center",
-        shipping_country: "Suisse",
-        shipping_address1: "",
-        shipping_postal_code: "",
-        shipping_city: "",
-        shipping_region: "Neuchâtel",
-        shipping_phone: "",
-        billing_same_as_shipping: "1",
-        billing_country: "Suisse",
-        billing_first_name: "",
-        billing_last_name: "",
-        billing_address1: "",
-        billing_postal_code: "",
-        billing_city: "",
-        billing_region: "Neuchâtel",
-        billing_phone: "",
-        payment_method: getPreferredPaymentMethod("ship"),
-        promo_code: "",
-        order_note: "",
-    };
-}
-
-function getCheckoutForm(req) {
-    return normalizeCheckoutFormState({
-        ...getDefaultCheckoutForm(),
-        ...(req.session.checkoutForm || {}),
-    });
-}
-
-function buildCheckoutDraft(values, currentForm = getDefaultCheckoutForm()) {
-    const draft = {
-        ...currentForm,
-    };
-
-    const textFields = [
-        "customer_email",
-        "customer_first_name",
-        "customer_last_name",
-        "pickup_location",
-        "shipping_country",
-        "shipping_address1",
-        "shipping_postal_code",
-        "shipping_city",
-        "shipping_region",
-        "shipping_phone",
-        "billing_country",
-        "billing_first_name",
-        "billing_last_name",
-        "billing_address1",
-        "billing_postal_code",
-        "billing_city",
-        "billing_region",
-        "billing_phone",
-        "order_note",
-    ];
-
-    for (const field of textFields) {
-        if (values[field] !== undefined) {
-            draft[field] = normalizeText(values[field]);
-        }
-    }
-
-    if (["ship", "pickup"].includes(values.delivery_method)) {
-        draft.delivery_method = values.delivery_method;
-    }
-
-    if (["card", "transfer", "bitcoin", "cash"].includes(values.payment_method)) {
-        draft.payment_method = values.payment_method;
-    }
-
-    if (values.promo_code !== undefined) {
-        draft.promo_code = normalizePromoCode(values.promo_code);
-    }
-
-    if (values.billing_same_as_shipping !== undefined) {
-        draft.billing_same_as_shipping = values.billing_same_as_shipping === "1" ? "1" : "0";
-    }
-
-    return normalizeCheckoutFormState(draft);
-}
-
-function setCheckoutForm(req, values) {
-    req.session.checkoutForm = values;
-}
-
-function clearCheckoutForm(req) {
-    delete req.session.checkoutForm;
-}
-
-function getStripeDraft(req) {
-    return req.session.stripeDraft || null;
-}
-
-function setStripeDraft(req, draft) {
-    req.session.stripeDraft = draft;
-}
-
-function clearStripeDraft(req) {
-    delete req.session.stripeDraft;
-}
-
-function makeCartItemKey(productId, selectedOptions = []) {
-    return `${productId}:${JSON.stringify(selectedOptions)}`;
-}
-
-function upsertCartItem(req, productId, quantity, selectedOptions = []) {
-    const cart = getCartItems(req);
-    const nextQuantity = Math.max(1, quantity);
-    const itemKey = makeCartItemKey(productId, selectedOptions);
-    const existing = cart.find((item) => (item.itemKey || makeCartItemKey(item.productId, item.selectedOptions || [])) === itemKey);
-
-    if (existing) {
-        existing.quantity = nextQuantity;
-    } else {
-        cart.push({ productId, quantity: nextQuantity, selectedOptions, itemKey });
-    }
-
-    setCartItems(req, cart);
-}
-
-function removeCartItem(req, itemKey) {
-    setCartItems(
-        req,
-        getCartItems(req).filter((item) => (item.itemKey || makeCartItemKey(item.productId, item.selectedOptions || [])) !== itemKey)
-    );
 }
 
 function requireAdmin(req, res, next) {
@@ -1464,172 +896,6 @@ function verifySwissBitcoinPayWebhook(req) {
     return verifySwissBitcoinPaySignature(req.body, req.headers["sbp-sig"]);
 }
 
-function getMailSettings(settings) {
-    return {
-        host: normalizeText(settings.smtp_host || env.SMTP_HOST),
-        port: parseInteger(settings.smtp_port || env.SMTP_PORT, 587),
-        secure: toBoolean(settings.smtp_secure || env.SMTP_SECURE),
-        username: normalizeText(settings.smtp_username || env.SMTP_USERNAME),
-        password: String(settings.smtp_password || env.SMTP_PASSWORD || "").trim(),
-        fromName: normalizeText(settings.smtp_from_name || env.SMTP_FROM_NAME || settings.store_name || "RecyTech"),
-        fromEmail: normalizeText(settings.smtp_from_email || env.SMTP_FROM_EMAIL || settings.support_email),
-    };
-}
-
-function getMailConfigError(settings) {
-    const config = getMailSettings(settings);
-
-    if (!config.host) {
-        return "Serveur SMTP manquant.";
-    }
-
-    if (!config.port) {
-        return "Port SMTP invalide.";
-    }
-
-    if (!config.fromEmail) {
-        return "Adresse expéditeur manquante.";
-    }
-
-    if ((config.username && !config.password) || (!config.username && config.password)) {
-        return "Les identifiants SMTP sont incomplets.";
-    }
-
-    return "";
-}
-
-function isMailConfigured(settings) {
-    return !getMailConfigError(settings);
-}
-
-function escapeHtml(value) {
-    return String(value || "")
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#39;");
-}
-
-function formatEmailHtml(text) {
-    return String(text || "")
-        .split(/\n{2,}/)
-        .map((paragraph) => `<p>${escapeHtml(paragraph).replace(/\n/g, "<br>")}</p>`)
-        .join("");
-}
-
-function buildOrderEmailDraft(order) {
-    return {
-        subject: `Commande ${order.order_number}`,
-        message: [
-            `Bonjour ${order.customer_name},`,
-            "",
-            `Nous vous contactons au sujet de votre commande ${order.order_number}.`,
-            "",
-            "Bien à vous,",
-            "RecyTech",
-        ].join("\n"),
-    };
-}
-
-function getOrderNotificationRecipient(settings) {
-    return normalizeText(settings.order_notification_email || env.ORDER_NOTIFICATION_EMAIL || "team@recytech.me");
-}
-
-function formatOrderNotificationItems(order) {
-    return (order.items || []).map((item) => {
-        const optionText = Array.isArray(item.selected_options) && item.selected_options.length
-            ? ` (${item.selected_options.map((option) => `${option.name}: ${option.value}`).join(", ")})`
-            : "";
-        return `- ${item.quantity} x ${item.name}${optionText} : ${formatMoney(item.line_total_cents || (item.unit_price_cents * item.quantity), order.currency)}`;
-    }).join("\n");
-}
-
-function buildNewOrderNotification(order) {
-    const contact = getOrderContactSnapshot(order);
-    const delivery = order.metadata?.delivery || {};
-    const deliveryLabel = delivery.label || (delivery.method === "ship" ? "Expédition" : "Retrait");
-    const additions = Array.isArray(order.metadata?.additions) ? order.metadata.additions : [];
-    const additionsText = additions.length
-        ? additions.map((line) => `- ${line.label} : ${formatMoney(line.amount_cents, order.currency)}`).join("\n")
-        : "Aucun supplément";
-    const adminUrl = `${env.BASE_URL || ""}/admin/orders/${order.id}`;
-
-    return {
-        subject: `Nouvelle commande ${order.order_number}`,
-        text: [
-            "Une nouvelle commande a été enregistrée sur la boutique RecyTech.",
-            "",
-            `Numéro : ${order.order_number}`,
-            `Date : ${formatDateTime(order.created_at)}`,
-            `Client : ${order.customer_name}`,
-            `E-mail : ${order.customer_email}`,
-            contact.phone ? `Téléphone : ${contact.phone}` : null,
-            `Paiement : ${getOrderProviderLabel(order.provider)}`,
-            `Statut : ${getOrderStatusLabel(order.status)}`,
-            `Total : ${formatMoney(order.amount_cents, order.currency)}`,
-            `Livraison : ${deliveryLabel}`,
-            "",
-            "Articles :",
-            formatOrderNotificationItems(order) || "- Aucun article",
-            "",
-            "Suppléments :",
-            additionsText,
-            contact.shippingLines.length ? "" : null,
-            contact.shippingLines.length ? "Adresse de livraison :" : null,
-            ...(contact.shippingLines.length ? contact.shippingLines : []),
-            contact.billingLines.length ? "" : null,
-            contact.billingLines.length ? "Adresse de facturation :" : null,
-            ...(contact.billingLines.length ? contact.billingLines : []),
-            adminUrl.startsWith("http") ? "" : null,
-            adminUrl.startsWith("http") ? `Administration : ${adminUrl}` : null,
-        ].filter(Boolean).join("\n"),
-    };
-}
-
-async function sendStoreEmail(settings, message) {
-    const configError = getMailConfigError(settings);
-    if (configError) {
-        throw new Error(configError);
-    }
-
-    const config = getMailSettings(settings);
-    const transporter = nodemailer.createTransport({
-        host: config.host,
-        port: config.port,
-        secure: config.secure,
-        auth: config.username ? { user: config.username, pass: config.password } : undefined,
-    });
-
-    return transporter.sendMail({
-        from: {
-            name: config.fromName,
-            address: config.fromEmail,
-        },
-        replyTo: settings.support_email || config.fromEmail,
-        to: message.to,
-        subject: message.subject,
-        text: message.text,
-        html: formatEmailHtml(message.text),
-    });
-}
-
-async function sendNewOrderNotification(order) {
-    const settings = getSettings(db);
-    const recipient = getOrderNotificationRecipient(settings);
-
-    if (!recipient || !isMailConfigured(settings)) {
-        return;
-    }
-
-    const notification = buildNewOrderNotification(order);
-    await sendStoreEmail(settings, {
-        to: recipient,
-        subject: notification.subject,
-        text: notification.text,
-    });
-}
-
 async function notifyNewOrder(order) {
     try {
         await sendNewOrderNotification(order);
@@ -1666,106 +932,6 @@ function getCartSignature(cart) {
     return cart.items
         .map((item) => `${item.item_key}:${item.quantity}:${item.unit_price_cents}`)
         .join("|");
-}
-
-function validateCheckoutInput(values) {
-    const billingSameAsShipping =
-        values.billing_same_as_shipping === "1" ||
-        values.billing_same_as_shipping === 1 ||
-        values.billing_same_as_shipping === true;
-
-    const form = {
-        customer_email: normalizeText(values.customer_email),
-        customer_first_name: normalizeText(values.customer_first_name),
-        customer_last_name: normalizeText(values.customer_last_name),
-        delivery_method: normalizeText(values.delivery_method) || "pickup",
-        pickup_location: normalizeText(values.pickup_location) || "recytech-center",
-        shipping_country: normalizeText(values.shipping_country) || "Suisse",
-        shipping_address1: normalizeText(values.shipping_address1),
-        shipping_postal_code: normalizeText(values.shipping_postal_code),
-        shipping_city: normalizeText(values.shipping_city),
-        shipping_region: normalizeText(values.shipping_region) || "Neuchâtel",
-        shipping_phone: normalizeText(values.shipping_phone),
-        billing_same_as_shipping: billingSameAsShipping ? "1" : "0",
-        billing_country: normalizeText(values.billing_country) || "Suisse",
-        billing_first_name: normalizeText(values.billing_first_name),
-        billing_last_name: normalizeText(values.billing_last_name),
-        billing_address1: normalizeText(values.billing_address1),
-        billing_postal_code: normalizeText(values.billing_postal_code),
-        billing_city: normalizeText(values.billing_city),
-        billing_region: normalizeText(values.billing_region) || "Neuchâtel",
-        billing_phone: normalizeText(values.billing_phone),
-        payment_method: normalizeText(values.payment_method) || getPreferredPaymentMethod(normalizeText(values.delivery_method) || "pickup"),
-        promo_code: normalizePromoCode(values.promo_code),
-        order_note: normalizeText(values.order_note),
-    };
-
-    if (!form.customer_email || !form.customer_first_name || !form.customer_last_name) {
-        throw new Error("Les coordonnées de contact sont obligatoires.");
-    }
-
-    if (!["ship", "pickup"].includes(form.delivery_method)) {
-        form.delivery_method = "pickup";
-    }
-
-    if (!["card", "transfer", "bitcoin", "cash"].includes(form.payment_method)) {
-        form.payment_method = getPreferredPaymentMethod(form.delivery_method);
-    }
-
-    if (form.payment_method === "cash" && form.delivery_method !== "pickup") {
-        throw new Error("Le paiement en espèces est disponible uniquement pour le retrait.");
-    }
-
-    if (form.delivery_method === "pickup") {
-        form.billing_same_as_shipping = "0";
-    }
-
-    if (form.delivery_method === "ship") {
-        const shippingFields = [
-            form.shipping_address1,
-            form.shipping_postal_code,
-            form.shipping_city,
-        ];
-
-        if (shippingFields.some((value) => !value)) {
-            throw new Error("L'adresse de livraison est incomplète.");
-        }
-    }
-
-    if (form.billing_same_as_shipping === "0") {
-        const billingFields = [
-            form.billing_first_name,
-            form.billing_last_name,
-            form.billing_address1,
-            form.billing_postal_code,
-            form.billing_city,
-        ];
-
-        if (billingFields.some((value) => !value)) {
-            throw new Error("L'adresse de facturation est incomplète.");
-        }
-    } else {
-        form.billing_country = form.shipping_country;
-        form.billing_first_name = form.customer_first_name;
-        form.billing_last_name = form.customer_last_name;
-        form.billing_address1 = form.shipping_address1;
-        form.billing_postal_code = form.shipping_postal_code;
-        form.billing_city = form.shipping_city;
-        form.billing_region = form.shipping_region;
-        form.billing_phone = form.shipping_phone;
-    }
-
-    const shippingOption = SHIPPING_OPTIONS[form.delivery_method] || SHIPPING_OPTIONS.pickup;
-    const customerName = `${form.customer_first_name} ${form.customer_last_name}`.trim();
-
-    return {
-        form,
-        customer: {
-            name: customerName,
-            email: form.customer_email,
-        },
-        shippingOption,
-    };
 }
 
 function validateCheckout(req) {
