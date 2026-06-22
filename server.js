@@ -80,6 +80,18 @@ const {
 } = require("./lib/db");
 
 const env = process.env;
+const isProduction = env.NODE_ENV === "production";
+const missingProductionSecrets = [
+    ["SESSION_SECRET", env.SESSION_SECRET],
+    ["ORDER_VIEW_TOKEN_SECRET", env.ORDER_VIEW_TOKEN_SECRET],
+]
+    .filter(([, value]) => !String(value || "").trim())
+    .map(([name]) => name);
+
+if (isProduction && missingProductionSecrets.length) {
+    throw new Error(`Missing required production secret(s): ${missingProductionSecrets.join(", ")}`);
+}
+
 const { baseUrl, getOrderDocumentConfig, absoluteUrl } = createUrlHelpers(env);
 const app = express();
 const databasePath = path.join(__dirname, "storage", "shop.db");
@@ -92,7 +104,8 @@ const swissBitcoinPayApiUrl = (env.SWISS_BITCOIN_PAY_API_URL || "https://api.swi
 const swissBitcoinPayApiKey = String(env.SWISS_BITCOIN_PAY_API_KEY || "").trim();
 const swissBitcoinPayWebhookSecret = String(env.SWISS_BITCOIN_PAY_WEBHOOK_SECRET || "").trim();
 const swissBitcoinPayWebhookSecretHeader = "x-recytech-webhook-secret";
-const orderViewTokenSecret = String(env.ORDER_VIEW_TOKEN_SECRET || env.SESSION_SECRET || "").trim();
+const sessionSecret = String(env.SESSION_SECRET || crypto.randomBytes(32).toString("hex")).trim();
+const orderViewTokenSecret = String(env.ORDER_VIEW_TOKEN_SECRET || "").trim();
 const loginAttemptTracker = new Map();
 const stripeIntentTracker = new Map();
 
@@ -102,13 +115,26 @@ const LOGIN_RATE_LIMIT_MAX_ATTEMPTS = 5;
 const STRIPE_INTENT_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const STRIPE_INTENT_RATE_LIMIT_BLOCK_MS = 10 * 60 * 1000;
 const STRIPE_INTENT_RATE_LIMIT_MAX_ATTEMPTS = 20;
+const RATE_LIMIT_MAX_KEYS = 1000;
+const RATE_LIMIT_PRUNE_INTERVAL_MS = 5 * 60 * 1000;
+
+const rateLimitPruneInterval = setInterval(() => {
+    pruneAttemptTracker(loginAttemptTracker, LOGIN_RATE_LIMIT_WINDOW_MS);
+    pruneAttemptTracker(stripeIntentTracker, STRIPE_INTENT_RATE_LIMIT_WINDOW_MS);
+}, RATE_LIMIT_PRUNE_INTERVAL_MS);
+rateLimitPruneInterval.unref?.();
 
 app.disable("x-powered-by");
 app.set("trust proxy", 1);
 
 app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "views"));
-app.use("/static", express.static(path.join(__dirname, "public")));
+app.use("/static/uploads", express.static(path.join(__dirname, "public", "uploads"), {
+    maxAge: "5m",
+}));
+app.use("/static", express.static(path.join(__dirname, "public"), {
+    maxAge: "1h",
+}));
 
 const {
     settingsUploadUrl,
@@ -462,7 +488,21 @@ function getRequestIp(req) {
     return normalizeText(req.ip || req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "unknown");
 }
 
+function pruneAttemptTracker(tracker, windowMs, now = Date.now()) {
+    for (const [key, value] of tracker.entries()) {
+        const expiresAt = Math.max(value.blockedUntil || 0, (value.firstAttemptAt || 0) + windowMs);
+        if (!expiresAt || expiresAt <= now) {
+            tracker.delete(key);
+        }
+    }
+
+    while (tracker.size > RATE_LIMIT_MAX_KEYS) {
+        tracker.delete(tracker.keys().next().value);
+    }
+}
+
 function getLoginRateLimitState(req) {
+    pruneAttemptTracker(loginAttemptTracker, LOGIN_RATE_LIMIT_WINDOW_MS);
     const key = getRequestIp(req);
     const now = Date.now();
     const current = loginAttemptTracker.get(key);
@@ -510,6 +550,7 @@ function registerLoginFailure(req) {
     };
 
     loginAttemptTracker.set(state.key, nextState);
+    pruneAttemptTracker(loginAttemptTracker, LOGIN_RATE_LIMIT_WINDOW_MS, now);
 }
 
 function clearLoginFailures(req) {
@@ -521,6 +562,7 @@ function getStripeIntentRateLimitKey(req) {
 }
 
 function getStripeIntentRateLimitState(req) {
+    pruneAttemptTracker(stripeIntentTracker, STRIPE_INTENT_RATE_LIMIT_WINDOW_MS);
     const key = getStripeIntentRateLimitKey(req);
     const now = Date.now();
     const current = stripeIntentTracker.get(key);
@@ -559,6 +601,7 @@ function registerStripeIntentAttempt(req) {
         attempts: nextAttempts,
         blockedUntil: nextAttempts >= STRIPE_INTENT_RATE_LIMIT_MAX_ATTEMPTS ? now + STRIPE_INTENT_RATE_LIMIT_BLOCK_MS : 0,
     });
+    pruneAttemptTracker(stripeIntentTracker, STRIPE_INTENT_RATE_LIMIT_WINDOW_MS, now);
 }
 
 function clearStripeIntentAttempts(req) {
@@ -1018,7 +1061,7 @@ app.use(express.json());
 app.use(
     session({
         store: new SqliteSessionStore(db),
-        secret: env.SESSION_SECRET || crypto.randomBytes(32).toString("hex"),
+        secret: sessionSecret,
         resave: false,
         saveUninitialized: false,
         cookie: {
