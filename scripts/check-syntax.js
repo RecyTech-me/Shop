@@ -58,6 +58,7 @@ function checkEjsTemplate(filePath) {
 const nodeFiles = [
     path.join(rootDir, "server.js"),
     ...walkFiles(path.join(rootDir, "lib"), (filePath) => filePath.endsWith(".js")),
+    ...walkFiles(path.join(rootDir, "routes"), (filePath) => filePath.endsWith(".js")),
     ...walkFiles(path.join(rootDir, "scripts"), (filePath) =>
         filePath.endsWith(".js") && path.basename(filePath) !== "check-syntax.js"
     ),
