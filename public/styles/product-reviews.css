@@ -233,7 +233,7 @@
 
 .product-option-message {
     margin: -0.25rem 0 0;
-    color: #8c1d18;
+    color: var(--status-error);
     font-size: 0.95rem;
 }
 

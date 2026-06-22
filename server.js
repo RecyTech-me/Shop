@@ -20,7 +20,6 @@ const { createUrlHelpers } = require("./lib/url-helpers");
 const {
     SHIPPING_OPTIONS,
     PAYMENT_DISCOUNT_RATE,
-    ORDER_STATUS_OPTIONS,
     ADMIN_ROLE_OPTIONS,
     formatMoney,
     formatProductPrice,
@@ -39,7 +38,6 @@ const {
     deleteProduct,
     listPacksContainingProduct,
     listPublishedProducts,
-    listFeaturedProducts,
     listAdminProducts,
     listProductCategories,
     listAdminCategories,
@@ -96,6 +94,7 @@ const { baseUrl, getOrderDocumentConfig, absoluteUrl } = createUrlHelpers(env);
 const app = express();
 const databasePath = path.join(__dirname, "storage", "shop.db");
 const db = initializeDatabase(databasePath, env);
+let settingsCache = null;
 const productUploadDir = path.join(__dirname, "public", "uploads", "products");
 const settingsUploadDir = path.join(__dirname, "public", "uploads", "settings");
 const stripe = env.STRIPE_SECRET_KEY ? new Stripe(env.STRIPE_SECRET_KEY) : null;
@@ -182,8 +181,6 @@ const {
     productCategoryList,
 });
 const {
-    getAllowedPaymentMethods,
-    getPreferredPaymentMethod,
     normalizePromoCode,
     formatPromoCodeDiscount,
     getPromoCodeStatus,
@@ -208,6 +205,20 @@ const {
     normalizeText,
     paymentState,
 });
+
+function getCachedSettings() {
+    if (!settingsCache) {
+        settingsCache = getSettings(db);
+    }
+
+    return settingsCache;
+}
+
+function saveCachedSettings(_db, values) {
+    saveSettings(db, values);
+    settingsCache = null;
+}
+
 const {
     getMailConfigError,
     isMailConfigured,
@@ -216,7 +227,7 @@ const {
     sendNewOrderNotification,
 } = createMailService({
     env,
-    getSettings: () => getSettings(db),
+    getSettings: getCachedSettings,
     normalizeText,
     parseInteger,
     toBoolean,
@@ -418,8 +429,10 @@ function getViewHelpers() {
 }
 
 function render(res, view, options = {}) {
+    const request = res.req;
     res.render(view, {
         ...getViewHelpers(),
+        structuredData: options.structuredData ?? (request ? organizationStructuredData(request) : null),
         ...options,
     });
 }
@@ -602,10 +615,6 @@ function registerStripeIntentAttempt(req) {
         blockedUntil: nextAttempts >= STRIPE_INTENT_RATE_LIMIT_MAX_ATTEMPTS ? now + STRIPE_INTENT_RATE_LIMIT_BLOCK_MS : 0,
     });
     pruneAttemptTracker(stripeIntentTracker, STRIPE_INTENT_RATE_LIMIT_WINDOW_MS, now);
-}
-
-function clearStripeIntentAttempts(req) {
-    stripeIntentTracker.delete(getStripeIntentRateLimitKey(req));
 }
 
 function getOrCreateCsrfToken(req) {
@@ -903,7 +912,7 @@ function verifySwissBitcoinPaySignature(rawBody, signatureHeader) {
             if (buffer.length === digest.length && crypto.timingSafeEqual(buffer, digest)) {
                 return true;
             }
-        } catch (error) {
+        } catch (_error) {
             // Ignore invalid encodings and keep trying supported formats.
         }
     }
@@ -1089,7 +1098,7 @@ app.use((req, res, next) => {
 
     Object.assign(res.locals, getViewHelpers());
     res.locals.currentPath = req.path;
-    res.locals.settings = getSettings(db);
+    res.locals.settings = getCachedSettings();
     res.locals.flash = getFlash(req);
     res.locals.cart = buildCart(req);
     res.locals.currentAdmin = currentAdmin;
@@ -1266,8 +1275,8 @@ registerAdminRoutes({
     buildProductFormState,
     baseUrl,
     getOrderDocumentConfig,
-    getSettings,
-    saveSettings,
+    getSettings: getCachedSettings,
+    saveSettings: saveCachedSettings,
     createProduct,
     updateProduct,
     deleteProduct,
@@ -1302,7 +1311,7 @@ registerAdminRoutes({
     deleteOrder,
 });
 
-app.use((error, req, res, next) => {
+app.use((error, req, res, _next) => {
     console.error(error);
 
     if (req.currentAdmin) {
@@ -1320,6 +1329,10 @@ app.use((req, res) => {
 const port = Number.parseInt(env.PORT || "3000", 10);
 const host = env.HOST || "127.0.0.1";
 
-app.listen(port, host, () => {
-    console.log(`RecyTech shop listening on http://${host}:${port}`);
-});
+if (require.main === module) {
+    app.listen(port, host, () => {
+        console.log(`RecyTech shop listening on http://${host}:${port}`);
+    });
+}
+
+module.exports = { app };

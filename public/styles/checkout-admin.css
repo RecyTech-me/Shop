@@ -81,11 +81,11 @@
 }
 
 .promo-code-state-success {
-    color: #29583a;
+    color: var(--status-success);
 }
 
 .promo-code-state-error {
-    color: #8c1d18;
+    color: var(--status-error);
 }
 
 .choice-grid,
@@ -282,7 +282,7 @@
 
 .stripe-payment-message[data-tone="error"] {
     background: rgba(180, 35, 24, 0.08);
-    color: #8c1d18;
+    color: var(--status-error);
 }
 
 .stripe-payment-message[data-tone="info"] {
@@ -539,4 +539,3 @@
 .full-span {
     grid-column: 1 / -1;
 }
-

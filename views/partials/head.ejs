@@ -3,19 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <% const publicOrigin = "https://shop.recytech.me"; %>
-    <% const isProductPage = typeof product !== "undefined" && product; %>
     <% const pageTitle = `${title} | ${settings.store_name}`; %>
-    <% const pageDescription = isProductPage
-        ? (product.short_description || product.description || settings.tagline)
-        : settings.tagline; %>
-    <% const pageCanonicalUrl = `${publicOrigin}${currentPath || ""}`; %>
-    <% const rawPageImageUrl = isProductPage
-        ? (product.gallery_images?.[0] || product.image_url || "/static/images/recytech-logo.svg")
-        : "/static/images/recytech-logo.svg"; %>
-    <% const pageImageUrl = /^https?:\/\//i.test(rawPageImageUrl)
-        ? rawPageImageUrl
-        : `${publicOrigin}${rawPageImageUrl.startsWith("/") ? "" : "/"}${rawPageImageUrl}`; %>
+    <% const pageDescription = typeof metaDescription !== "undefined" && metaDescription ? metaDescription : settings.tagline; %>
+    <% const pageCanonicalUrl = typeof canonicalUrl !== "undefined" ? canonicalUrl : ""; %>
+    <% const rawPageImageUrl = typeof metaImageUrl !== "undefined" && metaImageUrl ? metaImageUrl : "/static/images/recytech-logo.svg"; %>
+    <% const pageImageUrl = typeof absoluteUrl === "function" ? absoluteUrl(rawPageImageUrl) : rawPageImageUrl; %>
+    <% const pageOgType = typeof ogType !== "undefined" && ogType ? ogType : "website"; %>
     <meta name="description" content="<%= pageDescription %>">
     <meta name="csrf-token" content="<%= csrfToken || '' %>">
     <% if (pageCanonicalUrl) { %>
@@ -23,7 +16,7 @@
     <% } %>
     <meta property="og:title" content="<%= pageTitle %>">
     <meta property="og:description" content="<%= pageDescription %>">
-    <meta property="og:type" content="<%= isProductPage ? 'product' : 'website' %>">
+    <meta property="og:type" content="<%= pageOgType %>">
     <% if (pageCanonicalUrl) { %>
         <meta property="og:url" content="<%= pageCanonicalUrl %>">
     <% } %>
@@ -36,41 +29,9 @@
     <title><%= pageTitle %></title>
     <link rel="icon" href="/static/images/recytech-logo.svg" type="image/svg+xml">
     <link rel="stylesheet" href="/static/styles/main.css">
-    <% const structuredDataItems = []; %>
-    <% if (isProductPage) { %>
-        <% structuredDataItems.push({
-            "@context": "https://schema.org",
-            "@type": "Product",
-            name: product.name,
-            description: pageDescription,
-            image: product.gallery_images?.map((imageUrl) => /^https?:\/\//i.test(imageUrl) ? imageUrl : `${publicOrigin}${imageUrl.startsWith("/") ? "" : "/"}${imageUrl}`) || [],
-            url: pageCanonicalUrl,
-            brand: { "@type": "Brand", name: "RecyTech" },
-            category: (product.categories?.length ? product.categories : (product.category ? [product.category] : [])).join(", "),
-            offers: {
-                "@type": "Offer",
-                priceCurrency: product.currency || "CHF",
-                price: String(((product.starting_price_cents ?? product.price_cents ?? 0) / 100).toFixed(2)),
-                availability: product.inventory > 0 ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
-                itemCondition: "https://schema.org/RefurbishedCondition",
-                url: pageCanonicalUrl,
-                seller: { "@type": "Organization", name: "RecyTech" },
-            },
-        }); %>
-    <% } else { %>
-        <% structuredDataItems.push({
-            "@context": "https://schema.org",
-            "@type": "Organization",
-            name: "RecyTech",
-            url: publicOrigin,
-            logo: `${publicOrigin}/static/images/recytech-logo.svg`,
-            sameAs: [
-                "https://recytech.me",
-                "https://www.instagram.com/recytech.me",
-                "https://github.com/RecyTech-me",
-            ],
-        }); %>
-    <% } %>
+    <% const structuredDataItems = typeof structuredData !== "undefined" && structuredData
+        ? (Array.isArray(structuredData) ? structuredData : [structuredData])
+        : []; %>
     <% structuredDataItems.forEach((item) => { %>
         <script type="application/ld+json"><%- JSON.stringify(item).replace(/</g, "\\u003c") %></script>
     <% }) %>

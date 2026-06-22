@@ -69,39 +69,6 @@ function nowIso() {
     return new Date().toISOString();
 }
 
-function formatOptionGroups(groups) {
-    return (groups || [])
-        .map((group) => `${group.name}: ${(group.values || []).join(" | ")}`)
-        .join("\n");
-}
-
-function formatInfoRows(rows) {
-    return (rows || [])
-        .map((row) => `${row.label}: ${row.value}`)
-        .join("\n");
-}
-
-function formatValidConfigurations(configurations) {
-    return (configurations || [])
-        .map((configuration) => {
-            const selections = Array.isArray(configuration)
-                ? configuration
-                : Array.isArray(configuration?.selections)
-                    ? configuration.selections
-                    : [];
-            const priceCents = Number.isInteger(configuration?.price_cents)
-                ? configuration.price_cents
-                : null;
-            const selectionText = selections.map((selection) => `${selection.name}=${selection.value}`).join(" ; ");
-
-            return priceCents === null
-                ? selectionText
-                : `${selectionText} => ${(priceCents / 100).toFixed(2)}`;
-        })
-        .filter(Boolean)
-        .join("\n");
-}
-
 function uniqueStrings(values) {
     return [...new Set(values.filter(Boolean))];
 }
