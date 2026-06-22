@@ -1,17 +1,19 @@
 require("dotenv").config({ path: require("path").join(__dirname, ".env") });
 
 const path = require("path");
-const fs = require("fs");
 const crypto = require("crypto");
 const express = require("express");
 const session = require("express-session");
-const multer = require("multer");
 const nodemailer = require("nodemailer");
 const Stripe = require("stripe");
-const { verifyPassword } = require("./lib/auth");
 const { SqliteSessionStore, SESSION_TTL_MS } = require("./lib/sqlite-session-store");
-const { buildOrderDocumentPdf, buildOrderDocumentFilename } = require("./lib/order-documents");
-const { getLegalPages } = require("./lib/legal-pages");
+const { registerAdminRoutes } = require("./routes/admin");
+const { registerCheckoutRoutes } = require("./routes/checkout");
+const { registerPublicApiRoutes } = require("./routes/public-api");
+const { registerStorefrontRoutes } = require("./routes/storefront");
+const { registerWebhookRoutes } = require("./routes/webhooks");
+const { createPublicProductPresenters } = require("./lib/public-product-presenters");
+const { createUploadHandlers } = require("./lib/upload-handlers");
 const { createUrlHelpers } = require("./lib/url-helpers");
 const {
     SHIPPING_OPTIONS,
@@ -106,376 +108,32 @@ app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "views"));
 app.use("/static", express.static(path.join(__dirname, "public")));
 
-function createImageUpload(uploadDir, maxFiles) {
-    return multer({
-        storage: multer.diskStorage({
-            destination: (req, file, callback) => {
-                callback(null, uploadDir);
-            },
-            filename: (req, file, callback) => {
-                const extensionByMimeType = {
-                    "image/jpeg": ".jpg",
-                    "image/png": ".png",
-                    "image/webp": ".webp",
-                    "image/gif": ".gif",
-                };
-                const extension = extensionByMimeType[file.mimetype] || ".img";
-                callback(null, `${Date.now()}-${crypto.randomBytes(8).toString("hex")}${extension}`);
-            },
-        }),
-        limits: {
-            fileSize: 8 * 1024 * 1024,
-            files: maxFiles,
-        },
-        fileFilter: (req, file, callback) => {
-            if (!["image/jpeg", "image/png", "image/webp", "image/gif"].includes(file.mimetype)) {
-                return callback(new Error("Seules les images JPG, PNG, WebP ou GIF peuvent être importées."));
-            }
-
-            callback(null, true);
-        },
-    });
-}
-
-const productImageUpload = createImageUpload(productUploadDir, 13);
-const settingsImageUpload = createImageUpload(settingsUploadDir, 1);
-
-function detectStoredImageFormat(filePath) {
-    try {
-        const header = fs.readFileSync(filePath, { encoding: null, flag: "r" }).subarray(0, 16);
-
-        if (header.length >= 3 && header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff) {
-            return "jpeg";
-        }
-
-        if (
-            header.length >= 8 &&
-            header[0] === 0x89 &&
-            header[1] === 0x50 &&
-            header[2] === 0x4e &&
-            header[3] === 0x47 &&
-            header[4] === 0x0d &&
-            header[5] === 0x0a &&
-            header[6] === 0x1a &&
-            header[7] === 0x0a
-        ) {
-            return "png";
-        }
-
-        const gifHeader = header.subarray(0, 6).toString("ascii");
-        if (gifHeader === "GIF87a" || gifHeader === "GIF89a") {
-            return "gif";
-        }
-
-        if (
-            header.length >= 12 &&
-            header.subarray(0, 4).toString("ascii") === "RIFF" &&
-            header.subarray(8, 12).toString("ascii") === "WEBP"
-        ) {
-            return "webp";
-        }
-    } catch {
-        return "";
-    }
-
-    return "";
-}
-
-function cleanupUploadedFiles(files = []) {
-    for (const file of files) {
-        if (!file?.path) {
-            continue;
-        }
-
-        try {
-            fs.unlinkSync(file.path);
-        } catch {
-            // Ignore cleanup failures.
-        }
-    }
-}
-
-function validateStoredImageUploads(files = []) {
-    const invalidFiles = files.filter((file) => !detectStoredImageFormat(file.path));
-    if (!invalidFiles.length) {
-        return;
-    }
-
-    cleanupUploadedFiles(invalidFiles);
-    throw new Error("Une ou plusieurs images importées sont invalides ou corrompues.");
-}
-
-function uploadUrl(file, folder) {
-    if (!file?.filename) {
-        return "";
-    }
-
-    return `/static/uploads/${folder}/${file.filename}`;
-}
-
-function productUploadUrl(file) {
-    return uploadUrl(file, "products");
-}
-
-function settingsUploadUrl(file) {
-    return uploadUrl(file, "settings");
-}
-
-function ensureUploadDirectory(req, res, directoryPath) {
-    try {
-        fs.mkdirSync(directoryPath, { recursive: true });
-        return true;
-    } catch (error) {
-        setFlash(req, "error", `Préparation du dossier d'import impossible : ${error.message}`);
-        saveSessionAndRedirect(req, res, req.get("referer") || req.originalUrl || "/admin");
-        return false;
-    }
-}
-
-function withProductUploads(req, res, next) {
-    if (req.productUploadsParsed) {
-        return next();
-    }
-
-    if (!ensureUploadDirectory(req, res, productUploadDir)) {
-        return undefined;
-    }
-
-    productImageUpload.fields([
-        { name: "image_file", maxCount: 1 },
-        { name: "gallery_files", maxCount: 12 },
-    ])(req, res, (error) => {
-        if (error) {
-            setFlash(req, "error", error.message || "L'import des images a échoué.");
-            return saveSessionAndRedirect(req, res, req.get("referer") || req.originalUrl || "/admin/products/new");
-        }
-
-        try {
-            validateStoredImageUploads([
-                ...(req.files?.image_file || []),
-                ...(req.files?.gallery_files || []),
-            ]);
-        } catch (validationError) {
-            setFlash(req, "error", validationError.message);
-            return saveSessionAndRedirect(req, res, req.get("referer") || req.originalUrl || "/admin/products/new");
-        }
-
-        req.productUploadsParsed = true;
-        return next();
-    });
-}
-
-function withSettingsUpload(req, res, next) {
-    if (req.settingsUploadParsed) {
-        return next();
-    }
-
-    if (!ensureUploadDirectory(req, res, settingsUploadDir)) {
-        return undefined;
-    }
-
-    settingsImageUpload.single("hero_image_file")(req, res, (error) => {
-        if (error) {
-            setFlash(req, "error", error.message || "L'import de l'image a échoué.");
-            return saveSessionAndRedirect(req, res, req.get("referer") || req.originalUrl || "/admin/settings");
-        }
-
-        try {
-            validateStoredImageUploads(req.file ? [req.file] : []);
-        } catch (validationError) {
-            setFlash(req, "error", validationError.message);
-            return saveSessionAndRedirect(req, res, req.get("referer") || req.originalUrl || "/admin/settings");
-        }
-
-        req.settingsUploadParsed = true;
-        return next();
-    });
-}
-
-function isProductUploadRequest(req) {
-    return req.method === "POST" && (
-        req.path === "/admin/products/new" ||
-        /^\/admin\/products\/\d+\/edit$/.test(req.path)
-    ) && req.is("multipart/form-data");
-}
-
-function isSettingsUploadRequest(req) {
-    return req.method === "POST" && req.path === "/admin/settings" && req.is("multipart/form-data");
-}
-
-function productInputWithUploads(req) {
-    const input = { ...req.body };
-    const primaryUpload = productUploadUrl(req.files?.image_file?.[0]);
-    const galleryUploads = (req.files?.gallery_files || []).map(productUploadUrl).filter(Boolean);
-    const existingGalleryUrls = String(input.image_gallery_urls || "").trim();
-
-    if (primaryUpload) {
-        input.image_url = primaryUpload;
-    }
-
-    if (!input.image_url && galleryUploads.length) {
-        input.image_url = galleryUploads.shift();
-    }
-
-    if (galleryUploads.length) {
-        input.image_gallery_urls = [existingGalleryUrls, ...galleryUploads]
-            .filter(Boolean)
-            .join("\n");
-    }
-
-    return input;
-}
-
-function buildProductFormState(input = {}, baseProduct = null) {
-    const rawPrice = input.price_chf;
-    const derivedPrice = baseProduct && Number.isFinite(baseProduct.price_cents)
-        ? (baseProduct.price_cents / 100).toFixed(2)
-        : "";
-
-    return {
-        ...(baseProduct || {}),
-        product_kind: input.product_kind ?? baseProduct?.product_kind ?? "product",
-        name: input.name ?? baseProduct?.name ?? "",
-        categories_text: input.categories ?? baseProduct?.categories_text ?? baseProduct?.category ?? "",
-        price_chf: rawPrice ?? derivedPrice,
-        inventory: input.inventory ?? baseProduct?.inventory ?? 0,
-        image_url: input.image_url ?? baseProduct?.image_url ?? "",
-        image_gallery_text: input.image_gallery_urls ?? baseProduct?.image_gallery_text ?? "",
-        short_description: input.short_description ?? baseProduct?.short_description ?? "",
-        description: input.description ?? baseProduct?.description ?? "",
-        admin_notes: input.admin_notes ?? baseProduct?.admin_notes ?? "",
-        option_groups_text: input.option_groups ?? baseProduct?.option_groups_text ?? "",
-        valid_configurations_text: input.valid_configurations ?? baseProduct?.valid_configurations_text ?? "",
-        bundle_items_text: input.bundle_items ?? baseProduct?.bundle_items_text ?? "",
-        info_rows_text: input.info_rows ?? baseProduct?.info_rows_text ?? "",
-        featured: input.featured ? 1 : 0,
-        published: input.published ? 1 : 0,
-    };
-}
-
-function setPublicApiHeaders(res) {
-    res.set("Access-Control-Allow-Origin", "*");
-    res.set("Access-Control-Allow-Methods", "GET, OPTIONS");
-    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-    res.set("Cache-Control", "public, max-age=120");
-}
-
-function productCategoryList(product) {
-    const categories = Array.isArray(product?.categories)
-        ? product.categories.filter(Boolean)
-        : [];
-
-    return categories.length || !product?.category
-        ? categories
-        : [product.category];
-}
-
-function serializePublicProduct(req, product) {
-    const images = (product.gallery_images || [])
-        .map((src) => absoluteUrl(req, src))
-        .filter(Boolean)
-        .map((src, index) => ({
-            id: `${product.id}-${index}`,
-            src,
-            alt: product.name,
-            position: index,
-        }));
-    const displayPriceCents = product.starting_price_cents ?? product.price_cents;
-    const categories = productCategoryList(product);
-
-    return {
-        id: product.id,
-        slug: product.slug,
-        type: product.is_pack ? "pack" : "product",
-        name: product.name,
-        short_description: product.short_description || "",
-        description: product.description || "",
-        price: ((displayPriceCents || 0) / 100).toFixed(2),
-        regular_price: ((displayPriceCents || 0) / 100).toFixed(2),
-        price_html: product.has_configuration_pricing ? formatProductPrice(product) : "",
-        price_range: product.has_configuration_pricing
-            ? {
-                min_price: ((product.starting_price_cents || 0) / 100).toFixed(2),
-                max_price: ((product.maximum_price_cents || 0) / 100).toFixed(2),
-            }
-            : null,
-        currency: product.currency || "CHF",
-        categories: categories.map((category) => ({
-            id: category,
-            name: category,
-            slug: category.toLowerCase().replace(/\s+/g, "-"),
-        })),
-        bundle_items: product.is_pack
-            ? (product.bundle_items || []).map((item) => ({
-                product_id: item.product_id,
-                slug: item.slug,
-                name: item.name,
-                quantity: item.quantity,
-                selected_options: item.selected_options || [],
-            }))
-            : [],
-        featured: Boolean(product.featured),
-        stock_quantity: Math.max(0, Number(product.inventory || 0)),
-        stock_status: product.inventory > 0 ? "instock" : "outofstock",
-        status: product.published ? "publish" : "draft",
-        permalink: `${baseUrl(req).replace(/\/$/, "")}/products/${product.slug}`,
-        images,
-    };
-}
-
-function productMetaDescription(product) {
-    return truncateText(product.short_description || product.description || "", 155) || "Matériel informatique reconditionné par RecyTech.";
-}
-
-function productStructuredData(req, product) {
-    const images = (product.gallery_images || [])
-        .map((src) => absoluteUrl(req, src))
-        .filter(Boolean);
-    const displayPriceCents = product.starting_price_cents ?? product.price_cents;
-
-    return {
-        "@context": "https://schema.org",
-        "@type": "Product",
-        name: product.name,
-        description: productMetaDescription(product),
-        image: images,
-        url: `${baseUrl(req).replace(/\/$/, "")}/products/${product.slug}`,
-        brand: {
-            "@type": "Brand",
-            name: "RecyTech",
-        },
-        category: productCategoryList(product).join(", "),
-        offers: {
-            "@type": "Offer",
-            priceCurrency: product.currency || "CHF",
-            price: ((displayPriceCents || 0) / 100).toFixed(2),
-            availability: product.inventory > 0 ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
-            itemCondition: "https://schema.org/RefurbishedCondition",
-            url: `${baseUrl(req).replace(/\/$/, "")}/products/${product.slug}`,
-            seller: {
-                "@type": "Organization",
-                name: "RecyTech",
-            },
-        },
-    };
-}
-
-function organizationStructuredData(req) {
-    const origin = baseUrl(req).replace(/\/$/, "");
-
-    return {
-        "@context": "https://schema.org",
-        "@type": "Organization",
-        name: "RecyTech",
-        url: origin || "https://shop.recytech.me",
-        logo: absoluteUrl(req, "/static/images/recytech-logo.svg"),
-        sameAs: [
-            "https://recytech.me",
-            "https://www.instagram.com/recytech.me",
-            "https://github.com/RecyTech-me",
-        ],
-    };
-}
+const {
+    settingsUploadUrl,
+    withProductUploads,
+    withSettingsUpload,
+    isProductUploadRequest,
+    isSettingsUploadRequest,
+    productInputWithUploads,
+    buildProductFormState,
+} = createUploadHandlers({
+    productUploadDir,
+    settingsUploadDir,
+    setFlash,
+    saveSessionAndRedirect,
+});
+const {
+    setPublicApiHeaders,
+    productCategoryList,
+    serializePublicProduct,
+    productMetaDescription,
+    productStructuredData,
+    organizationStructuredData,
+} = createPublicProductPresenters({
+    baseUrl,
+    absoluteUrl,
+    formatProductPrice,
+});
 
 function setFlash(req, type, message, options = {}) {
     req.session.flash = { type, message, ...options };
@@ -1972,6 +1630,14 @@ async function sendNewOrderNotification(order) {
     });
 }
 
+async function notifyNewOrder(order) {
+    try {
+        await sendNewOrderNotification(order);
+    } catch (error) {
+        console.error(`Order notification email failed for ${order.order_number}: ${error.message}`);
+    }
+}
+
 function getOrderAdminData(order) {
     return order.metadata?.admin || {};
 }
@@ -2168,81 +1834,17 @@ async function createOrReuseStripeIntent(req, values = {}) {
     return nextDraft;
 }
 
-app.post("/webhooks/stripe", express.raw({ type: "application/json" }), (req, res) => {
-    if (!stripe || !env.STRIPE_WEBHOOK_SECRET) {
-        return res.status(204).end();
-    }
-
-    try {
-        const signature = req.headers["stripe-signature"];
-        const event = stripe.webhooks.constructEvent(req.body, signature, env.STRIPE_WEBHOOK_SECRET);
-
-        if (event.type === "payment_intent.succeeded") {
-            const paymentIntent = event.data.object;
-            const order = getOrderByProviderReference(db, "stripe", paymentIntent.id);
-
-            if (order) {
-                markOrderPaid(db, order.id, {
-                    stripePaymentIntentId: paymentIntent.id,
-                    paymentStatus: paymentIntent.status,
-                });
-            }
-        }
-
-        if (["payment_intent.payment_failed", "payment_intent.canceled"].includes(event.type)) {
-            const paymentIntent = event.data.object;
-            const order = getOrderByProviderReference(db, "stripe", paymentIntent.id);
-
-            if (order) {
-                updateOrderStatus(db, order.id, "failed", {
-                    stripePaymentIntentId: paymentIntent.id,
-                    paymentStatus: paymentIntent.status,
-                });
-            }
-        }
-
-        res.status(200).json({ received: true });
-    } catch (error) {
-        res.status(400).send(`Webhook Error: ${error.message}`);
-    }
-});
-
-app.post("/webhooks/swiss-bitcoin-pay", express.raw({ type: "application/json" }), (req, res) => {
-    try {
-        if (!verifySwissBitcoinPayWebhook(req)) {
-            return res.status(401).json({ error: "Invalid webhook secret" });
-        }
-
-        const invoice = JSON.parse(req.body.toString("utf8") || "{}");
-        const invoiceId = normalizeText(invoice.id || invoice.invoice?.id);
-
-        if (!invoiceId) {
-            return res.status(200).json({ received: true });
-        }
-
-        const order = getOrderByProviderReference(db, "swissbitcoinpay", invoiceId);
-        if (!order) {
-            return res.status(200).json({ received: true });
-        }
-
-        const nextStatus = mapSwissBitcoinPayStatus(invoice);
-        const metadata = {
-            swissBitcoinPayInvoiceId: invoiceId,
-            invoiceStatus: invoice.status || "",
-            paymentMethod: invoice.paymentMethod || "",
-            txId: invoice.txId || "",
-        };
-
-        if (nextStatus === "paid") {
-            markOrderPaid(db, order.id, metadata);
-        } else {
-            updateOrderStatus(db, order.id, nextStatus, metadata);
-        }
-
-        res.status(200).json({ received: true });
-    } catch (error) {
-        res.status(400).send(`Webhook Error: ${error.message}`);
-    }
+registerWebhookRoutes({
+    app,
+    stripe,
+    env,
+    db,
+    getOrderByProviderReference,
+    markOrderPaid,
+    updateOrderStatus,
+    verifySwissBitcoinPayWebhook,
+    normalizeText,
+    mapSwissBitcoinPayStatus,
 });
 
 app.use(express.urlencoded({ extended: false }));
@@ -2319,1432 +1921,176 @@ app.use((req, res, next) => {
     return saveSessionAndRedirect(req, res, req.get("referer") || "/");
 });
 
-app.options(["/api/products", "/wp-json/wc/v3/products"], (req, res) => {
-    setPublicApiHeaders(res);
-    res.status(204).end();
+registerPublicApiRoutes({
+    app,
+    db,
+    stripe,
+    setPublicApiHeaders,
+    listPublishedProducts,
+    serializePublicProduct,
+    setCheckoutForm,
+    buildCheckoutDraft,
+    getCheckoutForm,
+    buildCart,
+    setFlash,
+    saveSessionAndRedirect,
+    clearStripeDraft,
+    getPromoCodeOutcome,
+    createOrReuseStripeIntent,
+    paymentState,
+    normalizeText,
+    validateCheckoutInput,
+    requirePromoCodeOutcome,
+    getCheckoutPricing,
+    getOrderByProviderReference,
+    createOrder,
+    notifyNewOrder,
+    createOrderViewToken,
 });
 
-app.get(["/api/products", "/wp-json/wc/v3/products"], (req, res) => {
-    setPublicApiHeaders(res);
-    res.json(listPublishedProducts(db).map((product) => serializePublicProduct(req, product)));
+registerStorefrontRoutes({
+    app,
+    db,
+    render,
+    setFlash,
+    saveSessionAndRedirect,
+    getSafeRedirectTarget,
+    normalizeText,
+    parseMoneyToCents,
+    readSiteReviewInput,
+    readSelectedProductOptions,
+    ensureAvailableProductQuantity,
+    upsertCartItem,
+    getCartItems,
+    makeCartItemKey,
+    removeCartItem,
+    productMetaDescription,
+    productStructuredData,
+    organizationStructuredData,
+    listPublishedProducts,
+    listProductCategories,
+    listApprovedSiteReviews,
+    getSiteReviewSummary,
+    createSiteReview,
+    getProductBySlug,
+    getProductById,
 });
 
-app.post("/checkout/session", (req, res) => {
-    setCheckoutForm(req, buildCheckoutDraft(req.body || {}, getCheckoutForm(req)));
-    req.session.save(() => {
-        res.status(204).end();
-    });
+registerCheckoutRoutes({
+    app,
+    db,
+    stripe,
+    SHIPPING_OPTIONS,
+    render,
+    setFlash,
+    saveSessionAndRedirect,
+    buildCart,
+    requirePromoCodeOutcome,
+    getCheckoutPricing,
+    createOrder,
+    getCheckoutForm,
+    getPromoCodeOutcome,
+    paymentState,
+    setCheckoutForm,
+    validateCheckout,
+    createSwissBitcoinPayInvoice,
+    updateOrderProviderReference,
+    clearCheckoutForm,
+    setCartItems,
+    createOrderViewToken,
+    sendNewOrderNotification,
+    fetchSwissBitcoinPayInvoice,
+    mapSwissBitcoinPayStatus,
+    getOrderByProviderReference,
+    markOrderPaid,
+    updateOrderStatus,
+    getOrderByNumber,
+    verifyOrderViewToken,
+    clearStripeDraft,
 });
 
-app.post("/checkout/promo", (req, res) => {
-    const cart = buildCart(req);
-    if (!cart.items.length) {
-        setFlash(req, "error", "Votre panier est vide.");
-        return saveSessionAndRedirect(req, res, "/cart");
-    }
-
-    const nextForm = buildCheckoutDraft(req.body || {}, getCheckoutForm(req));
-    setCheckoutForm(req, nextForm);
-    clearStripeDraft(req);
-
-    const promoCodeOutcome = getPromoCodeOutcome(nextForm.promo_code, cart.subtotalCents);
-    if (!nextForm.promo_code) {
-        setFlash(req, "success", "Le code promo a été retiré.");
-        return saveSessionAndRedirect(req, res, "/checkout");
-    }
-
-    if (promoCodeOutcome.error) {
-        setFlash(req, "error", promoCodeOutcome.error);
-        return saveSessionAndRedirect(req, res, "/checkout");
-    }
-
-    setFlash(req, "success", `${promoCodeOutcome.promoCode.code} a bien été appliqué.`);
-    return saveSessionAndRedirect(req, res, "/checkout");
-});
-
-app.post("/checkout/stripe/intent", async (req, res) => {
-    try {
-        const draft = await createOrReuseStripeIntent(req, req.body || {});
-        req.session.save(() => {
-            res.json({
-                paymentIntentId: draft.paymentIntentId,
-                clientSecret: draft.clientSecret,
-            });
-        });
-    } catch (error) {
-        const statusCode = /Trop de tentatives de paiement carte/i.test(error.message) ? 429 : 400;
-        res.status(statusCode).json({ error: error.message });
-    }
-});
-
-app.post("/checkout/stripe/prepare", async (req, res) => {
-    try {
-        if (!paymentState().stripeEnabled) {
-            return res.status(400).json({ error: "Le paiement par carte est indisponible." });
-        }
-
-        const paymentIntentId = normalizeText(req.body.stripe_payment_intent_id);
-        if (!paymentIntentId) {
-            return res.status(400).json({ error: "Session de paiement Stripe manquante." });
-        }
-
-        const checkoutDetails = validateCheckoutInput(req.body || {});
-        checkoutDetails.form.payment_method = "card";
-        setCheckoutForm(req, checkoutDetails.form);
-
-        const cart = buildCart(req);
-        if (!cart.items.length) {
-            return res.status(400).json({ error: "Le panier est vide." });
-        }
-
-        const promoCodeOutcome = requirePromoCodeOutcome(checkoutDetails.form.promo_code, cart.subtotalCents);
-        const pricing = getCheckoutPricing(cart.subtotalCents, checkoutDetails.shippingOption, "card", promoCodeOutcome);
-        const amountCents = pricing.totalCents;
-        const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
-
-        if (paymentIntent.currency !== "chf" || paymentIntent.amount !== amountCents) {
-            return res.status(400).json({ error: "Le montant Stripe ne correspond plus à la commande." });
-        }
-
-        let order = getOrderByProviderReference(db, "stripe", paymentIntent.id);
-        let createdOrder = false;
-        if (!order) {
-            order = createOrder(db, {
-                provider: "stripe",
-                provider_reference: paymentIntent.id,
-                customer_name: checkoutDetails.customer.name,
-                customer_email: checkoutDetails.customer.email,
-                amount_cents: amountCents,
-                currency: "CHF",
-                items: cart.items,
-                status: "pending",
-                metadata: {
-                    checkout: checkoutDetails.form,
-                    delivery: {
-                        method: checkoutDetails.shippingOption.key,
-                        label: checkoutDetails.shippingOption.label,
-                        amount_cents: checkoutDetails.shippingOption.priceCents,
-                    },
-                    additions: [
-                        ...(checkoutDetails.shippingOption.priceCents > 0
-                        ? [{
-                            type: "shipping",
-                            label: checkoutDetails.shippingOption.label,
-                            amount_cents: checkoutDetails.shippingOption.priceCents,
-                        }]
-                        : []),
-                        ...pricing.discountLines,
-                    ],
-                    promo: promoCodeOutcome.promoCode
-                        ? {
-                            id: promoCodeOutcome.promoCode.id,
-                            code: promoCodeOutcome.promoCode.code,
-                            description: promoCodeOutcome.promoCode.description,
-                            discount_type: promoCodeOutcome.promoCode.discount_type,
-                            discount_value: promoCodeOutcome.promoCode.discount_value,
-                            discount_cents: promoCodeOutcome.discountCents,
-                            label: promoCodeOutcome.label,
-                        }
-                        : null,
-                    stripePaymentIntentId: paymentIntent.id,
-                },
-            });
-            createdOrder = true;
-        }
-
-        if (createdOrder) {
-            await notifyNewOrder(order);
-        }
-
-        await stripe.paymentIntents.update(paymentIntent.id, {
-            receipt_email: checkoutDetails.customer.email,
-            metadata: {
-                source: "recytech-shop",
-                order_number: order.order_number,
-                delivery_method: checkoutDetails.shippingOption.key,
-                promo_code: promoCodeOutcome.code || "",
-            },
-        });
-
-        req.session.save(() => {
-            res.json({
-                successUrl: `/checkout/success?provider=stripe&payment_intent=${encodeURIComponent(paymentIntent.id)}&order=${encodeURIComponent(order.order_number)}&view=${encodeURIComponent(createOrderViewToken(order))}`,
-                orderNumber: order.order_number,
-            });
-        });
-    } catch (error) {
-        res.status(400).json({ error: error.message });
-    }
-});
-
-function readCatalogueFilters(values) {
-    const priceMin = normalizeText(values.price_min);
-    const priceMax = normalizeText(values.price_max);
-    const minPriceCents = parseMoneyToCents(priceMin, Number.NaN);
-    const maxPriceCents = parseMoneyToCents(priceMax, Number.NaN);
-    const availability = normalizeText(values.availability);
-    const sort = normalizeText(values.sort) || "random";
-    const allowedAvailability = new Set(["", "in_stock", "out_of_stock"]);
-    const allowedSorts = new Set(["random", "featured", "newest", "price_asc", "price_desc", "name_asc"]);
-
-    const view = {
-        q: normalizeText(values.q),
-        category: normalizeText(values.category),
-        price_min: priceMin,
-        price_max: priceMax,
-        availability: allowedAvailability.has(availability) ? availability : "",
-        sort: allowedSorts.has(sort) ? sort : "random",
-    };
-
-    return {
-        view,
-        productFilters: {
-            query: view.q,
-            category: view.category,
-            minPriceCents: Number.isFinite(minPriceCents) ? minPriceCents : null,
-            maxPriceCents: Number.isFinite(maxPriceCents) ? maxPriceCents : null,
-            availability: view.availability,
-            sort: view.sort,
-        },
-        hasActiveFilters: Boolean(
-            view.q ||
-            view.category ||
-            view.price_min ||
-            view.price_max ||
-            view.availability ||
-            view.sort !== "random"
-        ),
-    };
-}
-
-app.get("/", (req, res) => {
-    const catalogue = readCatalogueFilters(req.query);
-
-    render(res, "home", {
-        title: "Boutique RecyTech",
-        metaDescription: "Ordinateurs, écrans, vidéoprojecteurs et accessoires reconditionnés par RecyTech, avec Linux possible, garantie et prix accessibles.",
-        structuredData: organizationStructuredData(req),
-        products: listPublishedProducts(db, catalogue.productFilters),
-        catalogueFilters: catalogue.view,
-        catalogueCategories: listProductCategories(db, { publishedOnly: true }),
-        hasCatalogueFilters: catalogue.hasActiveFilters,
-        reviews: listApprovedSiteReviews(db),
-        reviewSummary: getSiteReviewSummary(db),
-    });
-});
-
-app.get(["/politique-confidentialite", "/conditions-generales-de-vente", "/remboursements-retours"], (req, res) => {
-    const slug = req.path.replace(/^\//, "");
-    const page = getLegalPages(res.locals.settings)[slug];
-
-    render(res, "legal", {
-        title: page.title,
-        page,
-    });
-});
-
-app.get("/products/:slug", (req, res) => {
-    const product = getProductBySlug(db, req.params.slug);
-    if (!product || !product.published) {
-        return res.status(404).render("not-found", { title: "Produit introuvable" });
-    }
-
-    render(res, "product", {
-        title: product.name,
-        metaDescription: productMetaDescription(product),
-        metaImageUrl: product.gallery_images?.[0] || product.image_url || "/static/images/recytech-logo.svg",
-        ogType: "product",
-        structuredData: productStructuredData(req, product),
-        product,
-    });
-});
-
-app.post("/reviews", (req, res) => {
-    try {
-        const input = readSiteReviewInput(req.body);
-        createSiteReview(db, input);
-        setFlash(req, "success", "Merci ! Nous vérifions les avis avant publication pour éviter le spam.");
-    } catch (error) {
-        setFlash(req, "error", error.message);
-    }
-
-    return saveSessionAndRedirect(req, res, "/#reviews");
-});
-
-app.post("/cart/add", (req, res) => {
-    const productId = Number.parseInt(req.body.product_id, 10);
-    const quantity = Number.parseInt(req.body.quantity || "1", 10) || 1;
-    const product = getProductById(db, productId);
-
-    if (!product || !product.published) {
-        setFlash(req, "error", "Produit introuvable.");
-        return saveSessionAndRedirect(req, res, "/");
-    }
-
-    const redirectTarget = getSafeRedirectTarget(req.body.redirect_to, `/products/${product.slug}`);
-
-    if (product.inventory <= 0) {
-        setFlash(req, "error", "Ce produit est en rupture de stock.");
-        return saveSessionAndRedirect(req, res, redirectTarget);
-    }
-
-    let selectedOptions = [];
-
-    try {
-        selectedOptions = readSelectedProductOptions(product, req.body);
-        ensureAvailableProductQuantity(product, selectedOptions, quantity);
-    } catch (error) {
-        setFlash(req, "error", error.message);
-        return saveSessionAndRedirect(req, res, redirectTarget);
-    }
-
-    upsertCartItem(req, productId, quantity, selectedOptions);
-    setFlash(req, "success", `${product.name} a été ajouté au panier.`, {
-        actionHref: "/cart",
-        actionLabel: "Voir le panier",
-    });
-    saveSessionAndRedirect(req, res, redirectTarget);
-});
-
-app.get("/cart", (req, res) => {
-    render(res, "cart", {
-        title: "Panier",
-    });
-});
-
-app.post("/cart/update", (req, res) => {
-    const itemKey = normalizeText(req.body.item_key);
-    const productId = Number.parseInt(req.body.product_id, 10);
-    const quantity = Number.parseInt(req.body.quantity || "1", 10) || 1;
-    const product = getProductById(db, productId);
-    const cartItem = getCartItems(req).find((item) => (item.itemKey || makeCartItemKey(item.productId, item.selectedOptions || [])) === itemKey);
-
-    if (!product || product.inventory <= 0) {
-        if (itemKey) {
-            removeCartItem(req, itemKey);
-        }
-        setFlash(req, "error", "Ce produit n'est plus disponible.");
-        return saveSessionAndRedirect(req, res, "/cart");
-    }
-
-    try {
-        ensureAvailableProductQuantity(product, cartItem?.selectedOptions || [], quantity);
-    } catch (error) {
-        setFlash(req, "error", error.message);
-        return saveSessionAndRedirect(req, res, "/cart");
-    }
-
-    upsertCartItem(req, productId, quantity, cartItem?.selectedOptions || []);
-    setFlash(req, "success", "Le panier a été mis à jour.");
-    saveSessionAndRedirect(req, res, "/cart");
-});
-
-app.post("/cart/remove", (req, res) => {
-    const itemKey = normalizeText(req.body.item_key);
-    if (itemKey) {
-        removeCartItem(req, itemKey);
-    }
-    setFlash(req, "success", "Le produit a été retiré du panier.");
-    saveSessionAndRedirect(req, res, "/cart");
-});
-
-app.get("/checkout", (req, res) => {
-    if (!res.locals.cart.items.length) {
-        setFlash(req, "error", "Votre panier est vide.");
-        return res.redirect("/cart");
-    }
-
-    const checkoutForm = getCheckoutForm(req);
-    const shippingOption = SHIPPING_OPTIONS[checkoutForm.delivery_method] || SHIPPING_OPTIONS.pickup;
-    const promoCodeOutcome = getPromoCodeOutcome(checkoutForm.promo_code, res.locals.cart.subtotalCents);
-    const pricing = getCheckoutPricing(res.locals.cart.subtotalCents, shippingOption, checkoutForm.payment_method, promoCodeOutcome.error ? null : promoCodeOutcome);
-
-    render(res, "checkout", {
-        title: "Paiement",
-        checkoutForm,
-        pricing,
-        promoCodeOutcome,
-        shippingOptions: SHIPPING_OPTIONS,
-        shippingCostCents: shippingOption.priceCents,
-        orderTotalCents: pricing.totalCents,
-    });
-});
-
-function createOrderFromSessionCart(req, provider, customer, checkoutDetails) {
-    const cart = buildCart(req);
-    if (!cart.items.length) {
-        throw new Error("Le panier est vide.");
-    }
-
-    const promoCodeOutcome = requirePromoCodeOutcome(checkoutDetails.form.promo_code, cart.subtotalCents);
-    const pricing = getCheckoutPricing(
-        cart.subtotalCents,
-        checkoutDetails.shippingOption,
-        checkoutDetails.form.payment_method,
-        promoCodeOutcome
-    );
-    const shippingLine = checkoutDetails.shippingOption.priceCents > 0
-        ? [{
-            type: "shipping",
-            label: checkoutDetails.shippingOption.label,
-            amount_cents: checkoutDetails.shippingOption.priceCents,
-        }]
-        : [];
-
-    return createOrder(db, {
-        provider,
-        customer_name: customer.name,
-        customer_email: customer.email,
-        amount_cents: pricing.totalCents,
-        currency: "CHF",
-        items: cart.items,
-        status: provider === "transfer" ? "awaiting_transfer" : "pending",
-        metadata: {
-            checkout: checkoutDetails.form,
-            delivery: {
-                method: checkoutDetails.shippingOption.key,
-                label: checkoutDetails.shippingOption.label,
-                amount_cents: checkoutDetails.shippingOption.priceCents,
-            },
-            additions: [...shippingLine, ...pricing.discountLines],
-            promo: promoCodeOutcome.promoCode
-                ? {
-                    id: promoCodeOutcome.promoCode.id,
-                    code: promoCodeOutcome.promoCode.code,
-                    description: promoCodeOutcome.promoCode.description,
-                    discount_type: promoCodeOutcome.promoCode.discount_type,
-                    discount_value: promoCodeOutcome.promoCode.discount_value,
-                    discount_cents: promoCodeOutcome.discountCents,
-                    label: promoCodeOutcome.label,
-                }
-                : null,
-        },
-    });
-}
-
-function readManualOrderInput(values) {
-    const productId = Number.parseInt(values.product_id, 10);
-    const quantity = Math.max(1, Number.parseInt(values.quantity || "1", 10) || 1);
-    const customerName = normalizeSingleLineText(values.customer_name);
-    const customerEmail = normalizeSingleLineText(values.customer_email);
-    const customerPhone = normalizeSingleLineText(values.customer_phone);
-    const paymentLabel = normalizeSingleLineText(values.payment_label) || "Vente hors site";
-    const status = normalizeText(values.status) || "paid";
-    const internalNote = normalizeText(values.internal_note);
-    const priceOverrideRaw = String(values.unit_price_chf || "").trim();
-    const unitPriceOverrideCents = priceOverrideRaw ? parseMoneyToCents(priceOverrideRaw, Number.NaN) : null;
-    const discountRaw = String(values.discount_chf || "").trim();
-    const discountCents = discountRaw ? parseMoneyToCents(discountRaw, Number.NaN) : 0;
-    const receivedAmountCents = parseOptionalMoneyToCents(values.actual_received_chf, "Montant réellement reçu");
-    const createdAt = normalizeOrderDateTimeField(values.order_created_at, new Date().toISOString());
-    const promoCode = normalizePromoCode(values.promo_code);
-    const serviceTags = [...new Set(
-        (Array.isArray(values.service_tags) ? values.service_tags : [values.service_tags])
-            .map((tag) => normalizeSingleLineText(tag))
-            .filter(Boolean)
-    )];
-
-    if (!customerName) {
-        throw new Error("Le nom du client est obligatoire.");
-    }
-
-    if (!Number.isInteger(productId) || productId <= 0) {
-        throw new Error("Produit invalide.");
-    }
-
-    if (!ORDER_STATUS_OPTIONS.some((option) => option.value === status)) {
-        throw new Error("Statut de commande invalide.");
-    }
-
-    if (unitPriceOverrideCents !== null && (!Number.isFinite(unitPriceOverrideCents) || unitPriceOverrideCents < 0)) {
-        throw new Error("Prix unitaire invalide.");
-    }
-
-    if (!Number.isFinite(discountCents) || discountCents < 0) {
-        throw new Error("Remise invalide.");
-    }
-
-    return {
-        productId,
-        quantity,
-        customerName,
-        customerEmail,
-        customerPhone,
-        paymentLabel,
-        status,
-        internalNote,
-        unitPriceOverrideCents,
-        createdAt,
-        discountCents,
-        receivedAmountCents,
-        promoCode,
-        serviceTags,
-    };
-}
-
-function buildManualOrderDiscount(input, subtotalCents) {
-    const manualDiscountCents = input.discountCents || 0;
-    const promoOutcome = input.promoCode ? getPromoCodeOutcome(input.promoCode, subtotalCents) : null;
-
-    if (manualDiscountCents > subtotalCents) {
-        throw new Error("La remise ne peut pas dépasser le total des articles.");
-    }
-
-    if (promoOutcome?.error && manualDiscountCents <= 0) {
-        throw new Error(promoOutcome.error);
-    }
-
-    const discountCents = manualDiscountCents > 0
-        ? manualDiscountCents
-        : promoOutcome?.discountCents || 0;
-    const promoCode = promoOutcome?.code || input.promoCode || "";
-    const validPromoCode = promoOutcome && !promoOutcome.error ? promoOutcome.promoCode : null;
-    const label = promoCode
-        ? getPromoCodeLabel({ code: promoCode })
-        : "Remise manuelle";
-
-    return {
-        discountCents,
-        discountLine: discountCents > 0
-            ? {
-                type: "discount",
-                code: promoCode,
-                label,
-                amount_cents: -discountCents,
-            }
-            : null,
-        promo: promoCode
-            ? {
-                id: validPromoCode?.id || null,
-                code: promoCode,
-                description: validPromoCode?.description || "",
-                discount_type: validPromoCode?.discount_type || (manualDiscountCents > 0 ? "manual" : ""),
-                discount_value: validPromoCode?.discount_value || discountCents,
-                discount_cents: discountCents,
-                label,
-                manual_override: manualDiscountCents > 0,
-            }
-            : null,
-    };
-}
-
-function buildManualOrderItem(product, input) {
-    const selectedOptions = Array.isArray(input.selectedOptions) ? input.selectedOptions : [];
-    const unitPriceCents = input.unitPriceOverrideCents ?? getProductUnitPriceCents(product, selectedOptions);
-    const availableQuantity = getConfigurationAvailableQuantity(product, selectedOptions);
-
-    return {
-        product_id: product.id,
-        item_key: `manual:${product.id}:${JSON.stringify(selectedOptions)}:${Date.now()}`,
-        slug: product.slug,
-        name: product.name,
-        product_kind: product.product_kind,
-        is_pack: Boolean(product.is_pack),
-        category: product.category,
-        categories: productCategoryList(product),
-        short_description: product.short_description,
-        image_url: product.image_url,
-        selected_options: selectedOptions,
-        service_tags: Array.isArray(input.serviceTags) ? input.serviceTags : [],
-        bundle_items: snapshotPackBundleItems(product),
-        quantity: input.quantity,
-        unit_price_cents: unitPriceCents,
-        line_total_cents: unitPriceCents * input.quantity,
-        inventory: availableQuantity,
-    };
-}
-
-function finalizeManualOrderStatus(order, targetStatus, metadata) {
-    const stockReducingStatuses = new Set(["paid", "processing", "ready_for_pickup", "shipped", "completed"]);
-
-    if (!stockReducingStatuses.has(targetStatus)) {
-        return updateOrderRecord(db, order.id, {
-            status: targetStatus,
-            metadata,
-        });
-    }
-
-    const paidOrder = markOrderPaid(db, order.id, metadata);
-    if (targetStatus === "paid") {
-        return paidOrder;
-    }
-
-    return updateOrderRecord(db, paidOrder.id, {
-        status: targetStatus,
-    });
-}
-
-async function notifyNewOrder(order) {
-    try {
-        await sendNewOrderNotification(order);
-    } catch (error) {
-        console.error(`Order notification email failed for ${order.order_number}: ${error.message}`);
-    }
-}
-
-app.post("/checkout", async (req, res) => {
-    try {
-        const checkoutDetails = validateCheckout(req);
-        setCheckoutForm(req, checkoutDetails.form);
-
-        if (checkoutDetails.form.payment_method === "card") {
-            if (!paymentState().stripeEnabled) {
-                setFlash(req, "error", "Le paiement par carte est indisponible.");
-                return saveSessionAndRedirect(req, res, "/checkout");
-            }
-
-            setFlash(req, "error", "Le paiement par carte se finalise directement sur cette page.");
-            return saveSessionAndRedirect(req, res, "/checkout");
-        }
-
-        if (checkoutDetails.form.payment_method === "bitcoin") {
-            if (!paymentState().bitcoinEnabled) {
-                setFlash(req, "error", "Le paiement bitcoin est indisponible.");
-                return saveSessionAndRedirect(req, res, "/checkout");
-            }
-
-            const order = createOrderFromSessionCart(req, "swissbitcoinpay", checkoutDetails.customer, checkoutDetails);
-            await notifyNewOrder(order);
-            const invoice = await createSwissBitcoinPayInvoice(order, req);
-
-            updateOrderProviderReference(db, order.id, invoice.id, {
-                checkoutUrl: invoice.checkoutUrl || "",
-                lightningInvoice: invoice.pr || "",
-                onChainAddress: invoice.onChainAddr || "",
-            });
-
-            return saveSessionAndRedirect(req, res, invoice.checkoutUrl);
-        }
-
-        if (checkoutDetails.form.payment_method === "cash") {
-            const cashOrder = createOrderFromSessionCart(req, "cash", checkoutDetails.customer, checkoutDetails);
-            await notifyNewOrder(cashOrder);
-            clearCheckoutForm(req);
-            setCartItems(req, []);
-            return saveSessionAndRedirect(req, res, `/checkout/success?provider=cash&order=${encodeURIComponent(cashOrder.order_number)}&view=${encodeURIComponent(createOrderViewToken(cashOrder))}`);
-        }
-
-        const transferOrder = createOrderFromSessionCart(req, "transfer", checkoutDetails.customer, checkoutDetails);
-        await notifyNewOrder(transferOrder);
-        clearCheckoutForm(req);
-        setCartItems(req, []);
-        return saveSessionAndRedirect(req, res, `/checkout/success?provider=transfer&order=${encodeURIComponent(transferOrder.order_number)}&view=${encodeURIComponent(createOrderViewToken(transferOrder))}`);
-    } catch (error) {
-        setFlash(req, "error", error.message);
-        return saveSessionAndRedirect(req, res, "/checkout");
-    }
-});
-
-app.get("/checkout/success", async (req, res) => {
-    let order = null;
-    let visibleOrder = null;
-
-    try {
-        if (req.query.provider === "stripe" && req.query.payment_intent && stripe) {
-            const paymentIntent = await stripe.paymentIntents.retrieve(req.query.payment_intent);
-            order = getOrderByProviderReference(db, "stripe", paymentIntent.id);
-
-            if (order && paymentIntent.status === "succeeded") {
-                order = markOrderPaid(db, order.id, {
-                    stripePaymentIntentId: paymentIntent.id,
-                    paymentStatus: paymentIntent.status,
-                });
-                setCartItems(req, []);
-            } else if (order && ["processing", "requires_capture"].includes(paymentIntent.status)) {
-                order = updateOrderStatus(db, order.id, "pending", {
-                    stripePaymentIntentId: paymentIntent.id,
-                    paymentStatus: paymentIntent.status,
-                });
-            }
-
-            if (order && verifyOrderViewToken(order, req.query.view)) {
-                visibleOrder = order;
-            }
-        }
-
-        if (req.query.provider === "swissbitcoinpay" && req.query.order) {
-            order = getOrderByNumber(db, req.query.order);
-
-            if (order && verifyOrderViewToken(order, req.query.view)) {
-                visibleOrder = order;
-            }
-
-            if (visibleOrder?.provider_reference && paymentState().bitcoinEnabled) {
-                const invoice = await fetchSwissBitcoinPayInvoice(order.provider_reference);
-                const nextStatus = mapSwissBitcoinPayStatus(invoice);
-                const metadata = {
-                    swissBitcoinPayInvoiceId: invoice.id,
-                    invoiceStatus: invoice.status || "",
-                    paymentMethod: invoice.paymentMethod || "",
-                    txId: invoice.txId || "",
-                };
-
-                if (nextStatus === "paid") {
-                    order = markOrderPaid(db, order.id, metadata);
-                    visibleOrder = order;
-                    setCartItems(req, []);
-                } else {
-                    order = updateOrderStatus(db, order.id, nextStatus, metadata);
-                    visibleOrder = order;
-                }
-            }
-        }
-
-        if (req.query.provider === "transfer" && req.query.order) {
-            order = getOrderByNumber(db, req.query.order);
-            if (order && verifyOrderViewToken(order, req.query.view)) {
-                visibleOrder = order;
-                setCartItems(req, []);
-            }
-        }
-
-        if (req.query.provider === "cash" && req.query.order) {
-            order = getOrderByNumber(db, req.query.order);
-            if (order && verifyOrderViewToken(order, req.query.view)) {
-                visibleOrder = order;
-                setCartItems(req, []);
-            }
-        }
-    } catch (error) {
-        setFlash(req, "error", `Paiement terminé avec un statut incertain : ${error.message}`);
-    }
-
-    clearCheckoutForm(req);
-    clearStripeDraft(req);
-
-    render(res, "success", {
-        title: "Commande",
-        order: visibleOrder,
-    });
-});
-
-app.get("/checkout/cancel", (req, res) => {
-    render(res, "cancel", {
-        title: "Paiement annulé",
-        order: req.query.order ? getOrderByNumber(db, req.query.order) : null,
-    });
-});
-
-app.get("/admin/login", (req, res) => {
-    if (req.session.adminId) {
-        return res.redirect("/");
-    }
-
-    render(res, "admin/login", {
-        title: "Connexion",
-    });
-});
-
-app.post("/admin/login", (req, res) => {
-    const rateLimitState = getLoginRateLimitState(req);
-    if (rateLimitState.blockedUntil > Date.now()) {
-        setFlash(req, "error", "Trop de tentatives de connexion. Réessayez plus tard.");
-        return saveSessionAndRedirect(req, res, "/admin/login");
-    }
-
-    const username = String(req.body.username || "").trim();
-    const password = String(req.body.password || "");
-    const admin = getAdminByUsername(db, username);
-
-    if (!admin || !verifyPassword(password, admin.password_hash)) {
-        registerLoginFailure(req);
-        setFlash(req, "error", "Identifiants invalides.");
-        return saveSessionAndRedirect(req, res, "/admin/login");
-    }
-
-    clearLoginFailures(req);
-    req.session.regenerate((error) => {
-        if (error) {
-            setFlash(req, "error", "Impossible d'ouvrir une session sécurisée.");
-            return saveSessionAndRedirect(req, res, "/admin/login");
-        }
-
-        req.session.adminId = admin.id;
-        getOrCreateCsrfToken(req);
-        setFlash(req, "success", "Connexion réussie.");
-        return saveSessionAndRedirect(req, res, "/");
-    });
-});
-
-app.post("/admin/logout", requireAdmin, (req, res) => {
-    req.session.destroy(() => {
-        res.clearCookie("connect.sid");
-        res.redirect("/admin/login");
-    });
-});
-
-app.get("/admin", requireAdmin, (req, res) => {
-    render(res, "admin/dashboard", {
-        title: "Administration",
-        stats: getDashboardStats(db),
-        products: listAdminProducts(db),
-        recentOrders: listRecentOrders(db),
-        pendingReviews: listPendingSiteReviews(db),
-    });
-});
-
-app.post("/admin/reviews/:id/approve", requireAdmin, (req, res) => {
-    const reviewId = Number.parseInt(req.params.id, 10);
-    const review = approveSiteReview(db, reviewId);
-
-    if (!review) {
-        setFlash(req, "error", "Avis introuvable.");
-    } else {
-        setFlash(req, "success", "Avis publié.");
-    }
-
-    return saveSessionAndRedirect(req, res, "/admin#reviews");
-});
-
-app.post("/admin/reviews/:id/delete", requireAdmin, (req, res) => {
-    const reviewId = Number.parseInt(req.params.id, 10);
-    const deleted = deleteSiteReview(db, reviewId);
-
-    setFlash(req, deleted ? "success" : "error", deleted ? "Avis supprimé." : "Avis introuvable.");
-    return saveSessionAndRedirect(req, res, "/admin#reviews");
-});
-
-app.get("/admin/account", requireAdmin, (req, res) => {
-    render(res, "admin/account", {
-        title: "Mon compte",
-    });
-});
-
-app.get("/admin/categories", requireAdmin, (req, res) => {
-    render(res, "admin/categories", {
-        title: "Catégories",
-        categories: listAdminCategories(db),
-    });
-});
-
-app.post("/admin/categories/delete", requireAdmin, (req, res) => {
-    const categoryName = normalizeText(req.body.category);
-
-    if (!categoryName) {
-        setFlash(req, "error", "Catégorie invalide.");
-        return saveSessionAndRedirect(req, res, "/admin/categories");
-    }
-
-    const result = deleteProductCategory(db, categoryName);
-    if (!result.updatedProducts) {
-        setFlash(req, "error", "Aucun produit n'utilise cette catégorie.");
-        return saveSessionAndRedirect(req, res, "/admin/categories");
-    }
-
-    setFlash(req, "success", `La catégorie ${categoryName} a été retirée de ${result.updatedProducts} produit(s).`);
-    return saveSessionAndRedirect(req, res, "/admin/categories");
-});
-
-app.post("/admin/account", requireAdmin, (req, res) => {
-    const adminRecord = getAdminByUsername(db, req.currentAdmin.username);
-    if (!adminRecord) {
-        req.session.adminId = null;
-        setFlash(req, "error", "Session administrateur invalide.");
-        return saveSessionAndRedirect(req, res, "/admin/login");
-    }
-
-    try {
-        const input = readAdminAccountInput(req.body, adminRecord);
-
-        if ((input.usernameChanged || input.passwordChanged) && !verifyPassword(input.currentPassword, adminRecord.password_hash)) {
-            throw new Error("Le mot de passe actuel est incorrect.");
-        }
-
-        updateAdminUser(db, adminRecord.id, {
-            username: input.username,
-            role: adminRecord.role,
-            password: input.password,
-        });
-
-        setFlash(req, "success", "Votre compte a été mis à jour.");
-        return saveSessionAndRedirect(req, res, "/admin/account");
-    } catch (error) {
-        const message = error.code === "SQLITE_CONSTRAINT_UNIQUE"
-            ? "Ce nom d'utilisateur existe déjà."
-            : error.message;
-        setFlash(req, "error", message);
-        return saveSessionAndRedirect(req, res, "/admin/account");
-    }
-});
-
-app.get("/admin/admins", requireSuperadmin, (req, res) => {
-    render(res, "admin/admins", {
-        title: "Administrateurs",
-        admins: listAdmins(db),
-        superadminCount: countAdminsByRole(db, "superadmin"),
-    });
-});
-
-app.get("/admin/admins/new", requireSuperadmin, (req, res) => {
-    render(res, "admin/admin-form", {
-        title: "Nouvel administrateur",
-        formAction: "/admin/admins/new",
-        adminUser: null,
-        roleOptions: ADMIN_ROLE_OPTIONS,
-        currentAdminId: req.currentAdmin.id,
-    });
-});
-
-app.post("/admin/admins/new", requireSuperadmin, (req, res) => {
-    try {
-        const input = readAdminUserInput(req.body, { requirePassword: true });
-        createAdminUser(db, input);
-        setFlash(req, "success", "Administrateur créé.");
-        return saveSessionAndRedirect(req, res, "/admin/admins");
-    } catch (error) {
-        const message = error.code === "SQLITE_CONSTRAINT_UNIQUE"
-            ? "Ce nom d'utilisateur existe déjà."
-            : error.message;
-        setFlash(req, "error", message);
-        return saveSessionAndRedirect(req, res, "/admin/admins/new");
-    }
-});
-
-app.get("/admin/admins/:id/edit", requireSuperadmin, (req, res) => {
-    const adminUser = getAdminById(db, Number.parseInt(req.params.id, 10));
-    if (!adminUser) {
-        return res.status(404).render("not-found", { title: "Administrateur introuvable" });
-    }
-
-    render(res, "admin/admin-form", {
-        title: `Modifier ${adminUser.username}`,
-        formAction: `/admin/admins/${adminUser.id}/edit`,
-        adminUser,
-        roleOptions: ADMIN_ROLE_OPTIONS,
-        currentAdminId: req.currentAdmin.id,
-    });
-});
-
-app.post("/admin/admins/:id/edit", requireSuperadmin, (req, res) => {
-    const adminId = Number.parseInt(req.params.id, 10);
-    const existingAdmin = getAdminById(db, adminId);
-    if (!existingAdmin) {
-        return res.status(404).render("not-found", { title: "Administrateur introuvable" });
-    }
-
-    try {
-        const input = readAdminUserInput(req.body);
-        if (existingAdmin.role === "superadmin" && input.role !== "superadmin" && countAdminsByRole(db, "superadmin") <= 1) {
-            throw new Error("Le dernier superadmin ne peut pas être rétrogradé.");
-        }
-
-        updateAdminUser(db, adminId, input);
-        setFlash(req, "success", "Administrateur mis à jour.");
-        return saveSessionAndRedirect(req, res, "/admin/admins");
-    } catch (error) {
-        const message = error.code === "SQLITE_CONSTRAINT_UNIQUE"
-            ? "Ce nom d'utilisateur existe déjà."
-            : error.message;
-        setFlash(req, "error", message);
-        return saveSessionAndRedirect(req, res, `/admin/admins/${adminId}/edit`);
-    }
-});
-
-app.post("/admin/admins/:id/delete", requireSuperadmin, (req, res) => {
-    const adminId = Number.parseInt(req.params.id, 10);
-    const adminUser = getAdminById(db, adminId);
-    if (!adminUser) {
-        return res.status(404).render("not-found", { title: "Administrateur introuvable" });
-    }
-
-    if (adminUser.id === req.currentAdmin.id) {
-        setFlash(req, "error", "Vous ne pouvez pas supprimer votre propre compte.");
-        return saveSessionAndRedirect(req, res, "/admin/admins");
-    }
-
-    if (adminUser.role === "superadmin" && countAdminsByRole(db, "superadmin") <= 1) {
-        setFlash(req, "error", "Le dernier superadmin ne peut pas être supprimé.");
-        return saveSessionAndRedirect(req, res, "/admin/admins");
-    }
-
-    deleteAdminUser(db, adminId);
-    setFlash(req, "success", "Administrateur supprimé.");
-    return saveSessionAndRedirect(req, res, "/admin/admins");
-});
-
-app.get("/admin/promo-codes", requireAdmin, (req, res) => {
-    render(res, "admin/promo-codes", {
-        title: "Codes promo",
-        promoCodes: listPromoCodes(db),
-    });
-});
-
-app.get("/admin/promo-codes/new", requireAdmin, (req, res) => {
-    render(res, "admin/promo-code-form", {
-        title: "Nouveau code promo",
-        formAction: "/admin/promo-codes/new",
-        promoCode: null,
-    });
-});
-
-app.post("/admin/promo-codes/new", requireAdmin, (req, res) => {
-    try {
-        const input = readPromoCodeInput(req.body);
-        createPromoCodeRecord(db, input);
-        setFlash(req, "success", "Code promo créé.");
-        return saveSessionAndRedirect(req, res, "/admin/promo-codes");
-    } catch (error) {
-        const message = error.code === "SQLITE_CONSTRAINT_UNIQUE"
-            ? "Ce code promo existe déjà."
-            : error.message;
-        setFlash(req, "error", message);
-        return saveSessionAndRedirect(req, res, "/admin/promo-codes/new");
-    }
-});
-
-app.get("/admin/promo-codes/:id/edit", requireAdmin, (req, res) => {
-    const promoCode = getPromoCodeById(db, Number.parseInt(req.params.id, 10));
-    if (!promoCode) {
-        return res.status(404).render("not-found", { title: "Code promo introuvable" });
-    }
-
-    render(res, "admin/promo-code-form", {
-        title: `Modifier ${promoCode.code}`,
-        formAction: `/admin/promo-codes/${promoCode.id}/edit`,
-        promoCode,
-    });
-});
-
-app.post("/admin/promo-codes/:id/edit", requireAdmin, (req, res) => {
-    const promoCodeId = Number.parseInt(req.params.id, 10);
-
-    try {
-        const input = readPromoCodeInput(req.body);
-        const promoCode = updatePromoCodeRecord(db, promoCodeId, input);
-
-        if (!promoCode) {
-            return res.status(404).render("not-found", { title: "Code promo introuvable" });
-        }
-
-        setFlash(req, "success", "Code promo mis à jour.");
-        return saveSessionAndRedirect(req, res, "/admin/promo-codes");
-    } catch (error) {
-        const message = error.code === "SQLITE_CONSTRAINT_UNIQUE"
-            ? "Ce code promo existe déjà."
-            : error.message;
-        setFlash(req, "error", message);
-        return saveSessionAndRedirect(req, res, `/admin/promo-codes/${promoCodeId}/edit`);
-    }
-});
-
-app.post("/admin/promo-codes/:id/delete", requireAdmin, (req, res) => {
-    const promoCodeId = Number.parseInt(req.params.id, 10);
-    const promoCode = getPromoCodeById(db, promoCodeId);
-
-    if (!promoCode) {
-        setFlash(req, "error", "Code promo introuvable.");
-        return saveSessionAndRedirect(req, res, "/admin/promo-codes");
-    }
-
-    deletePromoCodeRecord(db, promoCodeId);
-    setFlash(req, "success", `Le code promo ${promoCode.code} a été supprimé.`);
-    return saveSessionAndRedirect(req, res, "/admin/promo-codes");
-});
-
-app.get("/admin/orders", requireAdmin, (req, res) => {
-    const status = normalizeText(req.query.status);
-    const query = normalizeText(req.query.q);
-
-    render(res, "admin/orders", {
-        title: "Commandes",
-        orders: listOrders(db, {
-            status: status || null,
-            query: query || null,
-        }),
-        filters: {
-            status,
-            query,
-        },
-        orderStatusOptions: ORDER_STATUS_OPTIONS,
-    });
-});
-
-app.get("/admin/orders/new", requireAdmin, (req, res) => {
-    render(res, "admin/order-form", {
-        title: "Nouvelle commande",
-        products: listAdminProducts(db),
-        promoCodes: listPromoCodes(db),
-        orderStatusOptions: ORDER_STATUS_OPTIONS,
-    });
-});
-
-app.post("/admin/orders/new", requireAdmin, (req, res) => {
-    try {
-        const input = readManualOrderInput(req.body);
-        const product = getProductById(db, input.productId);
-
-        if (!product) {
-            throw new Error("Produit introuvable.");
-        }
-
-        if (product.inventory <= 0) {
-            throw new Error("Ce produit est en rupture de stock.");
-        }
-
-        const selectedOptions = readSelectedProductOptions(product, req.body);
-        ensureAvailableProductQuantity(product, selectedOptions, input.quantity);
-        const serviceTags = validateRequestedServiceTags(product, selectedOptions, input.serviceTags, input.quantity);
-        const item = buildManualOrderItem(product, { ...input, selectedOptions, serviceTags });
-        const discount = buildManualOrderDiscount(input, item.line_total_cents);
-        const amountCents = Math.max(0, item.line_total_cents - discount.discountCents);
-        const metadata = {
-            checkout: {
-                customer_first_name: input.customerName,
-                shipping_phone: input.customerPhone,
-            },
-            delivery: {
-                method: "manual",
-                label: "Vente hors site",
-                amount_cents: 0,
-            },
-            additions: discount.discountLine ? [discount.discountLine] : [],
-            promo: discount.promo,
-            manual: {
-                created_by_admin_id: req.currentAdmin?.id || null,
-                created_by_admin_username: req.currentAdmin?.username || "",
-                payment_label: input.paymentLabel,
-                discount_cents: discount.discountCents,
-            },
-            payment: input.receivedAmountCents === null
-                ? {}
-                : {
-                    received_amount_cents: input.receivedAmountCents,
-                    received_amount_recorded_at: new Date().toISOString(),
-                },
-            admin: {
-                internal_note: input.internalNote,
-                customer_note: "",
-                fulfillment_note: "",
-                carrier: "",
-                tracking_number: "",
-                pickup_details: "",
-            },
-        };
-
-        const order = createOrder(db, {
-            provider: "manual",
-            provider_reference: null,
-            customer_name: input.customerName,
-            customer_email: input.customerEmail,
-            amount_cents: amountCents,
-            currency: product.currency || "CHF",
-            items: [item],
-            status: "pending",
-            metadata,
-            created_at: input.createdAt,
-        });
-        const finalizedOrder = finalizeManualOrderStatus(order, input.status, metadata);
-
-        setFlash(req, "success", `Commande ${finalizedOrder.order_number} créée.`);
-        return saveSessionAndRedirect(req, res, `/admin/orders/${finalizedOrder.id}`);
-    } catch (error) {
-        setFlash(req, "error", error.message);
-        return saveSessionAndRedirect(req, res, "/admin/orders/new");
-    }
-});
-
-function sendOrderDocumentPdf(req, res, type) {
-    const order = getOrderById(db, Number.parseInt(req.params.id, 10));
-    if (!order) {
-        return res.status(404).render("not-found", { title: "Commande introuvable" });
-    }
-
-    const pdf = buildOrderDocumentPdf({
-        type,
-        order,
-        settings: res.locals.settings || getSettings(db),
-        contact: getOrderContactSnapshot(order),
-        admin: getOrderAdminData(order),
-        getOrderStatusLabel,
-        getOrderProviderLabel,
-        baseUrl: baseUrl(req),
-        config: getOrderDocumentConfig(req),
-    });
-    const filename = buildOrderDocumentFilename(order, type);
-
-    res.set({
-        "Content-Type": "application/pdf",
-        "Content-Disposition": `inline; filename="${filename}"`,
-        "Cache-Control": "private, no-store",
-        "Content-Length": String(pdf.length),
-    });
-
-    return res.send(pdf);
-}
-
-app.get("/admin/orders/:id/invoice.pdf", requireAdmin, (req, res) => {
-    return sendOrderDocumentPdf(req, res, "invoice");
-});
-
-app.get("/admin/orders/:id/delivery-slip.pdf", requireAdmin, (req, res) => {
-    return sendOrderDocumentPdf(req, res, "delivery-slip");
-});
-
-app.get("/admin/orders/:id", requireAdmin, (req, res) => {
-    const order = getOrderById(db, Number.parseInt(req.params.id, 10));
-    if (!order) {
-        return res.status(404).render("not-found", { title: "Commande introuvable" });
-    }
-
-    const contact = getOrderContactSnapshot(order);
-    const admin = getOrderAdminData(order);
-    const emailDraft = buildOrderEmailDraft(order);
-    const settings = res.locals.settings;
-
-    render(res, "admin/order-detail", {
-        title: `Commande ${order.order_number}`,
-        order,
-        contact,
-        admin,
-        orderStatusOptions: ORDER_STATUS_OPTIONS,
-        contactMailto: buildOrderMailto(order),
-        mailConfigured: isMailConfigured(settings),
-        defaultEmailSubject: emailDraft.subject,
-        defaultEmailMessage: emailDraft.message,
-    });
-});
-
-app.post("/admin/orders/:id/update", requireAdmin, (req, res) => {
-    const order = getOrderById(db, Number.parseInt(req.params.id, 10));
-    if (!order) {
-        return res.status(404).render("not-found", { title: "Commande introuvable" });
-    }
-
-    const status = normalizeText(req.body.status);
-    if (!ORDER_STATUS_OPTIONS.some((option) => option.value === status)) {
-        setFlash(req, "error", "Statut de commande invalide.");
-        return saveSessionAndRedirect(req, res, `/admin/orders/${order.id}`);
-    }
-
-    let createdAt = order.created_at;
-    try {
-        createdAt = normalizeOrderDateTimeField(req.body.order_created_at, order.created_at);
-    } catch (error) {
-        setFlash(req, "error", error.message);
-        return saveSessionAndRedirect(req, res, `/admin/orders/${order.id}`);
-    }
-
-    const currentAdminData = getOrderAdminData(order);
-    const nextAdminData = {
-        ...currentAdminData,
-        internal_note: normalizeText(req.body.internal_note),
-        customer_note: normalizeText(req.body.customer_note),
-        fulfillment_note: normalizeText(req.body.fulfillment_note),
-        carrier: normalizeText(req.body.carrier),
-        tracking_number: normalizeText(req.body.tracking_number),
-        pickup_details: normalizeText(req.body.pickup_details),
-    };
-
-    let nextOrder = null;
-    try {
-        const nextPaymentData = canEditOrderReceivedAmount(order)
-            ? readReceivedPaymentInput(req.body, order)
-            : getOrderPaymentData(order);
-        const metadataUpdate = {
-            admin: nextAdminData,
-            payment: nextPaymentData,
-        };
-
-        if (status === "paid" && order.status !== "paid") {
-            const paidOrder = markOrderPaid(db, order.id, {
-                ...metadataUpdate,
-            });
-            nextOrder = updateOrderRecord(db, paidOrder.id, {
-                created_at: createdAt,
-                metadata: metadataUpdate,
-            });
-        } else {
-            nextOrder = updateOrderRecord(db, order.id, {
-                status,
-                created_at: createdAt,
-                metadata: metadataUpdate,
-            });
-        }
-    } catch (error) {
-        setFlash(req, "error", error.message);
-        return saveSessionAndRedirect(req, res, `/admin/orders/${order.id}`);
-    }
-
-    setFlash(req, "success", "Commande mise à jour.");
-    return saveSessionAndRedirect(req, res, `/admin/orders/${nextOrder.id}`);
-});
-
-app.post("/admin/orders/:id/send-email", requireAdmin, async (req, res) => {
-    const order = getOrderById(db, Number.parseInt(req.params.id, 10));
-    if (!order) {
-        return res.status(404).render("not-found", { title: "Commande introuvable" });
-    }
-
-    if (!order.customer_email) {
-        setFlash(req, "error", "Aucun e-mail client n'est renseigné pour cette commande.");
-        return saveSessionAndRedirect(req, res, `/admin/orders/${order.id}`);
-    }
-
-    const subject = normalizeSingleLineText(req.body.subject);
-    const message = normalizeText(req.body.message);
-    if (!subject || !message) {
-        setFlash(req, "error", "Le sujet et le message sont obligatoires.");
-        return saveSessionAndRedirect(req, res, `/admin/orders/${order.id}`);
-    }
-
-    const settings = getSettings(db);
-    const configError = getMailConfigError(settings);
-    if (configError) {
-        setFlash(req, "error", `Envoi impossible : ${configError}`);
-        return saveSessionAndRedirect(req, res, `/admin/orders/${order.id}`);
-    }
-
-    try {
-        await sendStoreEmail(settings, {
-            to: order.customer_email,
-            subject,
-            text: message,
-        });
-        setFlash(req, "success", "E-mail envoyé au client.");
-    } catch (error) {
-        setFlash(req, "error", `Échec de l'envoi : ${error.message}`);
-    }
-
-    return saveSessionAndRedirect(req, res, `/admin/orders/${order.id}`);
-});
-
-app.post("/admin/orders/:id/delete", requireAdmin, (req, res) => {
-    const order = getOrderById(db, Number.parseInt(req.params.id, 10));
-    if (!order) {
-        setFlash(req, "error", "Commande introuvable.");
-        return saveSessionAndRedirect(req, res, "/admin/orders");
-    }
-
-    deleteOrder(db, order.id);
-    setFlash(req, "success", `La commande ${order.order_number} a été supprimée.`);
-    return saveSessionAndRedirect(req, res, "/admin/orders");
-});
-
-app.get("/admin/products/new", requireAdmin, (req, res) => {
-    render(res, "admin/product-form", {
-        title: "Nouveau produit",
-        formAction: "/admin/products/new",
-        product: null,
-        categories: listProductCategories(db),
-    });
-});
-
-app.post("/admin/products/new", requireAdmin, withProductUploads, (req, res) => {
-    const productInput = productInputWithUploads(req);
-
-    try {
-        createProduct(db, productInput);
-        setFlash(req, "success", "Produit créé.");
-        return saveSessionAndRedirect(req, res, "/admin");
-    } catch (error) {
-        return res.status(400).render("admin/product-form", {
-            ...getViewHelpers(),
-            title: "Nouveau produit",
-            formAction: "/admin/products/new",
-            product: buildProductFormState(productInput),
-            categories: listProductCategories(db),
-            flash: {
-                type: "error",
-                message: `Création impossible : ${error.message}`,
-            },
-        });
-    }
-});
-
-app.get("/admin/products/:id/edit", requireAdmin, (req, res) => {
-    const product = getProductById(db, Number.parseInt(req.params.id, 10));
-    if (!product) {
-        return res.status(404).render("not-found", { title: "Produit introuvable" });
-    }
-
-    render(res, "admin/product-form", {
-        title: `Modifier ${product.name}`,
-        formAction: `/admin/products/${product.id}/edit`,
-        product,
-        categories: listProductCategories(db),
-    });
-});
-
-app.post("/admin/products/:id/edit", requireAdmin, withProductUploads, (req, res) => {
-    const productId = Number.parseInt(req.params.id, 10);
-    const existingProduct = getProductById(db, productId);
-    const productInput = productInputWithUploads(req);
-
-    if (!existingProduct) {
-        return res.status(404).render("not-found", { title: "Produit introuvable" });
-    }
-
-    try {
-        updateProduct(db, productId, productInput);
-        setFlash(req, "success", "Produit mis à jour.");
-        return saveSessionAndRedirect(req, res, "/admin");
-    } catch (error) {
-        return res.status(400).render("admin/product-form", {
-            ...getViewHelpers(),
-            title: `Modifier ${existingProduct.name}`,
-            formAction: `/admin/products/${productId}/edit`,
-            product: buildProductFormState(productInput, existingProduct),
-            categories: listProductCategories(db),
-            flash: {
-                type: "error",
-                message: `Mise à jour impossible : ${error.message}`,
-            },
-        });
-    }
-});
-
-app.post("/admin/products/:id/delete", requireAdmin, (req, res) => {
-    const productId = Number.parseInt(req.params.id, 10);
-    const referencingPacks = listPacksContainingProduct(db, productId);
-    if (referencingPacks.length) {
-        setFlash(req, "error", `Suppression impossible : ce produit est utilisé dans ${referencingPacks.length} pack(s).`);
-        return saveSessionAndRedirect(req, res, `/admin/products/${productId}/edit`);
-    }
-
-    deleteProduct(db, productId);
-    setFlash(req, "success", "Produit supprimé.");
-    saveSessionAndRedirect(req, res, "/admin");
-});
-
-app.get("/admin/settings", requireAdmin, (req, res) => {
-    render(res, "admin/settings", {
-        title: "Paramètres de la boutique",
-    });
-});
-
-app.post("/admin/settings", requireAdmin, withSettingsUpload, (req, res) => {
-    const currentSettings = getSettings(db);
-    const nextSmtpPassword = String(req.body.smtp_password || "").trim();
-    saveSettings(db, {
-        store_name: String(req.body.store_name || "").trim(),
-        tagline: String(req.body.tagline || "").trim(),
-        hero_title: String(req.body.hero_title || "").trim(),
-        hero_text: String(req.body.hero_text || "").trim(),
-        hero_image_url: settingsUploadUrl(req.file) || String(req.body.hero_image_url || "").trim(),
-        hero_points: String(req.body.hero_points || "")
-            .split(/\r?\n/)
-            .map((point) => point.trim())
-            .filter(Boolean)
-            .join("\n"),
-        support_email: String(req.body.support_email || "").trim(),
-        support_address: String(req.body.support_address || "").trim(),
-        bank_account_holder: String(req.body.bank_account_holder || "").trim(),
-        bank_name: String(req.body.bank_name || "").trim(),
-        bank_account_number: String(req.body.bank_account_number || "").trim(),
-        bank_iban: String(req.body.bank_iban || "").trim(),
-        bank_bic: String(req.body.bank_bic || "").trim(),
-        smtp_host: String(req.body.smtp_host || "").trim(),
-        smtp_port: String(req.body.smtp_port || "").trim() || "587",
-        smtp_secure: req.body.smtp_secure ? "1" : "0",
-        smtp_username: String(req.body.smtp_username || "").trim(),
-        smtp_password: nextSmtpPassword || currentSettings.smtp_password || "",
-        smtp_from_name: String(req.body.smtp_from_name || "").trim(),
-        smtp_from_email: String(req.body.smtp_from_email || "").trim(),
-        order_notification_email: String(req.body.order_notification_email || "").trim(),
-    });
-
-    setFlash(req, "success", "Paramètres enregistrés.");
-    saveSessionAndRedirect(req, res, "/admin/settings");
+registerAdminRoutes({
+    app,
+    db,
+    requireAdmin,
+    requireSuperadmin,
+    render,
+    getViewHelpers,
+    setFlash,
+    saveSessionAndRedirect,
+    normalizeText,
+    normalizeSingleLineText,
+    parseMoneyToCents,
+    parseOptionalMoneyToCents,
+    normalizeOrderDateTimeField,
+    normalizePromoCode,
+    readAdminUserInput,
+    readAdminAccountInput,
+    readPromoCodeInput,
+    getLoginRateLimitState,
+    registerLoginFailure,
+    clearLoginFailures,
+    getOrCreateCsrfToken,
+    readSelectedProductOptions,
+    ensureAvailableProductQuantity,
+    validateRequestedServiceTags,
+    getProductUnitPriceCents,
+    getConfigurationAvailableQuantity,
+    productCategoryList,
+    snapshotPackBundleItems,
+    getPromoCodeOutcome,
+    getPromoCodeLabel,
+    getOrderContactSnapshot,
+    getOrderAdminData,
+    buildOrderMailto,
+    buildOrderEmailDraft,
+    isMailConfigured,
+    getMailConfigError,
+    sendStoreEmail,
+    canEditOrderReceivedAmount,
+    readReceivedPaymentInput,
+    getOrderPaymentData,
+    settingsUploadUrl,
+    withProductUploads,
+    withSettingsUpload,
+    productInputWithUploads,
+    buildProductFormState,
+    baseUrl,
+    getOrderDocumentConfig,
+    getSettings,
+    saveSettings,
+    createProduct,
+    updateProduct,
+    deleteProduct,
+    listPacksContainingProduct,
+    listAdminProducts,
+    listProductCategories,
+    listAdminCategories,
+    deleteProductCategory,
+    getProductById,
+    getAdminByUsername,
+    getAdminById,
+    listAdmins,
+    countAdminsByRole,
+    createAdminUser,
+    updateAdminUser,
+    deleteAdminUser,
+    listPendingSiteReviews,
+    approveSiteReview,
+    deleteSiteReview,
+    listPromoCodes,
+    getPromoCodeById,
+    createPromoCodeRecord,
+    updatePromoCodeRecord,
+    deletePromoCodeRecord,
+    getDashboardStats,
+    createOrder,
+    getOrderById,
+    updateOrderRecord,
+    markOrderPaid,
+    listRecentOrders,
+    listOrders,
+    deleteOrder,
 });
 
 app.use((error, req, res, next) => {
