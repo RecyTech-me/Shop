@@ -3,36 +3,27 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <% const pageTitle = `${title} | ${settings.store_name}`; %>
-    <% const pageDescription = typeof metaDescription !== "undefined" && metaDescription ? metaDescription : settings.tagline; %>
-    <% const pageCanonicalUrl = typeof canonicalUrl !== "undefined" ? canonicalUrl : ""; %>
-    <% const rawPageImageUrl = typeof metaImageUrl !== "undefined" && metaImageUrl ? metaImageUrl : "/static/images/recytech-logo.svg"; %>
-    <% const pageImageUrl = typeof absoluteUrl === "function" ? absoluteUrl(rawPageImageUrl) : rawPageImageUrl; %>
-    <% const pageOgType = typeof ogType !== "undefined" && ogType ? ogType : "website"; %>
-    <meta name="description" content="<%= pageDescription %>">
+    <meta name="description" content="<%= seo.description %>">
     <meta name="csrf-token" content="<%= csrfToken || '' %>">
-    <% if (pageCanonicalUrl) { %>
-        <link rel="canonical" href="<%= pageCanonicalUrl %>">
+    <% if (seo.canonicalUrl) { %>
+        <link rel="canonical" href="<%= seo.canonicalUrl %>">
     <% } %>
-    <meta property="og:title" content="<%= pageTitle %>">
-    <meta property="og:description" content="<%= pageDescription %>">
-    <meta property="og:type" content="<%= pageOgType %>">
-    <% if (pageCanonicalUrl) { %>
-        <meta property="og:url" content="<%= pageCanonicalUrl %>">
+    <meta property="og:title" content="<%= seo.title %>">
+    <meta property="og:description" content="<%= seo.description %>">
+    <meta property="og:type" content="<%= seo.ogType %>">
+    <% if (seo.canonicalUrl) { %>
+        <meta property="og:url" content="<%= seo.canonicalUrl %>">
     <% } %>
-    <meta property="og:image" content="<%= pageImageUrl %>">
-    <meta property="og:site_name" content="<%= settings.store_name %>">
+    <meta property="og:image" content="<%= seo.imageUrl %>">
+    <meta property="og:site_name" content="<%= seo.siteName %>">
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="<%= pageTitle %>">
-    <meta name="twitter:description" content="<%= pageDescription %>">
-    <meta name="twitter:image" content="<%= pageImageUrl %>">
-    <title><%= pageTitle %></title>
+    <meta name="twitter:title" content="<%= seo.title %>">
+    <meta name="twitter:description" content="<%= seo.description %>">
+    <meta name="twitter:image" content="<%= seo.imageUrl %>">
+    <title><%= seo.title %></title>
     <link rel="icon" href="/static/images/recytech-logo.svg" type="image/svg+xml">
     <link rel="stylesheet" href="/static/styles/main.css">
-    <% const structuredDataItems = typeof structuredData !== "undefined" && structuredData
-        ? (Array.isArray(structuredData) ? structuredData : [structuredData])
-        : []; %>
-    <% structuredDataItems.forEach((item) => { %>
+    <% seo.structuredDataItems.forEach((item) => { %>
         <script type="application/ld+json"><%- JSON.stringify(item).replace(/</g, "\\u003c") %></script>
     <% }) %>
 </head>

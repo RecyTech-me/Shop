@@ -1,17 +1,18 @@
 const express = require("express");
-const session = require("express-session");
 const Stripe = require("stripe");
-const { SqliteSessionStore, SESSION_TTL_MS } = require("./lib/sqlite-session-store");
-const { registerAdminRoutes } = require("./routes/admin");
-const { registerCheckoutRoutes } = require("./routes/checkout");
-const { registerPublicApiRoutes } = require("./routes/public-api");
-const { registerStorefrontRoutes } = require("./routes/storefront");
-const { registerWebhookRoutes } = require("./routes/webhooks");
+const {
+    registerWebhookEndpoints,
+    registerPageRoutes,
+    registerFallbackRoutes,
+} = require("./lib/app-routes");
 const { createCartSessionHelpers } = require("./lib/cart-session");
 const { createCheckoutStateHelpers } = require("./lib/checkout-state");
 const { createAppConfig } = require("./lib/config");
 const { createMailService } = require("./lib/mail-service");
+const { createProductOptionReader } = require("./lib/product-option-reader");
 const { createPublicProductPresenters } = require("./lib/public-product-presenters");
+const { createRepositoryContexts } = require("./lib/repository-contexts");
+const { createSettingsCache } = require("./lib/settings-cache");
 const { createUploadHandlers } = require("./lib/upload-handlers");
 const { createUrlHelpers } = require("./lib/url-helpers");
 const { createFormReaders } = require("./lib/form-readers");
@@ -42,6 +43,7 @@ const {
     getSafeRedirectTarget,
 } = require("./lib/http/session-utils");
 const { getOrCreateCsrfToken, isValidCsrfToken } = require("./lib/http/csrf");
+const { registerAppMiddleware } = require("./lib/http/app-middleware");
 const { createAttemptRateLimiter, getRequestIp, startRateLimitPruning } = require("./lib/http/rate-limiter");
 const { createAdminAuth } = require("./lib/http/admin-auth");
 const { createOrderViewTokenHelpers } = require("./lib/payments/order-view-token");
@@ -62,53 +64,7 @@ const {
     getOrderProviderLabel,
     formatDateTime,
 } = require("./lib/shop-formatters");
-const {
-    initializeDatabase,
-    getSettings,
-    saveSettings,
-    createProduct,
-    updateProduct,
-    deleteProduct,
-    listPacksContainingProduct,
-    listPublishedProducts,
-    listAdminProducts,
-    listProductCategories,
-    listAdminCategories,
-    deleteProductCategory,
-    getProductBySlug,
-    getProductById,
-    getAdminByUsername,
-    getAdminById,
-    listAdmins,
-    countAdminsByRole,
-    createAdmin: createAdminUser,
-    updateAdmin: updateAdminUser,
-    deleteAdmin: deleteAdminUser,
-    listApprovedSiteReviews,
-    getSiteReviewSummary,
-    listPendingSiteReviews,
-    createSiteReview,
-    approveSiteReview,
-    deleteSiteReview,
-    listPromoCodes,
-    getPromoCodeById,
-    getPromoCodeByCode,
-    createPromoCode: createPromoCodeRecord,
-    updatePromoCode: updatePromoCodeRecord,
-    deletePromoCode: deletePromoCodeRecord,
-    getDashboardStats,
-    createOrder,
-    getOrderById,
-    getOrderByNumber,
-    getOrderByProviderReference,
-    updateOrderProviderReference,
-    updateOrderStatus,
-    updateOrderRecord,
-    markOrderPaid,
-    listRecentOrders,
-    listOrders,
-    deleteOrder,
-} = require("./lib/db");
+const database = require("./lib/db");
 
 const config = createAppConfig({
     env: process.env,
@@ -117,10 +73,32 @@ const config = createAppConfig({
 const { env } = config;
 const { baseUrl, getOrderDocumentConfig, absoluteUrl } = createUrlHelpers(env);
 const app = express();
-const db = initializeDatabase(config.paths.database, env);
-let settingsCache = null;
+const db = database.initializeDatabase(config.paths.database, env);
 const stripe = config.stripe.secretKey ? new Stripe(config.stripe.secretKey) : null;
 const stripePublishableKey = config.stripe.publishableKey;
+const {
+    getCachedSettings,
+    saveCachedSettings,
+} = createSettingsCache({
+    db,
+    getSettings: database.getSettings,
+    saveSettings: database.saveSettings,
+});
+const repositoryContexts = createRepositoryContexts({
+    database,
+    settings: {
+        getSettings: getCachedSettings,
+        saveSettings: saveCachedSettings,
+    },
+    orderHelpers: {
+        getOrderPaymentData,
+        getOrderContactSnapshot,
+        getOrderAdminData,
+        buildOrderMailto,
+        canEditOrderReceivedAmount,
+        readReceivedPaymentInput,
+    },
+});
 const {
     createOrderViewToken,
     verifyOrderViewToken,
@@ -170,22 +148,10 @@ const {
     requireSuperadmin,
 } = createAdminAuth({
     db,
-    getAdminById,
+    getAdminById: repositoryContexts.admins.getAdminById,
     setFlash,
     saveSessionAndRedirect,
 });
-
-app.disable("x-powered-by");
-app.set("trust proxy", 1);
-
-app.set("view engine", "ejs");
-app.set("views", config.paths.viewsDir);
-app.use("/static/uploads", express.static(config.paths.uploadsDir, {
-    maxAge: "5m",
-}));
-app.use("/static", express.static(config.paths.publicDir, {
-    maxAge: "1h",
-}));
 
 const {
     settingsUploadUrl,
@@ -227,7 +193,7 @@ const {
     removeCartItem,
 } = createCartSessionHelpers({
     db,
-    getProductById,
+    getProductById: repositoryContexts.products.getProductById,
     normalizeText,
     normalizeSingleLineText,
     productCategoryList,
@@ -253,7 +219,7 @@ const {
     SHIPPING_OPTIONS,
     PAYMENT_DISCOUNT_RATE,
     formatMoney,
-    getPromoCodeByCode: (code) => getPromoCodeByCode(db, code),
+    getPromoCodeByCode: (code) => repositoryContexts.promos.getPromoCodeByCode(db, code),
     normalizeText,
     paymentState,
 });
@@ -277,19 +243,6 @@ const { createOrReuseStripeIntent } = createStripeIntentService({
     getRateLimitState: getStripeIntentRateLimitState,
     registerAttempt: registerStripeIntentAttempt,
 });
-
-function getCachedSettings() {
-    if (!settingsCache) {
-        settingsCache = getSettings(db);
-    }
-
-    return settingsCache;
-}
-
-function saveCachedSettings(_db, values) {
-    saveSettings(db, values);
-    settingsCache = null;
-}
 
 const {
     getMailConfigError,
@@ -355,302 +308,169 @@ async function notifyNewOrder(order) {
     }
 }
 
-function readSelectedProductOptions(product, body, fieldNameForIndex = (index) => `selected_option_${index}`) {
-    const groups = Array.isArray(product.option_groups) ? product.option_groups : [];
-
-    const selectedOptions = groups.map((group, index) => {
-        const value = normalizeText(body[fieldNameForIndex(index, group)]);
-        if (!group.values.includes(value)) {
-            throw new Error(`Veuillez choisir une option valide pour « ${group.name} ».`);
-        }
-
-        return {
-            name: group.name,
-            value,
-        };
-    });
-
-    getProductUnitPriceCents(product, selectedOptions);
-
-    return selectedOptions;
-}
+const { readSelectedProductOptions } = createProductOptionReader({
+    normalizeText,
+    getProductUnitPriceCents,
+});
 
 function validateCheckout(req) {
     return validateCheckoutInput(req.body);
 }
 
-registerWebhookRoutes({
-    app,
-    stripe,
-    env,
-    db,
-    getOrderByProviderReference,
-    markOrderPaid,
-    updateOrderStatus,
-    verifySwissBitcoinPayWebhook,
-    normalizeText,
-    mapSwissBitcoinPayStatus,
-});
-
-app.use(express.urlencoded({ extended: false }));
-app.use(express.json());
-app.use(
-    session({
-        store: new SqliteSessionStore(db),
-        secret: config.session.secret,
-        resave: false,
-        saveUninitialized: false,
-        cookie: {
-            httpOnly: true,
-            secure: "auto",
-            sameSite: "lax",
-            maxAge: SESSION_TTL_MS,
-        },
-    })
-);
-
-app.use((req, res, next) => {
-    const requestIsSecure = req.secure || req.get("x-forwarded-proto") === "https";
-    res.set("X-Frame-Options", "DENY");
-    res.set("X-Content-Type-Options", "nosniff");
-    res.set("Referrer-Policy", "strict-origin-when-cross-origin");
-    res.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
-    if (requestIsSecure) {
-        res.set("Strict-Transport-Security", "max-age=15552000; includeSubDomains");
-    }
-
-    res.locals.csrfToken = getOrCreateCsrfToken(req);
-    const currentAdmin = req.session.adminId ? getAdminById(db, req.session.adminId) : null;
-    const hideFooter = req.path === "/cart" || req.path.startsWith("/admin");
-
-    Object.assign(res.locals, getViewHelpers());
-    res.locals.currentPath = req.path;
-    res.locals.settings = getCachedSettings();
-    res.locals.flash = getFlash(req);
-    res.locals.cart = buildCart(req);
-    res.locals.currentAdmin = currentAdmin;
-    res.locals.paymentConfig = paymentState();
-    res.locals.showFooter = !hideFooter;
-    res.locals.canonicalUrl = `${baseUrl(req).replace(/\/$/, "")}${req.path}`;
-    res.locals.absoluteUrl = (value) => absoluteUrl(req, value);
-    req.currentAdmin = currentAdmin;
-    next();
-});
-
-app.use((req, res, next) => {
-    if (!req.currentAdmin) {
-        return next();
-    }
-
-    if (isProductUploadRequest(req)) {
-        return withProductUploads(req, res, next);
-    }
-
-    if (isSettingsUploadRequest(req)) {
-        return withSettingsUpload(req, res, next);
-    }
-
-    return next();
-});
-
-app.use((req, res, next) => {
-    if (!["POST", "PUT", "PATCH", "DELETE"].includes(req.method) || req.path.startsWith("/webhooks/")) {
-        return next();
-    }
-
-    if (isValidCsrfToken(req)) {
-        return next();
-    }
-
-    setFlash(req, "error", "Votre session de sécurité a expiré. Veuillez réessayer.");
-    return saveSessionAndRedirect(req, res, req.get("referer") || "/");
-});
-
-registerPublicApiRoutes({
-    app,
-    db,
-    stripe,
-    setPublicApiHeaders,
-    listPublishedProducts,
-    serializePublicProduct,
-    setCheckoutForm,
-    buildCheckoutDraft,
-    getCheckoutForm,
-    buildCart,
-    setFlash,
-    saveSessionAndRedirect,
-    clearStripeDraft,
-    getPromoCodeOutcome,
-    createOrReuseStripeIntent,
-    paymentState,
-    normalizeText,
-    validateCheckoutInput,
-    requirePromoCodeOutcome,
-    getCheckoutPricing,
-    getOrderByProviderReference,
-    createOrder,
-    notifyNewOrder,
-    createOrderViewToken,
-});
-
-registerStorefrontRoutes({
-    app,
-    db,
-    render,
-    setFlash,
-    saveSessionAndRedirect,
-    getSafeRedirectTarget,
-    normalizeText,
-    parseMoneyToCents,
-    readSiteReviewInput,
-    readSelectedProductOptions,
-    ensureAvailableProductQuantity,
-    upsertCartItem,
-    getCartItems,
-    makeCartItemKey,
-    removeCartItem,
-    productMetaDescription,
-    productStructuredData,
-    organizationStructuredData,
-    listPublishedProducts,
-    listProductCategories,
-    listApprovedSiteReviews,
-    getSiteReviewSummary,
-    createSiteReview,
-    getProductBySlug,
-    getProductById,
-});
-
-registerCheckoutRoutes({
-    app,
-    db,
-    stripe,
-    SHIPPING_OPTIONS,
-    render,
-    setFlash,
-    saveSessionAndRedirect,
-    buildCart,
-    requirePromoCodeOutcome,
-    getCheckoutPricing,
-    createOrder,
-    getCheckoutForm,
-    getPromoCodeOutcome,
-    paymentState,
-    setCheckoutForm,
-    validateCheckout,
-    createSwissBitcoinPayInvoice,
-    updateOrderProviderReference,
-    clearCheckoutForm,
-    setCartItems,
-    createOrderViewToken,
-    sendNewOrderNotification,
-    fetchSwissBitcoinPayInvoice,
-    mapSwissBitcoinPayStatus,
-    getOrderByProviderReference,
-    markOrderPaid,
-    updateOrderStatus,
-    getOrderByNumber,
-    verifyOrderViewToken,
-    clearStripeDraft,
-});
-
-registerAdminRoutes({
-    app,
-    db,
-    requireAdmin,
-    requireSuperadmin,
+const providers = { env, stripe };
+const http = {
     render,
     getViewHelpers,
     setFlash,
     saveSessionAndRedirect,
-    normalizeText,
-    normalizeSingleLineText,
-    parseMoneyToCents,
-    parseOptionalMoneyToCents,
-    normalizeOrderDateTimeField,
-    normalizePromoCode,
-    readAdminUserInput,
-    readAdminAccountInput,
-    readPromoCodeInput,
+    getSafeRedirectTarget,
+    requireAdmin,
+    requireSuperadmin,
     getLoginRateLimitState,
     registerLoginFailure,
     clearLoginFailures,
     getOrCreateCsrfToken,
-    readSelectedProductOptions,
+};
+const text = {
+    normalizeText,
+    normalizeSingleLineText,
+};
+const money = {
+    parseMoneyToCents,
+    parseOptionalMoneyToCents,
+    normalizeOrderDateTimeField,
+};
+const urls = {
+    baseUrl,
+    getOrderDocumentConfig,
+};
+const publicProducts = {
+    setPublicApiHeaders,
+    productCategoryList,
+    serializePublicProduct,
+    productMetaDescription,
+    productStructuredData,
+    organizationStructuredData,
+};
+const cart = {
+    getCartItems,
+    setCartItems,
+    getConfigurationAvailableQuantity,
     ensureAvailableProductQuantity,
     validateRequestedServiceTags,
     getProductUnitPriceCents,
-    getConfigurationAvailableQuantity,
-    productCategoryList,
     snapshotPackBundleItems,
+    buildCart,
+    makeCartItemKey,
+    upsertCartItem,
+    removeCartItem,
+};
+const checkout = {
+    normalizePromoCode,
     getPromoCodeOutcome,
+    requirePromoCodeOutcome,
+    getCheckoutPricing,
+    getCheckoutForm,
+    buildCheckoutDraft,
+    setCheckoutForm,
+    clearCheckoutForm,
+    clearStripeDraft,
+    validateCheckoutInput,
     getPromoCodeLabel,
-    getOrderContactSnapshot,
-    getOrderAdminData,
-    buildOrderMailto,
-    buildOrderEmailDraft,
-    isMailConfigured,
-    getMailConfigError,
-    sendStoreEmail,
-    canEditOrderReceivedAmount,
-    readReceivedPaymentInput,
-    getOrderPaymentData,
+};
+const forms = {
+    readAdminUserInput,
+    readAdminAccountInput,
+    readSiteReviewInput,
+    readPromoCodeInput,
+    readSelectedProductOptions,
+    validateCheckout,
+};
+const uploads = {
     settingsUploadUrl,
     withProductUploads,
     withSettingsUpload,
     productInputWithUploads,
     buildProductFormState,
+};
+const mail = {
+    getMailConfigError,
+    isMailConfigured,
+    buildOrderEmailDraft,
+    sendStoreEmail,
+    sendNewOrderNotification,
+    notifyNewOrder,
+};
+const payments = {
+    paymentState,
+    createOrReuseStripeIntent,
+    createOrderViewToken,
+    verifyOrderViewToken,
+    createSwissBitcoinPayInvoice,
+    fetchSwissBitcoinPayInvoice,
+    verifySwissBitcoinPayWebhook,
+    mapSwissBitcoinPayStatus,
+};
+registerWebhookEndpoints({
+    app,
+    db,
+    providers,
+    repositories: repositoryContexts.orders,
+    payments,
+    text,
+});
+
+registerAppMiddleware({
+    app,
+    db,
+    config,
+    getOrCreateCsrfToken,
+    getAdminById: repositoryContexts.admins.getAdminById,
+    getViewHelpers,
+    getCachedSettings,
+    getFlash,
+    buildCart,
+    paymentState,
     baseUrl,
-    getOrderDocumentConfig,
-    getSettings: getCachedSettings,
-    saveSettings: saveCachedSettings,
-    createProduct,
-    updateProduct,
-    deleteProduct,
-    listPacksContainingProduct,
-    listAdminProducts,
-    listProductCategories,
-    listAdminCategories,
-    deleteProductCategory,
-    getProductById,
-    getAdminByUsername,
-    getAdminById,
-    listAdmins,
-    countAdminsByRole,
-    createAdminUser,
-    updateAdminUser,
-    deleteAdminUser,
-    listPendingSiteReviews,
-    approveSiteReview,
-    deleteSiteReview,
-    listPromoCodes,
-    getPromoCodeById,
-    createPromoCodeRecord,
-    updatePromoCodeRecord,
-    deletePromoCodeRecord,
-    getDashboardStats,
-    createOrder,
-    getOrderById,
-    updateOrderRecord,
-    markOrderPaid,
-    listRecentOrders,
-    listOrders,
-    deleteOrder,
+    absoluteUrl,
+    isProductUploadRequest,
+    withProductUploads,
+    isSettingsUploadRequest,
+    withSettingsUpload,
+    isValidCsrfToken,
+    setFlash,
+    saveSessionAndRedirect,
 });
 
-app.use((error, req, res, _next) => {
-    console.error(error);
-
-    if (req.currentAdmin) {
-        setFlash(req, "error", `Erreur serveur : ${error.message}`);
-        return saveSessionAndRedirect(req, res, req.get("referer") || "/admin");
-    }
-
-    return res.status(500).send("Internal Server Error");
+registerPageRoutes({
+    app,
+    db,
+    providers,
+    http,
+    text,
+    money,
+    forms,
+    formatters: { SHIPPING_OPTIONS },
+    urls,
+    publicProducts,
+    cart,
+    checkout,
+    uploads,
+    mail,
+    payments,
+    settings: repositoryContexts.settings,
+    products: repositoryContexts.products,
+    admins: repositoryContexts.admins,
+    reviews: repositoryContexts.reviews,
+    promos: repositoryContexts.promos,
+    dashboard: repositoryContexts.dashboard,
+    orders: repositoryContexts.orders,
 });
 
-app.use((req, res) => {
-    res.status(404).render("not-found", { title: "Page introuvable" });
+registerFallbackRoutes({
+    app,
+    setFlash,
+    saveSessionAndRedirect,
 });
 
 module.exports = { app };
