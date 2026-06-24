@@ -2,17 +2,17 @@ function registerAdminDashboardRoutes(deps) {
     const {
         app,
         db,
-        requireAdmin,
-        render,
-        setFlash,
-        saveSessionAndRedirect,
-        listAdminProducts,
-        listPendingSiteReviews,
-        approveSiteReview,
-        deleteSiteReview,
-        getDashboardStats,
-        listRecentOrders,
+        http,
+        products,
+        reviews,
+        dashboard,
+        orders,
     } = deps;
+    const { requireAdmin, render, setFlash, saveSessionAndRedirect } = http;
+    const { listAdminProducts } = products;
+    const { listPendingSiteReviews, approveSiteReview, deleteSiteReview } = reviews;
+    const { getDashboardStats } = dashboard;
+    const { listRecentOrders } = orders;
 
     app.get("/admin", requireAdmin, (req, res) => {
         render(res, "admin/dashboard", {

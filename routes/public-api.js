@@ -2,29 +2,34 @@ function registerPublicApiRoutes(deps) {
     const {
         app,
         db,
-        stripe,
-        setPublicApiHeaders,
-        listPublishedProducts,
-        serializePublicProduct,
+        providers,
+        http,
+        text,
+        publicProducts,
+        cart,
+        checkout,
+        payments,
+        orders,
+        mail,
+    } = deps;
+    const { stripe } = providers;
+    const { setFlash, saveSessionAndRedirect } = http;
+    const { normalizeText } = text;
+    const { setPublicApiHeaders, serializePublicProduct } = publicProducts;
+    const { buildCart } = cart;
+    const {
         setCheckoutForm,
         buildCheckoutDraft,
         getCheckoutForm,
-        buildCart,
-        setFlash,
-        saveSessionAndRedirect,
         clearStripeDraft,
         getPromoCodeOutcome,
-        createOrReuseStripeIntent,
-        paymentState,
-        normalizeText,
         validateCheckoutInput,
-        requirePromoCodeOutcome,
-        getCheckoutPricing,
-        getOrderByProviderReference,
-        createOrder,
-        notifyNewOrder,
-        createOrderViewToken,
-    } = deps;
+        prepareCheckoutOrder,
+        createPreparedCheckoutOrder,
+    } = checkout;
+    const { createOrReuseStripeIntent, paymentState, createOrderViewToken } = payments;
+    const { getOrderByProviderReference } = orders;
+    const { notifyNewOrder } = mail;
 
     app.options(["/api/products", "/wp-json/wc/v3/products"], (req, res) => {
         setPublicApiHeaders(res);
@@ -33,7 +38,7 @@ function registerPublicApiRoutes(deps) {
 
     app.get(["/api/products", "/wp-json/wc/v3/products"], (req, res) => {
         setPublicApiHeaders(res);
-        res.json(listPublishedProducts(db).map((product) => serializePublicProduct(req, product)));
+        res.json(deps.products.listPublishedProducts(db).map((product) => serializePublicProduct(req, product)));
     });
 
     app.post("/checkout/session", (req, res) => {
@@ -99,63 +104,26 @@ function registerPublicApiRoutes(deps) {
             checkoutDetails.form.payment_method = "card";
             setCheckoutForm(req, checkoutDetails.form);
 
-            const cart = buildCart(req);
-            if (!cart.items.length) {
-                return res.status(400).json({ error: "Le panier est vide." });
-            }
-
-            const promoCodeOutcome = requirePromoCodeOutcome(checkoutDetails.form.promo_code, cart.subtotalCents);
-            const pricing = getCheckoutPricing(cart.subtotalCents, checkoutDetails.shippingOption, "card", promoCodeOutcome);
-            const amountCents = pricing.totalCents;
             const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+            const preparedOrder = prepareCheckoutOrder({
+                req,
+                provider: "stripe",
+                providerReference: paymentIntent.id,
+                customer: checkoutDetails.customer,
+                checkoutDetails,
+                extraMetadata: {
+                    stripePaymentIntentId: paymentIntent.id,
+                },
+            });
 
-            if (paymentIntent.currency !== "chf" || paymentIntent.amount !== amountCents) {
+            if (paymentIntent.currency !== "chf" || paymentIntent.amount !== preparedOrder.pricing.totalCents) {
                 return res.status(400).json({ error: "Le montant Stripe ne correspond plus à la commande." });
             }
 
             let order = getOrderByProviderReference(db, "stripe", paymentIntent.id);
             let createdOrder = false;
             if (!order) {
-                order = createOrder(db, {
-                    provider: "stripe",
-                    provider_reference: paymentIntent.id,
-                    customer_name: checkoutDetails.customer.name,
-                    customer_email: checkoutDetails.customer.email,
-                    amount_cents: amountCents,
-                    currency: "CHF",
-                    items: cart.items,
-                    status: "pending",
-                    metadata: {
-                        checkout: checkoutDetails.form,
-                        delivery: {
-                            method: checkoutDetails.shippingOption.key,
-                            label: checkoutDetails.shippingOption.label,
-                            amount_cents: checkoutDetails.shippingOption.priceCents,
-                        },
-                        additions: [
-                            ...(checkoutDetails.shippingOption.priceCents > 0
-                                ? [{
-                                    type: "shipping",
-                                    label: checkoutDetails.shippingOption.label,
-                                    amount_cents: checkoutDetails.shippingOption.priceCents,
-                                }]
-                                : []),
-                            ...pricing.discountLines,
-                        ],
-                        promo: promoCodeOutcome.promoCode
-                            ? {
-                                id: promoCodeOutcome.promoCode.id,
-                                code: promoCodeOutcome.promoCode.code,
-                                description: promoCodeOutcome.promoCode.description,
-                                discount_type: promoCodeOutcome.promoCode.discount_type,
-                                discount_value: promoCodeOutcome.promoCode.discount_value,
-                                discount_cents: promoCodeOutcome.discountCents,
-                                label: promoCodeOutcome.label,
-                            }
-                            : null,
-                        stripePaymentIntentId: paymentIntent.id,
-                    },
-                });
+                order = createPreparedCheckoutOrder(preparedOrder);
                 createdOrder = true;
             }
 
@@ -169,7 +137,7 @@ function registerPublicApiRoutes(deps) {
                     source: "recytech-shop",
                     order_number: order.order_number,
                     delivery_method: checkoutDetails.shippingOption.key,
-                    promo_code: promoCodeOutcome.code || "",
+                    promo_code: preparedOrder.promoCodeOutcome.code || "",
                 },
             });
 

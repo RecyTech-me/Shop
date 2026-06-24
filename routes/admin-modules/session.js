@@ -5,17 +5,23 @@ function registerAdminSessionRoutes(deps) {
     const {
         app,
         db,
+        http,
+        forms,
+        admins,
+    } = deps;
+    const {
         requireAdmin,
         requireSuperadmin,
         render,
         setFlash,
         saveSessionAndRedirect,
-        readAdminUserInput,
-        readAdminAccountInput,
         getLoginRateLimitState,
         registerLoginFailure,
         clearLoginFailures,
         getOrCreateCsrfToken,
+    } = http;
+    const { readAdminUserInput, readAdminAccountInput } = forms;
+    const {
         getAdminByUsername,
         getAdminById,
         listAdmins,
@@ -23,7 +29,7 @@ function registerAdminSessionRoutes(deps) {
         createAdminUser,
         updateAdminUser,
         deleteAdminUser,
-    } = deps;
+    } = admins;
 
     app.get("/admin/login", (req, res) => {
         if (req.session.adminId) {

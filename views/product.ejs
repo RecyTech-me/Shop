@@ -12,9 +12,8 @@
                         : product.gallery_images; %>
                     <div class="product-gallery-viewport">
                         <div
-                            class="product-gallery-track is-no-transition"
+                            class="product-gallery-track is-no-transition <%= product.gallery_images.length > 1 ? 'is-looped' : '' %>"
                             data-product-gallery-track
-                            style="transform: translateX(-<%= product.gallery_images.length > 1 ? 100 : 0 %>%);"
                         >
                             <% galleryLoopImages.forEach((imageUrl, loopIndex) => { %>
                                 <% const logicalIndex = product.gallery_images.length > 1

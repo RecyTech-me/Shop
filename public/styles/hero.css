@@ -1,0 +1,188 @@
+.hero {
+    padding: 3rem 0 2.5rem;
+}
+
+.hero-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.5rem;
+    align-items: stretch;
+}
+
+.hero-copy,
+.hero-panel {
+    position: relative;
+}
+
+.hero-copy {
+    padding: 2.4rem;
+    border-radius: var(--radius-xl);
+    background: #f7f2e7;
+    box-shadow: var(--shadow);
+    overflow: hidden;
+    isolation: isolate;
+}
+
+.hero-copy::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    background: linear-gradient(rgba(247, 242, 231, 0.82), rgba(247, 242, 231, 0.93));
+}
+
+.hero-copy-image {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.hero-copy > :not(.hero-copy-image) {
+    position: relative;
+    z-index: 2;
+}
+
+.hero-copy h1 {
+    margin: 0 0 1rem;
+    font-family: "Raleway-SemiBold", sans-serif;
+    font-size: clamp(2.3rem, 5vw, 4.3rem);
+    line-height: 0.98;
+    max-width: 12ch;
+}
+
+.hero-text,
+.section-copy,
+.long-copy p,
+.summary-card p,
+.payment-card p,
+.flash,
+.empty-state p,
+.auth-card p,
+.section-intro,
+.product-body p,
+.detail-panel p {
+    color: var(--text-soft);
+}
+
+.hero-actions,
+.admin-actions,
+.form-actions {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.add-product-button {
+    justify-content: center;
+}
+
+.inline-danger-form {
+    margin: 0;
+}
+
+.hero-points {
+    display: grid;
+    gap: 0.5rem;
+    margin: 1.6rem 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.hero-points li::before {
+    content: "";
+    display: inline-block;
+    width: 0.65rem;
+    height: 0.65rem;
+    margin-right: 0.7rem;
+    border-radius: 999px;
+    background: var(--surface-dark);
+}
+
+.hero-card {
+    height: 100%;
+    min-height: 100%;
+    padding: 2rem;
+    border-radius: var(--radius-xl);
+    background: linear-gradient(180deg, var(--surface-dark) 0%, var(--surface-dark-soft) 100%);
+    color: #f4efe5;
+    box-shadow: var(--shadow);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+
+.hero-card-body {
+    display: grid;
+    gap: 1rem;
+}
+
+.hero-card h2 {
+    margin: 0;
+    font-family: "Raleway-SemiBold", sans-serif;
+    font-size: 2rem;
+    line-height: 1.04;
+    max-width: 12ch;
+}
+
+.hero-card p,
+.hero-card-label {
+    color: rgba(244, 239, 229, 0.78);
+}
+
+.hero-card-intro {
+    margin: 0;
+    max-width: 30ch;
+}
+
+.hero-card-list {
+    display: grid;
+    gap: 0.9rem;
+    margin-top: 0.35rem;
+}
+
+.hero-card-item {
+    display: grid;
+    gap: 0.2rem;
+    padding-top: 0.9rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.hero-card-item:first-child {
+    padding-top: 0;
+    border-top: 0;
+}
+
+.hero-card-item strong {
+    color: #f4efe5;
+    font-family: "Raleway-SemiBold", sans-serif;
+    font-size: 1rem;
+}
+
+.hero-card-item span {
+    color: rgba(244, 239, 229, 0.78);
+}
+
+.hero-card-meta {
+    display: flex;
+    gap: 0.8rem;
+    flex-wrap: wrap;
+    margin-top: 1.5rem;
+}
+
+.hero-card-meta span {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.7rem 0.9rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(244, 239, 229, 0.86);
+}
+
+.hero-card-meta strong {
+    color: #f4efe5;
+}

@@ -15,11 +15,40 @@ function listen(app, t) {
     });
 }
 
+function registerTestWebhookRoutes({
+    app,
+    stripe = null,
+    env = {},
+    getOrderByProviderReference,
+    markOrderPaid,
+    updateOrderStatus,
+    verifySwissBitcoinPayWebhook = () => true,
+    mapSwissBitcoinPayStatus = () => "pending",
+}) {
+    registerWebhookRoutes({
+        app,
+        db: {},
+        providers: { stripe, env },
+        repositories: {
+            getOrderByProviderReference,
+            markOrderPaid,
+            updateOrderStatus,
+        },
+        payments: {
+            verifySwissBitcoinPayWebhook,
+            mapSwissBitcoinPayStatus,
+        },
+        text: {
+            normalizeText: (value) => String(value || "").trim(),
+        },
+    });
+}
+
 test("stripe webhook marks successful payment intents paid", async (t) => {
     const app = express();
     const calls = [];
 
-    registerWebhookRoutes({
+    registerTestWebhookRoutes({
         app,
         stripe: {
             webhooks: {
@@ -30,14 +59,10 @@ test("stripe webhook marks successful payment intents paid", async (t) => {
             },
         },
         env: { STRIPE_WEBHOOK_SECRET: "secret" },
-        db: {},
         getOrderByProviderReference: (db, provider, reference) =>
             provider === "stripe" && reference === "pi_test" ? { id: 10 } : null,
         markOrderPaid: (db, orderId, metadata) => calls.push(["paid", orderId, metadata]),
         updateOrderStatus: (db, orderId, status, metadata) => calls.push(["status", orderId, status, metadata]),
-        verifySwissBitcoinPayWebhook: () => true,
-        normalizeText: (value) => String(value || "").trim(),
-        mapSwissBitcoinPayStatus: () => "pending",
     });
 
     const baseUrl = await listen(app, t);
@@ -61,7 +86,7 @@ test("stripe webhook marks failed and canceled payment intents failed", async (t
     const app = express();
     const calls = [];
 
-    registerWebhookRoutes({
+    registerTestWebhookRoutes({
         app,
         stripe: {
             webhooks: {
@@ -72,14 +97,10 @@ test("stripe webhook marks failed and canceled payment intents failed", async (t
             },
         },
         env: { STRIPE_WEBHOOK_SECRET: "secret" },
-        db: {},
         getOrderByProviderReference: (db, provider, reference) =>
             provider === "stripe" && reference === "pi_failed" ? { id: 11 } : null,
         markOrderPaid: (db, orderId, metadata) => calls.push(["paid", orderId, metadata]),
         updateOrderStatus: (db, orderId, status, metadata) => calls.push(["status", orderId, status, metadata]),
-        verifySwissBitcoinPayWebhook: () => true,
-        normalizeText: (value) => String(value || "").trim(),
-        mapSwissBitcoinPayStatus: () => "pending",
     });
 
     const baseUrl = await listen(app, t);
@@ -103,17 +124,15 @@ test("swiss bitcoin pay webhook verifies secret and applies mapped status", asyn
     const app = express();
     const calls = [];
 
-    registerWebhookRoutes({
+    registerTestWebhookRoutes({
         app,
         stripe: null,
         env: {},
-        db: {},
         getOrderByProviderReference: (db, provider, reference) =>
             provider === "swissbitcoinpay" && reference === "invoice-1" ? { id: 12 } : null,
         markOrderPaid: (db, orderId, metadata) => calls.push(["paid", orderId, metadata]),
         updateOrderStatus: (db, orderId, status, metadata) => calls.push(["status", orderId, status, metadata]),
         verifySwissBitcoinPayWebhook: (req) => req.headers["x-test-secret"] === "ok",
-        normalizeText: (value) => String(value || "").trim(),
         mapSwissBitcoinPayStatus: () => "paid",
     });
 

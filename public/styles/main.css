@@ -1,4 +1,5 @@
 @import "./base-layout.css";
+@import "./hero.css";
 @import "./catalogue-cards.css";
 @import "./product-reviews.css";
 @import "./checkout-admin.css";

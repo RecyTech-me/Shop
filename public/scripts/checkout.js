@@ -1,4 +1,5 @@
 import { csrfToken } from "./shared.js";
+import { calculateCheckoutSummary } from "./checkout-calculations.js";
 
 export function initCheckout() {
     const deliveryInputs = document.querySelectorAll('input[name="delivery_method"]');
@@ -29,7 +30,6 @@ export function initCheckout() {
     let stripeIntentId = "";
     let stripeClientSecret = "";
     let stripeLoadingPromise = null;
-    const discountedPaymentMethods = new Set(["bitcoin", "cash"]);
 
     function formatChf(cents) {
         return new Intl.NumberFormat("fr-CH", {
@@ -110,18 +110,6 @@ export function initCheckout() {
         return selectFirstEnabledPaymentMethod(allowedMethods);
     }
 
-    function getPaymentDiscountLabel(paymentMethod) {
-        if (paymentMethod === "bitcoin") {
-            return "Réduction Bitcoin (-10%)";
-        }
-
-        if (paymentMethod === "cash") {
-            return "Réduction retrait espèces (-10%)";
-        }
-
-        return "";
-    }
-
     function syncCheckoutSections() {
         const selectedDelivery = document.querySelector('input[name="delivery_method"]:checked')?.value || "pickup";
 
@@ -150,30 +138,29 @@ export function initCheckout() {
         toggleSection(cardPaymentSection, selectedPayment === "card");
 
         if (shippingPrice && orderTotal) {
-            const deliveryPrice = Number.parseInt(
-                selectedDelivery === "ship" ? shippingPrice.dataset.priceShip : shippingPrice.dataset.pricePickup,
-                10
-            ) || 0;
-            const subtotal = Number.parseInt(orderTotal.dataset.subtotal || "0", 10) || 0;
-            const paymentDiscountRate = Number.parseFloat(orderTotal.dataset.paymentDiscountRate || "0") || 0;
-            const promoDiscountCents = Number.parseInt(orderTotal.dataset.promoDiscount || "0", 10) || 0;
-            const paymentDiscountBaseCents = Math.max(subtotal - promoDiscountCents, 0);
-            const paymentDiscountCents = discountedPaymentMethods.has(selectedPayment)
-                ? Math.round(paymentDiscountBaseCents * paymentDiscountRate)
-                : 0;
+            const summary = calculateCheckoutSummary({
+                selectedDelivery,
+                selectedPayment,
+                pricePickupCents: shippingPrice.dataset.pricePickup,
+                priceShipCents: shippingPrice.dataset.priceShip,
+                subtotalCents: orderTotal.dataset.subtotal,
+                promoDiscountCents: orderTotal.dataset.promoDiscount,
+                promoLabel: orderTotal.dataset.promoLabel,
+                paymentDiscountRate: orderTotal.dataset.paymentDiscountRate,
+            });
 
-            shippingPrice.textContent = formatChf(deliveryPrice);
+            shippingPrice.textContent = formatChf(summary.deliveryPriceCents);
             if (promoRow && promoLabel && promoAmount) {
-                promoRow.hidden = promoDiscountCents <= 0;
-                promoLabel.textContent = orderTotal.dataset.promoLabel || "Code promo";
-                promoAmount.textContent = `-${formatChf(promoDiscountCents)}`;
+                promoRow.hidden = !summary.promoVisible;
+                promoLabel.textContent = summary.promoLabel;
+                promoAmount.textContent = `-${formatChf(summary.promoDiscountCents)}`;
             }
             if (paymentDiscountRow && paymentDiscountLabel && paymentDiscountAmount) {
-                paymentDiscountRow.hidden = paymentDiscountCents <= 0;
-                paymentDiscountLabel.textContent = getPaymentDiscountLabel(selectedPayment);
-                paymentDiscountAmount.textContent = `-${formatChf(paymentDiscountCents)}`;
+                paymentDiscountRow.hidden = !summary.paymentDiscountVisible;
+                paymentDiscountLabel.textContent = summary.paymentDiscountLabel;
+                paymentDiscountAmount.textContent = `-${formatChf(summary.paymentDiscountCents)}`;
             }
-            orderTotal.textContent = formatChf(subtotal + deliveryPrice - promoDiscountCents - paymentDiscountCents);
+            orderTotal.textContent = formatChf(summary.totalCents);
         }
     }
 

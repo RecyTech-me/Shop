@@ -2,17 +2,19 @@ function registerAdminPromoCodeRoutes(deps) {
     const {
         app,
         db,
-        requireAdmin,
-        render,
-        setFlash,
-        saveSessionAndRedirect,
-        readPromoCodeInput,
+        http,
+        forms,
+        promos,
+    } = deps;
+    const { requireAdmin, render, setFlash, saveSessionAndRedirect } = http;
+    const { readPromoCodeInput } = forms;
+    const {
         listPromoCodes,
         getPromoCodeById,
         createPromoCodeRecord,
         updatePromoCodeRecord,
         deletePromoCodeRecord,
-    } = deps;
+    } = promos;
 
     app.get("/admin/promo-codes", requireAdmin, (req, res) => {
         render(res, "admin/promo-codes", {
