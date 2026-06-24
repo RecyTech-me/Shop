@@ -2,19 +2,25 @@ function registerAdminCatalogRoutes(deps) {
     const {
         app,
         db,
-        requireAdmin,
-        render,
-        getViewHelpers,
-        setFlash,
-        saveSessionAndRedirect,
-        normalizeText,
+        http,
+        text,
+        uploads,
+        settings,
+        products,
+    } = deps;
+    const { requireAdmin, render, getViewHelpers, setFlash, saveSessionAndRedirect } = http;
+    const { normalizeText } = text;
+    const {
         settingsUploadUrl,
         withProductUploads,
         withSettingsUpload,
+        cleanupProductUploads,
+        cleanupSettingsUpload,
         productInputWithUploads,
         buildProductFormState,
-        getSettings,
-        saveSettings,
+    } = uploads;
+    const { getSettings, saveSettings } = settings;
+    const {
         createProduct,
         updateProduct,
         deleteProduct,
@@ -23,7 +29,7 @@ function registerAdminCatalogRoutes(deps) {
         listAdminCategories,
         deleteProductCategory,
         getProductById,
-    } = deps;
+    } = products;
 
     app.get("/admin/categories", requireAdmin, (req, res) => {
         render(res, "admin/categories", {
@@ -67,6 +73,7 @@ function registerAdminCatalogRoutes(deps) {
             setFlash(req, "success", "Produit créé.");
             return saveSessionAndRedirect(req, res, "/admin");
         } catch (error) {
+            cleanupProductUploads(req);
             return res.status(400).render("admin/product-form", {
                 ...getViewHelpers(),
                 title: "Nouveau produit",
@@ -101,6 +108,7 @@ function registerAdminCatalogRoutes(deps) {
         const productInput = productInputWithUploads(req);
 
         if (!existingProduct) {
+            cleanupProductUploads(req);
             return res.status(404).render("not-found", { title: "Produit introuvable" });
         }
 
@@ -109,6 +117,7 @@ function registerAdminCatalogRoutes(deps) {
             setFlash(req, "success", "Produit mis à jour.");
             return saveSessionAndRedirect(req, res, "/admin");
         } catch (error) {
+            cleanupProductUploads(req);
             return res.status(400).render("admin/product-form", {
                 ...getViewHelpers(),
                 title: `Modifier ${existingProduct.name}`,
@@ -145,33 +154,39 @@ function registerAdminCatalogRoutes(deps) {
     app.post("/admin/settings", requireAdmin, withSettingsUpload, (req, res) => {
         const currentSettings = getSettings(db);
         const nextSmtpPassword = String(req.body.smtp_password || "").trim();
-        saveSettings(db, {
-            store_name: String(req.body.store_name || "").trim(),
-            tagline: String(req.body.tagline || "").trim(),
-            hero_title: String(req.body.hero_title || "").trim(),
-            hero_text: String(req.body.hero_text || "").trim(),
-            hero_image_url: settingsUploadUrl(req.file) || String(req.body.hero_image_url || "").trim(),
-            hero_points: String(req.body.hero_points || "")
-                .split(/\r?\n/)
-                .map((point) => point.trim())
-                .filter(Boolean)
-                .join("\n"),
-            support_email: String(req.body.support_email || "").trim(),
-            support_address: String(req.body.support_address || "").trim(),
-            bank_account_holder: String(req.body.bank_account_holder || "").trim(),
-            bank_name: String(req.body.bank_name || "").trim(),
-            bank_account_number: String(req.body.bank_account_number || "").trim(),
-            bank_iban: String(req.body.bank_iban || "").trim(),
-            bank_bic: String(req.body.bank_bic || "").trim(),
-            smtp_host: String(req.body.smtp_host || "").trim(),
-            smtp_port: String(req.body.smtp_port || "").trim() || "587",
-            smtp_secure: req.body.smtp_secure ? "1" : "0",
-            smtp_username: String(req.body.smtp_username || "").trim(),
-            smtp_password: nextSmtpPassword || currentSettings.smtp_password || "",
-            smtp_from_name: String(req.body.smtp_from_name || "").trim(),
-            smtp_from_email: String(req.body.smtp_from_email || "").trim(),
-            order_notification_email: String(req.body.order_notification_email || "").trim(),
-        });
+        try {
+            saveSettings(db, {
+                store_name: String(req.body.store_name || "").trim(),
+                tagline: String(req.body.tagline || "").trim(),
+                hero_title: String(req.body.hero_title || "").trim(),
+                hero_text: String(req.body.hero_text || "").trim(),
+                hero_image_url: settingsUploadUrl(req.file) || String(req.body.hero_image_url || "").trim(),
+                hero_points: String(req.body.hero_points || "")
+                    .split(/\r?\n/)
+                    .map((point) => point.trim())
+                    .filter(Boolean)
+                    .join("\n"),
+                support_email: String(req.body.support_email || "").trim(),
+                support_address: String(req.body.support_address || "").trim(),
+                bank_account_holder: String(req.body.bank_account_holder || "").trim(),
+                bank_name: String(req.body.bank_name || "").trim(),
+                bank_account_number: String(req.body.bank_account_number || "").trim(),
+                bank_iban: String(req.body.bank_iban || "").trim(),
+                bank_bic: String(req.body.bank_bic || "").trim(),
+                smtp_host: String(req.body.smtp_host || "").trim(),
+                smtp_port: String(req.body.smtp_port || "").trim() || "587",
+                smtp_secure: req.body.smtp_secure ? "1" : "0",
+                smtp_username: String(req.body.smtp_username || "").trim(),
+                smtp_password: nextSmtpPassword || currentSettings.smtp_password || "",
+                smtp_from_name: String(req.body.smtp_from_name || "").trim(),
+                smtp_from_email: String(req.body.smtp_from_email || "").trim(),
+                order_notification_email: String(req.body.order_notification_email || "").trim(),
+            });
+        } catch (error) {
+            cleanupSettingsUpload(req);
+            setFlash(req, "error", `Enregistrement impossible : ${error.message}`);
+            return saveSessionAndRedirect(req, res, "/admin/settings");
+        }
 
         setFlash(req, "success", "Paramètres enregistrés.");
         saveSessionAndRedirect(req, res, "/admin/settings");

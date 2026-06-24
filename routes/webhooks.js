@@ -3,16 +3,16 @@ const express = require("express");
 function registerWebhookRoutes(deps) {
     const {
         app,
-        stripe,
-        env,
         db,
-        getOrderByProviderReference,
-        markOrderPaid,
-        updateOrderStatus,
-        verifySwissBitcoinPayWebhook,
-        normalizeText,
-        mapSwissBitcoinPayStatus,
+        providers,
+        repositories,
+        payments,
+        text,
     } = deps;
+    const { stripe, env } = providers;
+    const { getOrderByProviderReference, markOrderPaid, updateOrderStatus } = repositories;
+    const { verifySwissBitcoinPayWebhook, mapSwissBitcoinPayStatus } = payments;
+    const { normalizeText } = text;
 
     app.post("/webhooks/stripe", express.raw({ type: "application/json" }), (req, res) => {
         if (!stripe || !env.STRIPE_WEBHOOK_SECRET) {

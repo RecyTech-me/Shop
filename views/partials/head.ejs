@@ -24,7 +24,7 @@
     <link rel="icon" href="/static/images/recytech-logo.svg" type="image/svg+xml">
     <link rel="stylesheet" href="/static/styles/main.css">
     <% seo.structuredDataItems.forEach((item) => { %>
-        <script type="application/ld+json"><%- JSON.stringify(item).replace(/</g, "\\u003c") %></script>
+        <script nonce="<%= cspNonce %>" type="application/ld+json"><%- JSON.stringify(item).replace(/</g, "\\u003c") %></script>
     <% }) %>
 </head>
 <body>

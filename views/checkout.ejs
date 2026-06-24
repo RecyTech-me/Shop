@@ -319,7 +319,7 @@
 </main>
 
 <% if (paymentConfig.stripeEnabled) { %>
-    <script src="https://js.stripe.com/v3/"></script>
+    <script nonce="<%= cspNonce %>" src="https://js.stripe.com/v3/"></script>
 <% } %>
 
 <%- include("partials/footer") %>

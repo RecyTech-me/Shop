@@ -1,10 +1,33 @@
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 const test = require("node:test");
-const { app } = require("../app");
+const { createApp } = require("../app");
 
 function listen(t) {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "recytech-render-smoke-"));
+    const app = createApp({
+        rootDir: path.join(__dirname, ".."),
+        databasePath: path.join(tempDir, "shop.db"),
+        startBackgroundTasks: false,
+        env: {
+            ...process.env,
+            NODE_ENV: "test",
+            ADMIN_USERNAME: "admin",
+            ADMIN_PASSWORD: "test-admin-password",
+            SESSION_SECRET: "render-smoke-session-secret",
+            ORDER_VIEW_TOKEN_SECRET: "render-smoke-order-view-secret",
+        },
+    });
     const server = app.listen(0, "127.0.0.1");
-    t.after(() => new Promise((resolve) => server.close(resolve)));
+    t.after(() => new Promise((resolve) => {
+        server.close(() => {
+            app.locals.runtime?.stop();
+            fs.rmSync(tempDir, { recursive: true, force: true });
+            resolve();
+        });
+    }));
 
     return new Promise((resolve) => {
         server.once("listening", () => {
@@ -27,6 +50,10 @@ function assertHtmlPage(html, titlePrefix) {
     assert.match(html, /<link rel="stylesheet" href="\/static\/styles\/main\.css">/);
 }
 
+function escapeRegExp(value) {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 test("critical pages render with SEO metadata and static CSS assets", async (t) => {
     const baseUrl = await listen(t);
     const pages = [
@@ -39,9 +66,16 @@ test("critical pages render with SEO metadata and static CSS assets", async (t) 
 
     for (const page of pages) {
         const { response, text } = await fetchText(baseUrl, page.path);
+        const csp = response.headers.get("content-security-policy") || "";
 
         assert.equal(response.status, page.status, `${page.path} should return ${page.status}`);
+        assert.match(csp, /default-src 'self'/);
+        assert.match(csp, /script-src 'self' 'nonce-[^']+' https:\/\/js\.stripe\.com/);
+        assert.doesNotMatch(csp, /unsafe-inline/);
+        const nonce = csp.match(/'nonce-([^']+)'/)?.[1];
+        assert.ok(nonce, "Expected CSP to include a script nonce");
         assertHtmlPage(text, page.title);
+        assert.match(text, new RegExp(`<script nonce="${escapeRegExp(nonce)}"`));
         assert.match(text, new RegExp(`<link rel="canonical" href="${baseUrl}${page.path === "/" ? "/" : page.path}">`));
     }
 

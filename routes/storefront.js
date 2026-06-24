@@ -4,30 +4,42 @@ function registerStorefrontRoutes(deps) {
     const {
         app,
         db,
-        render,
-        setFlash,
-        saveSessionAndRedirect,
-        getSafeRedirectTarget,
-        normalizeText,
-        parseMoneyToCents,
-        readSiteReviewInput,
-        readSelectedProductOptions,
+        http,
+        text,
+        money,
+        forms,
+        publicProducts,
+        cart,
+        products,
+        reviews,
+    } = deps;
+    const { render, setFlash, saveSessionAndRedirect, getSafeRedirectTarget } = http;
+    const { normalizeText } = text;
+    const { parseMoneyToCents } = money;
+    const { readSiteReviewInput, readSelectedProductOptions } = forms;
+    const {
         ensureAvailableProductQuantity,
         upsertCartItem,
         getCartItems,
         makeCartItemKey,
         removeCartItem,
+    } = cart;
+    const {
         productMetaDescription,
         productStructuredData,
         organizationStructuredData,
+    } = publicProducts;
+    const {
         listPublishedProducts,
         listProductCategories,
+        getProductBySlug,
+        getProductById,
+    } = products;
+    const {
         listApprovedSiteReviews,
         getSiteReviewSummary,
         createSiteReview,
-        getProductBySlug,
-        getProductById,
-    } = deps;
+    } = reviews;
 
     function readCatalogueFilters(values) {
         const priceMin = normalizeText(values.price_min);

@@ -2,35 +2,46 @@ function registerCheckoutRoutes(deps) {
     const {
         app,
         db,
-        stripe,
-        SHIPPING_OPTIONS,
-        render,
-        setFlash,
-        saveSessionAndRedirect,
-        buildCart,
-        requirePromoCodeOutcome,
+        providers,
+        formatters,
+        http,
+        cart,
+        checkout,
+        forms,
+        payments,
+        orders,
+        mail,
+    } = deps;
+    const { stripe } = providers;
+    const { SHIPPING_OPTIONS } = formatters;
+    const { render, setFlash, saveSessionAndRedirect } = http;
+    const { setCartItems } = cart;
+    const {
         getCheckoutPricing,
-        createOrder,
         getCheckoutForm,
         getPromoCodeOutcome,
-        paymentState,
         setCheckoutForm,
-        validateCheckout,
-        createSwissBitcoinPayInvoice,
-        updateOrderProviderReference,
         clearCheckoutForm,
-        setCartItems,
+        clearStripeDraft,
+        createCheckoutOrder,
+    } = checkout;
+    const { validateCheckout } = forms;
+    const {
+        paymentState,
+        createSwissBitcoinPayInvoice,
         createOrderViewToken,
-        sendNewOrderNotification,
         fetchSwissBitcoinPayInvoice,
         mapSwissBitcoinPayStatus,
+        verifyOrderViewToken,
+    } = payments;
+    const {
+        updateOrderProviderReference,
         getOrderByProviderReference,
         markOrderPaid,
         updateOrderStatus,
         getOrderByNumber,
-        verifyOrderViewToken,
-        clearStripeDraft,
-    } = deps;
+    } = orders;
+    const { notifyNewOrder } = mail;
 
     app.get("/checkout", (req, res) => {
         if (!res.locals.cart.items.length) {
@@ -54,66 +65,6 @@ function registerCheckoutRoutes(deps) {
         });
     });
 
-    function createOrderFromSessionCart(req, provider, customer, checkoutDetails) {
-        const cart = buildCart(req);
-        if (!cart.items.length) {
-            throw new Error("Le panier est vide.");
-        }
-
-        const promoCodeOutcome = requirePromoCodeOutcome(checkoutDetails.form.promo_code, cart.subtotalCents);
-        const pricing = getCheckoutPricing(
-            cart.subtotalCents,
-            checkoutDetails.shippingOption,
-            checkoutDetails.form.payment_method,
-            promoCodeOutcome
-        );
-        const shippingLine = checkoutDetails.shippingOption.priceCents > 0
-            ? [{
-                type: "shipping",
-                label: checkoutDetails.shippingOption.label,
-                amount_cents: checkoutDetails.shippingOption.priceCents,
-            }]
-            : [];
-
-        return createOrder(db, {
-            provider,
-            customer_name: customer.name,
-            customer_email: customer.email,
-            amount_cents: pricing.totalCents,
-            currency: "CHF",
-            items: cart.items,
-            status: provider === "transfer" ? "awaiting_transfer" : "pending",
-            metadata: {
-                checkout: checkoutDetails.form,
-                delivery: {
-                    method: checkoutDetails.shippingOption.key,
-                    label: checkoutDetails.shippingOption.label,
-                    amount_cents: checkoutDetails.shippingOption.priceCents,
-                },
-                additions: [...shippingLine, ...pricing.discountLines],
-                promo: promoCodeOutcome.promoCode
-                    ? {
-                        id: promoCodeOutcome.promoCode.id,
-                        code: promoCodeOutcome.promoCode.code,
-                        description: promoCodeOutcome.promoCode.description,
-                        discount_type: promoCodeOutcome.promoCode.discount_type,
-                        discount_value: promoCodeOutcome.promoCode.discount_value,
-                        discount_cents: promoCodeOutcome.discountCents,
-                        label: promoCodeOutcome.label,
-                    }
-                    : null,
-            },
-        });
-    }
-
-    async function notifyNewOrder(order) {
-        try {
-            await sendNewOrderNotification(order);
-        } catch (error) {
-            console.error(`Order notification email failed for ${order.order_number}: ${error.message}`);
-        }
-    }
-
     app.post("/checkout", async (req, res) => {
         try {
             const checkoutDetails = validateCheckout(req);
@@ -135,7 +86,12 @@ function registerCheckoutRoutes(deps) {
                     return saveSessionAndRedirect(req, res, "/checkout");
                 }
 
-                const order = createOrderFromSessionCart(req, "swissbitcoinpay", checkoutDetails.customer, checkoutDetails);
+                const { order } = createCheckoutOrder({
+                    req,
+                    provider: "swissbitcoinpay",
+                    customer: checkoutDetails.customer,
+                    checkoutDetails,
+                });
                 await notifyNewOrder(order);
                 const invoice = await createSwissBitcoinPayInvoice(order, req);
 
@@ -149,14 +105,24 @@ function registerCheckoutRoutes(deps) {
             }
 
             if (checkoutDetails.form.payment_method === "cash") {
-                const cashOrder = createOrderFromSessionCart(req, "cash", checkoutDetails.customer, checkoutDetails);
+                const { order: cashOrder } = createCheckoutOrder({
+                    req,
+                    provider: "cash",
+                    customer: checkoutDetails.customer,
+                    checkoutDetails,
+                });
                 await notifyNewOrder(cashOrder);
                 clearCheckoutForm(req);
                 setCartItems(req, []);
                 return saveSessionAndRedirect(req, res, `/checkout/success?provider=cash&order=${encodeURIComponent(cashOrder.order_number)}&view=${encodeURIComponent(createOrderViewToken(cashOrder))}`);
             }
 
-            const transferOrder = createOrderFromSessionCart(req, "transfer", checkoutDetails.customer, checkoutDetails);
+            const { order: transferOrder } = createCheckoutOrder({
+                req,
+                provider: "transfer",
+                customer: checkoutDetails.customer,
+                checkoutDetails,
+            });
             await notifyNewOrder(transferOrder);
             clearCheckoutForm(req);
             setCartItems(req, []);

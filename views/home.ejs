@@ -5,7 +5,8 @@
 <section class="hero">
     <div class="shell hero-grid">
         <% const heroImageUrl = settings.hero_image_url || "/static/images/illustrations/hero-workshop.jpg"; %>
-        <div class="hero-copy" style="--hero-image: url(<%= JSON.stringify(heroImageUrl) %>);">
+        <div class="hero-copy">
+            <img class="hero-copy-image" src="<%= heroImageUrl %>" alt="" loading="eager" referrerpolicy="no-referrer">
             <h1><%= settings.hero_title %></h1>
             <p class="hero-text"><%= settings.hero_text %></p>
             <div class="hero-actions">
@@ -111,7 +112,7 @@
                     <article class="product-card catalogue-card">
                         <a href="/products/<%= product.slug %>" class="product-thumb catalogue-thumb" aria-label="<%= product.name %>">
                             <% if (product.image_url) { %>
-                                <img src="<%= product.image_url %>" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.hidden=true;this.nextElementSibling.hidden=false;this.parentElement.classList.add('catalogue-thumb-empty');">
+                                <img src="<%= product.image_url %>" alt="" loading="lazy" referrerpolicy="no-referrer" data-image-fallback data-fallback-class="catalogue-thumb-empty">
                                 <span class="catalogue-thumb-fallback" hidden><%= product.name %></span>
                             <% } else { %>
                                 <span class="catalogue-thumb-fallback"><%= product.name %></span>
