@@ -2,38 +2,38 @@
 
 Date: 2026-06-28
 
-Audit target: current working tree, including the uncommitted cleanup changes present during this pass.
+Audit target: clean working tree at the latest local audit-alignment commit.
 
 ## Executive Summary
 
-The codebase is in strong shape for a small custom Express/EJS commerce app. Since the earlier audits, the main readiness items have been handled: payment inventory is reserved/released for hosted checkout flows, stale external-payment reservations are reconciled by a provider-aware cleanup task, production payment configuration fails fast and rejects placeholder secrets, request host/proxy behavior is configurable, Stripe prepare is bound to the session draft and only reserves stock after local Stripe Elements validation succeeds, product parsing and checkout state are split into focused modules, product categories are normalized into a query table while legacy JSON columns remain compatible, pack availability filters use hydrated component stock and refill pages after post-hydration filtering, order inventory lifecycle is isolated from paid-finalization, promo finalization honors the accepted order snapshot, order document rendering is split by layout/content/orchestration, uploads create web-optimized derivatives, admin orders are paginated, bundled assets use versioned immutable URLs, request IDs are emitted, structured logging is configurable, `/healthz` plus `npm run health:check` covers readiness checks with optional alert webhook delivery, SQLite backups have a tested helper, the deploy workflow takes a backup before restart/migration, and operational scripts are import-safe.
+The codebase is in strong shape for a small custom Express/EJS commerce app. Since the earlier audits, the main readiness items have been handled: payment inventory is reserved/released for hosted checkout flows, stale external-payment reservations are reconciled by a provider-aware cleanup task, production payment configuration fails fast and rejects placeholder secrets, request host/proxy behavior is configurable, Stripe prepare is bound to the session draft and only reserves stock after local Stripe Elements validation succeeds, product parsing and checkout state are split into focused modules, product categories are normalized into a query table while legacy JSON columns remain compatible, pack availability filters use hydrated component stock and refill pages after post-hydration filtering, order inventory lifecycle is isolated from paid-finalization, promo finalization honors the accepted order snapshot, order document rendering is split by layout/content/orchestration, uploads create web-optimized derivatives, admin orders are paginated and partly extracted into pure route helpers, bundled assets use versioned immutable URLs, request IDs are emitted, structured logging is configurable, `/healthz` plus `npm run health:check` covers readiness checks with optional alert webhook delivery, SQLite backups have tested backup and verification helpers, the deploy workflow takes a backup before restart/migration, CI runs verification/coverage/audit/secret scanning, graceful shutdown closes runtime resources, and operational scripts are import-safe.
 
-This is no longer a fragile prototype. It is a maintainable small-shop codebase with strong tests, solid security defaults, current dependencies, and a clear architecture. The remaining caveat is release process, not a known code blocker: the working tree is still intentionally large and should be reviewed, staged, and committed as a coherent change set before deployment.
+This is no longer a fragile prototype. It is a maintainable small-shop codebase with strong tests, solid security defaults, current dependencies, and a clear architecture. The remaining caveat is release process, not a known code blocker: changes should continue to move through normal commit/PR review before deployment.
 
-Overall cleanliness/readiness rating: **8.9 / 10**
+Overall cleanliness/readiness rating: **9.2 / 10**
 
-Practical ceiling before commit/PR review and production monitoring wiring: **9.0 / 10**.
+Practical ceiling before production monitoring wiring and branch protection configuration: **9.3 / 10**.
 
 ## Ratings
 
 | Area | Rating | Notes |
 | --- | ---: | --- |
-| Readability | 8.8 / 10 | Entry points, app context, routes, checkout state, product parsing, order inventory lifecycle, cleanup service, and document rendering are easier to scan; some route modules remain large. |
-| Maintainability | 8.8 / 10 | Infrastructure/domain/route contexts, services, repositories, inventory lifecycle, checkout helpers, document helpers, and tests are well separated; context bags can still be slimmed over time. |
-| Optimization | 8.5 / 10 | Lazy cart locals, lighter admin rows, normalized category queries, indexed price ranges, SQL filters, upload derivatives, pagination, compression, cached asset versions, and pack page refill help. JSON-backed configuration data remains the main scaling compromise. |
-| Security readiness | 8.8 / 10 | CSP, CSRF, secure sessions, upload validation, payment secret checks, host validation, request IDs, clean audit, and production placeholder rejection are present. |
-| Test/CI readiness | 8.9 / 10 | `verify` covers syntax, lint, the full Node suite, Playwright browser behavior, schema migration, webhooks, payment/provider regressions, uploads, cache headers, backup scripts, health helpers, and audit; coverage thresholds pass. |
-| Frontend cleanliness | 8.8 / 10 | Checkout JS is split into state/Stripe/orchestration helpers and browser-tested. Page and responsive CSS use ownership-based import entrypoints. |
-| Deployment/operations | 8.8 / 10 | Deploy validates before upload, coverage thresholds run in CI, pre-restart SQLite backup exists, post-restart health checks can send alert webhooks, request IDs and configurable JSON logging are present. External monitoring still must be wired in production. |
+| Readability | 9.0 / 10 | Entry points, app context, routes, checkout state, product parsing, order inventory lifecycle, cleanup service, and document rendering are easier to scan; some route modules remain large. |
+| Maintainability | 9.0 / 10 | Infrastructure/domain/route contexts, services, repositories, inventory lifecycle, checkout helpers, admin order route helpers, document helpers, and tests are well separated; context bags can still be slimmed over time. |
+| Optimization | 8.7 / 10 | Lazy cart locals, lighter admin rows, normalized category queries, indexed price ranges, SQL filters, upload derivatives, pagination, compression, cached asset versions, and pack page refill help. JSON-backed configuration data remains the main scaling compromise. |
+| Security readiness | 9.2 / 10 | CSP, CSRF, secure sessions, upload validation, payment secret checks, host validation, request IDs, review IP/session throttling, clean audit, secret scan CI, and production placeholder rejection are present. |
+| Test/CI readiness | 9.2 / 10 | `verify` covers syntax, lint, the full Node suite, Playwright browser behavior, schema migration, webhooks, payment/provider regressions, checkout/admin route branches, security regressions, backup verification, health helpers, and audit; coverage thresholds pass. |
+| Frontend cleanliness | 8.9 / 10 | Checkout JS is split into state/Stripe/orchestration helpers and browser-tested. Page and responsive CSS use ownership-based import entrypoints. |
+| Deployment/operations | 9.1 / 10 | Deploy validates before upload, coverage thresholds run in CI, pre-restart SQLite backup exists, backup verification is documented/tested, graceful shutdown is present, post-restart health checks can send alert webhooks, request IDs and configurable JSON logging are present. External monitoring still must be wired in production. |
 
 ## Validation Results
 
 Commands run during the latest cleanup pass:
 
-- `npm run check`: passed, checking 80 Node files, 15 browser modules, and 26 EJS templates.
+- `npm run check`: passed, checking 83 Node files, 15 browser modules, and 26 EJS templates.
 - `npm run lint`: passed.
-- `npm test`: passed, 82/82 tests.
-- `npm run coverage:check`: passed at 79.22% line, 62.64% branch, 82.45% functions.
+- `npm test`: passed, 112/112 tests.
+- `npm run coverage:check`: passed at 81.22% line, 63.95% branch, 83.31% functions.
 - `npm run verify`: passed.
 - `npm audit --audit-level=moderate`: passed with 0 vulnerabilities.
 - `npm audit --omit=dev --audit-level=high`: passed with 0 vulnerabilities.
@@ -157,6 +157,11 @@ The quality gate is genuinely useful:
 - Schema migration tests.
 - Product repository performance-shape tests.
 - Payment webhook, provider adapter, Stripe intent, mail-service, and stale reservation cleanup tests.
+- Checkout route branch tests for empty carts, card fallback, Bitcoin provider failure, invoice failure, Stripe success/uncertain states, and transfer/cash token validation.
+- Admin order route tests for listing, 404s, invalid updates, email failure branches, and deletion.
+- Storefront review throttling tests for session and IP limiter behavior.
+- Security regression tests for CSRF, webhook verification, host validation, and CSP.
+- Graceful shutdown and backup verification tests.
 - PDF byte and text-extraction document tests.
 - Backup/coverage script tests.
 - High-severity dependency audit.
@@ -183,6 +188,8 @@ The security baseline is strong for a small commerce app:
 - Image MIME and file-signature validation.
 - Production secret requirements with placeholder and short-secret rejection.
 - Production admin bootstrap requires an explicit password.
+- IP-based review submission throttling with session throttling as a secondary guard.
+- CI secret scanning with Gitleaks.
 
 References:
 
@@ -191,6 +198,7 @@ References:
 - `lib/production-secrets.js`
 - `lib/config.js`
 - `lib/db/schema.js`
+- `.github/workflows/ci.yml`
 
 ### Migration Discipline
 
@@ -204,7 +212,7 @@ References:
 
 ### Dependency Freshness
 
-Direct dependencies are current according to `npm outdated --depth=0`. The moderate and production high-severity npm audits are clean.
+Direct dependencies are current according to `npm outdated --depth=0`. The moderate and production high-severity npm audits are clean. CI includes a Gitleaks secret scan.
 
 References:
 
@@ -340,13 +348,20 @@ Repo-side polish from the previous pass has been closed:
 - Static asset version lookups are cached with a short TTL.
 - Stripe intent, Swiss Bitcoin Pay, and mail-service failure paths have targeted unit coverage.
 - `eslint` is patch-current.
+- Checkout/admin/review route branch coverage was added.
+- Security regressions are locked for CSRF, webhooks, Host validation, and CSP.
+- Review throttling now uses the shared IP limiter plus session throttling.
+- Backup verification is scripted, tested, and documented.
+- Graceful shutdown closes the HTTP server and runtime resources.
+- CI now runs verify, coverage, moderate audit, and Gitleaks.
+- Architecture, operations, and release checklist docs were added.
 
 ## External And Conditional Follow-Up
 
-1. Review, stage, and commit the large working-tree change set before treating it as a release candidate.
+1. Configure branch protection in the repository settings so CI checks are required.
 2. Connect JSON logs and `ALERT_WEBHOOK_URL` to the chosen external monitoring provider.
 3. Normalize configuration storage only when catalogue size justifies it.
 
 ## Current Verdict
 
-The codebase is now in solid production shape from a code and test standpoint. It should still go through normal release hygiene: review the large diff, ensure every new file is intentionally tracked, and deploy from a clean commit or PR. After that review boundary, the remaining work is operational rather than repository-readiness: production log collection, alert routing, and periodic backup-restore rehearsal.
+The codebase is now in solid production shape from a code and test standpoint. Known repository-readiness gaps from the audit are closed. Deployment should still follow normal release hygiene from a clean reviewed commit or PR, with branch protection and production monitoring configured outside the repository.

@@ -85,7 +85,7 @@ function createCleanupService(db, overrides = {}) {
         swissBitcoinPay: overrides.swissBitcoinPay || null,
         mapSwissBitcoinPayStatus,
         ttlMs: 60 * 60 * 1000,
-        limit: 25,
+        limit: overrides.limit || 25,
         now: () => NOW_MS,
     });
 }
@@ -206,4 +206,137 @@ test("stale Swiss Bitcoin Pay expired invoices release reserved stock", async (t
     assert.equal(cleanedOrder.metadata.invoiceStatus, "expired");
     assert.ok(cleanedOrder.metadata.inventory_released_at);
     assert.equal(database.getProductById(db, product.id).inventory, 1);
+});
+
+test("Stripe retrieve failures increment failed and keep reserved stock", async (t) => {
+    const db = createTestDb(t);
+    const { order, product } = createReservedOrder(db, {
+        providerReference: "pi_retrieve_down",
+    });
+    const service = createCleanupService(db, {
+        stripe: {
+            paymentIntents: {
+                retrieve: async () => {
+                    throw new Error("stripe outage");
+                },
+            },
+        },
+    });
+
+    const summary = await service.cleanupStaleReservations();
+    const keptOrder = database.getOrderById(db, order.id);
+
+    assert.equal(summary.failed, 1);
+    assert.equal(keptOrder.status, "pending");
+    assert.equal(keptOrder.metadata.inventory_released_at, undefined);
+    assert.equal(database.getProductById(db, product.id).inventory, 0);
+});
+
+test("Stripe cancel failures increment failed and keep reservation", async (t) => {
+    const db = createTestDb(t);
+    const { order, product } = createReservedOrder(db, {
+        providerReference: "pi_cancel_down",
+    });
+    const service = createCleanupService(db, {
+        stripe: {
+            paymentIntents: {
+                retrieve: async (id) => ({ id, status: "requires_payment_method" }),
+                cancel: async () => {
+                    throw new Error("cancel unavailable");
+                },
+            },
+        },
+    });
+
+    const summary = await service.cleanupStaleReservations();
+    const keptOrder = database.getOrderById(db, order.id);
+
+    assert.equal(summary.failed, 1);
+    assert.equal(keptOrder.status, "pending");
+    assert.equal(keptOrder.metadata.inventory_released_at, undefined);
+    assert.equal(database.getProductById(db, product.id).inventory, 0);
+});
+
+test("Swiss Bitcoin Pay fetch failures increment failed and keep reservation", async (t) => {
+    const db = createTestDb(t);
+    const { order, product } = createReservedOrder(db, {
+        provider: "swissbitcoinpay",
+        providerReference: "invoice-fetch-down",
+    });
+    const service = createCleanupService(db, {
+        swissBitcoinPay: {
+            fetchInvoice: async () => {
+                throw new Error("invoice fetch unavailable");
+            },
+        },
+    });
+
+    const summary = await service.cleanupStaleReservations();
+    const keptOrder = database.getOrderById(db, order.id);
+
+    assert.equal(summary.failed, 1);
+    assert.equal(keptOrder.status, "pending");
+    assert.equal(keptOrder.metadata.inventory_released_at, undefined);
+    assert.equal(database.getProductById(db, product.id).inventory, 0);
+});
+
+test("stale reservation cleanup respects the configured processing limit", async (t) => {
+    const db = createTestDb(t);
+    createReservedOrder(db, { providerReference: "pi_limit_1", productName: "Limit cleanup 1" });
+    createReservedOrder(db, { providerReference: "pi_limit_2", productName: "Limit cleanup 2" });
+    createReservedOrder(db, { providerReference: "pi_limit_3", productName: "Limit cleanup 3" });
+    const retrieved = [];
+    const service = createCleanupService(db, {
+        limit: 2,
+        stripe: {
+            paymentIntents: {
+                retrieve: async (id) => {
+                    retrieved.push(id);
+                    return { id, status: "canceled" };
+                },
+            },
+        },
+    });
+
+    const summary = await service.cleanupStaleReservations();
+
+    assert.equal(summary.checked, 2);
+    assert.equal(summary.released, 2);
+    assert.equal(retrieved.length, 2);
+});
+
+test("stale reservation cleanup logs complete summary counters", async (t) => {
+    const originalInfo = logger.info;
+    const logged = [];
+    logger.info = (...args) => logged.push(args);
+    t.after(() => {
+        logger.info = originalInfo;
+    });
+
+    const db = createTestDb(t);
+    createReservedOrder(db, {
+        providerReference: "pi_logged_cleanup",
+    });
+    const service = createCleanupService(db, {
+        stripe: {
+            paymentIntents: {
+                retrieve: async (id) => ({ id, status: "canceled" }),
+            },
+        },
+    });
+
+    await service.cleanupStaleReservations();
+
+    const summaryLog = logged.find((entry) => entry[0] === "payments.reservation_cleanup");
+    assert.ok(summaryLog, "Expected cleanup summary log");
+    assert.deepEqual(Object.keys(summaryLog[1]).sort(), [
+        "checked",
+        "failed",
+        "kept",
+        "paid",
+        "released",
+        "skipped",
+    ]);
+    assert.equal(summaryLog[1].checked, 1);
+    assert.equal(summaryLog[1].released, 1);
 });

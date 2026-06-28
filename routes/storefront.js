@@ -7,6 +7,7 @@ function registerStorefrontRoutes(deps) {
         app,
         db,
         http,
+        rateLimiters = {},
         text,
         money,
         forms,
@@ -16,6 +17,10 @@ function registerStorefrontRoutes(deps) {
         reviews,
     } = deps;
     const { render, setFlash, saveSessionAndRedirect, getSafeRedirectTarget } = http;
+    const {
+        getReviewSubmissionRateLimitState = () => ({ blockedUntil: 0 }),
+        registerReviewSubmissionAttempt = () => {},
+    } = rateLimiters;
     const { normalizeText } = text;
     const { parseMoneyToCents } = money;
     const { readSiteReviewInput, readSelectedProductOptions } = forms;
@@ -126,6 +131,12 @@ function registerStorefrontRoutes(deps) {
     });
 
     app.post("/reviews", (req, res) => {
+        const rateLimitState = getReviewSubmissionRateLimitState(req);
+        if (rateLimitState.blockedUntil > Date.now()) {
+            setFlash(req, "error", "Veuillez patienter avant d'envoyer un nouvel avis.");
+            return saveSessionAndRedirect(req, res, "/#reviews");
+        }
+
         const lastSubmissionAt = Number.parseInt(req.session.lastReviewSubmissionAt || "0", 10) || 0;
         if (lastSubmissionAt && Date.now() - lastSubmissionAt < REVIEW_SUBMISSION_WINDOW_MS) {
             setFlash(req, "error", "Veuillez patienter avant d'envoyer un nouvel avis.");
@@ -136,6 +147,7 @@ function registerStorefrontRoutes(deps) {
             const input = readSiteReviewInput(req.body);
             createSiteReview(db, input);
             req.session.lastReviewSubmissionAt = Date.now();
+            registerReviewSubmissionAttempt(req);
             setFlash(req, "success", "Merci ! Nous vérifions les avis avant publication pour éviter le spam.");
         } catch (error) {
             setFlash(req, "error", error.message);

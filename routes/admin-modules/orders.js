@@ -2,6 +2,11 @@ const { buildOrderDocumentPdf, buildOrderDocumentFilename } = require("../../lib
 const { createManualOrderService } = require("../../lib/manual-order-service");
 const { createOrderUpdateService } = require("../../lib/order-update-service");
 const {
+    applyOrderDocumentResponseHeaders,
+    buildOrderListViewModel,
+    readOrderEmailRequest,
+} = require("../../lib/admin-order-route-helpers");
+const {
     ORDER_STATUS_OPTIONS,
     getOrderStatusLabel,
     getOrderProviderLabel,
@@ -117,51 +122,19 @@ function registerAdminOrderRoutes(deps) {
         });
         const filename = buildOrderDocumentFilename(order, type);
 
-        res.set({
-            "Content-Type": "application/pdf",
-            "Content-Disposition": `inline; filename="${filename}"`,
-            "Cache-Control": "private, no-store",
-            "Content-Length": String(pdf.length),
-        });
+        applyOrderDocumentResponseHeaders(res, pdf, filename);
 
         return res.send(pdf);
     }
 
     app.get("/admin/orders", requireAdmin, (req, res) => {
-        const status = normalizeText(req.query.status);
-        const query = normalizeText(req.query.q);
-        const limit = 50;
-        const requestedPage = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
-        const totalOrders = countOrders(db, {
-            status: status || null,
-            query: query || null,
-        });
-        const totalPages = Math.max(1, Math.ceil(totalOrders / limit));
-        const page = Math.min(requestedPage, totalPages);
-
-        render(res, "admin/orders", {
-            title: "Commandes",
-            orders: listOrders(db, {
-                status: status || null,
-                query: query || null,
-                limit,
-                offset: (page - 1) * limit,
-            }),
-            filters: {
-                status,
-                query,
-            },
-            pagination: {
-                page,
-                totalPages,
-                totalOrders,
-                hasPrevious: page > 1,
-                hasNext: page < totalPages,
-                previousPage: Math.max(1, page - 1),
-                nextPage: Math.min(totalPages, page + 1),
-            },
-            orderStatusOptions: ORDER_STATUS_OPTIONS,
-        });
+        render(res, "admin/orders", buildOrderListViewModel({
+            db,
+            queryParams: req.query,
+            normalizeText,
+            listOrders,
+            countOrders,
+        }));
     });
 
     app.get("/admin/orders/new", requireAdmin, (req, res) => {
@@ -240,30 +213,25 @@ function registerAdminOrderRoutes(deps) {
             return res.status(404).render("not-found", { title: "Commande introuvable" });
         }
 
-        if (!order.customer_email) {
-            setFlash(req, "error", "Aucun e-mail client n'est renseigné pour cette commande.");
-            return saveSessionAndRedirect(req, res, `/admin/orders/${order.id}`);
-        }
-
-        const subject = normalizeSingleLineText(req.body.subject);
-        const message = normalizeText(req.body.message);
-        if (!subject || !message) {
-            setFlash(req, "error", "Le sujet et le message sont obligatoires.");
-            return saveSessionAndRedirect(req, res, `/admin/orders/${order.id}`);
-        }
-
         const settings = getSettings(db);
-        const configError = getMailConfigError(settings);
-        if (configError) {
-            setFlash(req, "error", `Envoi impossible : ${configError}`);
+        const emailRequest = readOrderEmailRequest({
+            values: req.body,
+            order,
+            settings,
+            normalizeText,
+            normalizeSingleLineText,
+            getMailConfigError,
+        });
+        if (emailRequest.error) {
+            setFlash(req, "error", emailRequest.error);
             return saveSessionAndRedirect(req, res, `/admin/orders/${order.id}`);
         }
 
         try {
             await sendStoreEmail(settings, {
                 to: order.customer_email,
-                subject,
-                text: message,
+                subject: emailRequest.subject,
+                text: emailRequest.message,
             });
             setFlash(req, "success", "E-mail envoyé au client.");
         } catch (error) {
