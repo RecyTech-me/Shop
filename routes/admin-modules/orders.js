@@ -54,6 +54,7 @@ function registerAdminOrderRoutes(deps) {
         updateOrderRecord,
         markOrderPaid,
         listOrders,
+        countOrders,
         deleteOrder,
     } = orders;
     const {
@@ -129,16 +130,35 @@ function registerAdminOrderRoutes(deps) {
     app.get("/admin/orders", requireAdmin, (req, res) => {
         const status = normalizeText(req.query.status);
         const query = normalizeText(req.query.q);
+        const limit = 50;
+        const requestedPage = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+        const totalOrders = countOrders(db, {
+            status: status || null,
+            query: query || null,
+        });
+        const totalPages = Math.max(1, Math.ceil(totalOrders / limit));
+        const page = Math.min(requestedPage, totalPages);
 
         render(res, "admin/orders", {
             title: "Commandes",
             orders: listOrders(db, {
                 status: status || null,
                 query: query || null,
+                limit,
+                offset: (page - 1) * limit,
             }),
             filters: {
                 status,
                 query,
+            },
+            pagination: {
+                page,
+                totalPages,
+                totalOrders,
+                hasPrevious: page > 1,
+                hasNext: page < totalPages,
+                previousPage: Math.max(1, page - 1),
+                nextPage: Math.min(totalPages, page + 1),
             },
             orderStatusOptions: ORDER_STATUS_OPTIONS,
         });

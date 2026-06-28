@@ -1,337 +1,352 @@
 # RecyTech Shop Code Quality Audit
 
-Date: 2026-06-22
+Date: 2026-06-28
+
+Audit target: current working tree, including the uncommitted cleanup changes present during this pass.
 
 ## Executive Summary
 
-The project is a solid, compact Express/EJS shop with good baseline security habits and clear domain intent. It is already more careful than a quick prototype: SQL is parameterized, sessions are stored in SQLite, CSRF protection exists, user-facing template output is mostly escaped, uploaded images are validated by file signature, and the existing syntax check passes.
+The codebase is in strong shape for a small custom Express/EJS commerce app. Since the earlier audits, the main readiness items have been handled: payment inventory is reserved/released for hosted checkout flows, stale external-payment reservations are reconciled by a provider-aware cleanup task, production payment configuration fails fast and rejects placeholder secrets, request host/proxy behavior is configurable, Stripe prepare is bound to the session draft and only reserves stock after local Stripe Elements validation succeeds, product parsing and checkout state are split into focused modules, product categories are normalized into a query table while legacy JSON columns remain compatible, pack availability filters use hydrated component stock and refill pages after post-hydration filtering, order inventory lifecycle is isolated from paid-finalization, promo finalization honors the accepted order snapshot, order document rendering is split by layout/content/orchestration, uploads create web-optimized derivatives, admin orders are paginated, bundled assets use versioned immutable URLs, request IDs are emitted, structured logging is configurable, `/healthz` plus `npm run health:check` covers readiness checks with optional alert webhook delivery, SQLite backups have a tested helper, the deploy workflow takes a backup before restart/migration, and operational scripts are import-safe.
 
-The main cleanup opportunity is architectural rather than cosmetic. The app has grown from a prototype into a small production system, but much of the application composition, validation glue, payment setup, route dependency wiring, and helper logic still flows through `server.js`. The code can become much cleaner by separating infrastructure, repositories, domain services, and route handlers, then adding automated tests and dependency/security gates.
+This is no longer a fragile prototype. It is a maintainable small-shop codebase with strong tests, solid security defaults, current dependencies, and a clear architecture. The remaining caveat is release process, not a known code blocker: the working tree is still intentionally large and should be reviewed, staged, and committed as a coherent change set before deployment.
 
-Overall cleanliness/readiness rating: 7.0 / 10
+Overall cleanliness/readiness rating: **8.9 / 10**
+
+Practical ceiling before commit/PR review and production monitoring wiring: **9.0 / 10**.
 
 ## Ratings
 
 | Area | Rating | Notes |
 | --- | ---: | --- |
-| Readability | 7.0 / 10 | Naming is mostly clear and code is understandable, but several files are too broad. |
-| Maintainability | 6.4 / 10 | Large dependency objects and mixed responsibilities make future changes harder than necessary. |
-| Optimization | 6.8 / 10 | Fine for a small catalog, but product/order queries hydrate and filter too much in memory. |
-| Security readiness | 6.5 / 10 | Good app-level basics, weakened by vulnerable installed dependencies and soft secret defaults. |
-| Test/CI readiness | 4.5 / 10 | Syntax checks exist, but no automated unit/integration/security gate runs before deploy. |
-| Frontend cleanliness | 7.2 / 10 | Scripts are modular and progressive, with some duplicated parsing logic. |
-| Deployment/operations | 6.2 / 10 | Deploy workflow is simple, but it deploys without running checks first. |
+| Readability | 8.8 / 10 | Entry points, app context, routes, checkout state, product parsing, order inventory lifecycle, cleanup service, and document rendering are easier to scan; some route modules remain large. |
+| Maintainability | 8.8 / 10 | Infrastructure/domain/route contexts, services, repositories, inventory lifecycle, checkout helpers, document helpers, and tests are well separated; context bags can still be slimmed over time. |
+| Optimization | 8.5 / 10 | Lazy cart locals, lighter admin rows, normalized category queries, indexed price ranges, SQL filters, upload derivatives, pagination, compression, cached asset versions, and pack page refill help. JSON-backed configuration data remains the main scaling compromise. |
+| Security readiness | 8.8 / 10 | CSP, CSRF, secure sessions, upload validation, payment secret checks, host validation, request IDs, clean audit, and production placeholder rejection are present. |
+| Test/CI readiness | 8.9 / 10 | `verify` covers syntax, lint, the full Node suite, Playwright browser behavior, schema migration, webhooks, payment/provider regressions, uploads, cache headers, backup scripts, health helpers, and audit; coverage thresholds pass. |
+| Frontend cleanliness | 8.8 / 10 | Checkout JS is split into state/Stripe/orchestration helpers and browser-tested. Page and responsive CSS use ownership-based import entrypoints. |
+| Deployment/operations | 8.8 / 10 | Deploy validates before upload, coverage thresholds run in CI, pre-restart SQLite backup exists, post-restart health checks can send alert webhooks, request IDs and configurable JSON logging are present. External monitoring still must be wired in production. |
 
-## What Is Working Well
+## Validation Results
 
-- `npm run check` passes: 20 Node files, 10 browser modules, and 26 EJS templates compile cleanly.
-- `server.js` disables `x-powered-by`, sets core security headers, uses session cookies with `httpOnly`, `sameSite=lax`, and `secure=auto`, and protects mutating routes with CSRF checks.
-- SQLite access generally uses prepared statements and bound values.
-- EJS templates mostly use escaped output. Unescaped EJS is used mainly for includes and JSON-LD with `<` escaping.
-- Upload handling checks both MIME allowlist and stored image signatures before accepting files.
-- Checkout, cart, product configuration, and admin flows show careful domain validation and useful error messages.
-- Static assets are modest: about 176 KB images, 168 KB fonts, 72 KB CSS, and 88 KB JS.
+Commands run during the latest cleanup pass:
 
-## Priority 0: Fix Before Calling This Production-Clean
+- `npm run check`: passed, checking 80 Node files, 15 browser modules, and 26 EJS templates.
+- `npm run lint`: passed.
+- `npm test`: passed, 82/82 tests.
+- `npm run coverage:check`: passed at 79.22% line, 62.64% branch, 82.45% functions.
+- `npm run verify`: passed.
+- `npm audit --audit-level=moderate`: passed with 0 vulnerabilities.
+- `npm audit --omit=dev --audit-level=high`: passed with 0 vulnerabilities.
+- `npm outdated --depth=0`: passed with no outdated direct dependencies.
 
-### 1. Update vulnerable dependencies
+## What Is Strong Now
 
-`npm audit --omit=dev --json` reports 5 production vulnerabilities: 2 high and 3 moderate.
+### App Structure
 
-Affected direct dependencies:
-
-- `multer`: current installed version is `2.1.1`; advisories include DoS issues fixed by `2.2.0`.
-- `nodemailer`: current installed version is `8.0.5`; audit reports advisories fixed after the currently installed line.
-- `express` / transitive `body-parser` / `qs`: moderate advisory fixed by newer patch versions.
+The app startup path is clean and compact. `server.js` is only the runtime entrypoint, `app.js` is a small Express factory, and app composition is split into focused builders.
 
 References:
 
-- `package.json:12-20`
+- `server.js`
+- `app.js:10`
+- `lib/app-contexts.js:13`
+- `lib/app-infrastructure-context.js:32`
+- `lib/app-domain-context.js:40`
+- `lib/route-contexts.js:1`
 
-Recommended cleanup:
+### Route Wiring
 
-- Update patch/minor-safe dependencies first: `express`, `multer`, and `nodemailer`.
-- Re-run `npm audit --omit=dev`.
-- Re-run `npm run check`.
-- Smoke test admin upload, SMTP send, checkout, and webhook endpoints after the update.
+Route registration is now slim. `lib/app-routes.js` delegates to route modules with prebuilt contexts instead of expanding one giant dependency bag.
 
-### 2. Add validation before deployment
+References:
 
-The deploy workflow uploads files and restarts the service without running the local syntax check or dependency audit.
+- `lib/app-routes.js:8`
+- `lib/app-routes.js:12`
+- `lib/route-contexts.js:31`
+- `routes/admin.js`
+
+### Checkout Flow
+
+Checkout order payload creation is centralized, checkout browser calculations are shared, and the browser checkout code is split into orchestration, form-state, and Stripe modules.
+
+References:
+
+- `lib/checkout-order-service.js`
+- `public/scripts/checkout.js`
+- `public/scripts/checkout-form-state.js`
+- `public/scripts/checkout-stripe.js`
+- `public/scripts/checkout-calculations.js`
+- `test/checkout-browser.test.js`
+- `test/checkout-order-service.test.js`
+
+### Payment And Inventory Lifecycle
+
+Hosted payment orders reserve inventory before the external payment is finalized, release reservations on failed/cancelled/refunded outcomes, avoid double-consuming stock when a reserved order is later marked paid, avoid creating Stripe reserved orders until local Stripe Elements validation succeeds, and reconcile stale external-payment reservations through provider-aware cleanup.
+
+References:
+
+- `lib/order-inventory-service.js`
+- `lib/payment-reservation-cleanup-service.js`
+- `lib/order-service.js`
+- `lib/checkout-order-service.js`
+- `routes/public-api.js`
+- `routes/webhooks.js`
+- `test/db-orders.test.js`
+- `test/payment-reservation-cleanup.test.js`
+- `test/public-api.test.js`
+
+### Product Repository
+
+Product listing and admin row paths are cleaner. Admin dashboard rows avoid full product hydration, pack reference checks read only bundle JSON, categories use a normalized `product_categories` table for filtering/listing, pack availability filters use hydrated component inventory, and availability pagination refills after post-hydration pack filtering.
+
+References:
+
+- `lib/repositories/products.js:267`
+- `lib/repositories/products.js:365`
+- `lib/repositories/products.js:379`
+- `lib/repositories/products.js:419`
+- `lib/db/schema.js`
+- `test/products-repository.test.js:90`
+- `test/products-repository.test.js:122`
+
+### Documents And Frontend Structure
+
+Order document rendering is split into layout, content, and orchestration modules. Page CSS and responsive CSS are split into ownership files while keeping stable import entrypoints.
+
+References:
+
+- `lib/order-documents.js`
+- `lib/order-document-layout.js`
+- `lib/order-document-content.js`
+- `public/styles/responsive.css`
+- `public/styles/catalogue-cards.css`
+- `public/styles/checkout-admin.css`
+- `public/styles/catalogue-product-cards.css`
+- `public/styles/checkout-choice-controls.css`
+- `public/styles/responsive-shell.css`
+- `public/styles/responsive-catalogue.css`
+- `public/styles/responsive-admin-nav.css`
+- `test/order-documents.test.js`
+- `test/render-smoke.test.js`
+
+### Operations
+
+The app has a JSON health endpoint, a tested health-check script with optional alert webhook delivery, request IDs, configurable logging, a tested SQLite backup helper, a deploy-time pre-restart backup step, stale payment-reservation cleanup, and a thresholded coverage gate.
+
+References:
+
+- `routes/health.js`
+- `lib/logger.js`
+- `scripts/check-health.js`
+- `scripts/backup-sqlite.js`
+- `scripts/check-coverage.js`
+- `lib/payment-reservation-cleanup-service.js`
+- `test/logger.test.js`
+- `test/ops-scripts.test.js`
+- `test/payment-reservation-cleanup.test.js`
+
+### Quality Gate
+
+The quality gate is genuinely useful:
+
+- Server/browser/template syntax checks.
+- ESLint.
+- Node test runner.
+- Playwright checkout browser tests.
+- Direct `checkout-stripe.js` controller unit tests.
+- Schema migration tests.
+- Product repository performance-shape tests.
+- Payment webhook, provider adapter, Stripe intent, mail-service, and stale reservation cleanup tests.
+- PDF byte and text-extraction document tests.
+- Backup/coverage script tests.
+- High-severity dependency audit.
+- Deploy workflow runs `npm run verify` and `npm run coverage:check` before upload.
+
+References:
+
+- `package.json`
+- `scripts/check-syntax.js`
+- `test/`
+- `.github/workflows/deploy.yml`
+
+### Security Baseline
+
+The security baseline is strong for a small commerce app:
+
+- `x-powered-by` disabled.
+- SQLite-backed sessions.
+- `httpOnly`, `sameSite=lax`, `secure=auto` cookies.
+- CSRF protection on mutating routes except webhooks.
+- CSP with nonced scripts and no `unsafe-inline`.
+- HSTS on secure requests.
+- Body size limits.
+- Image MIME and file-signature validation.
+- Production secret requirements with placeholder and short-secret rejection.
+- Production admin bootstrap requires an explicit password.
+
+References:
+
+- `lib/http/app-middleware.js`
+- `lib/upload-handlers.js`
+- `lib/production-secrets.js`
+- `lib/config.js`
+- `lib/db/schema.js`
+
+### Migration Discipline
+
+Schema migrations now have a table, stable IDs, tests, logging, and README instructions.
+
+References:
+
+- `lib/db/schema.js`
+- `test/db-schema-migrations.test.js`
+- `README.md`
+
+### Dependency Freshness
+
+Direct dependencies are current according to `npm outdated --depth=0`. The moderate and production high-severity npm audits are clean.
+
+References:
+
+- `package.json`
+- `package-lock.json`
+
+## Contextual Future Decisions
+
+### 1. Product Configuration Storage
+
+Product categories are normalized. JSON-backed product options/configurations are still fine for this scale; if catalogue complexity grows substantially, they are the next likely storage area to revisit.
+
+References:
+
+- `lib/repositories/products.js:327`
+- `lib/repositories/products.js:382`
+
+Decision:
+
+- Keep current JSON configuration storage until real catalogue size justifies a migration.
+- If growth warrants it, add normalized configuration tables.
+- Preserve the current admin authoring UX while improving internal query shape.
+
+Expected benefit:
+
+- Less JSON parsing in list paths for option/configuration-heavy catalogues.
+
+### 2. Test Logging Discipline
+
+Tests now opt into quiet logger behavior where they initialize app/database state directly.
 
 Reference:
 
-- `.github/workflows/deploy.yml:29-50`
+- `lib/db/schema.js`
+- `lib/logger.js`
 
-Recommended cleanup:
+Maintenance note:
 
-- Add a pre-deploy validation step before `rsync`:
-  - `npm ci`
-  - `npm run check`
-  - `npm audit --omit=dev --audit-level=high`
-- Optionally split deploy into `check` and `deploy` jobs so production deploy depends on a clean check job.
+- Keep production migration logs.
+- Keep direct route/database tests explicit about logger behavior when adding new files.
 
-### 3. Fail fast on missing production secrets
+Expected benefit:
 
-If `SESSION_SECRET` is missing, the app generates a random secret at process start. That avoids immediate failure, but it invalidates sessions on restart and can hide a bad production configuration.
+- Cleaner test output without losing production visibility.
 
-References:
+### 3. Upload Coverage Discipline
 
-- `server.js:95`
-- `server.js:1021`
-- `.env.example`
-
-Recommended cleanup:
-
-- In production, require `SESSION_SECRET`.
-- In production, require `ORDER_VIEW_TOKEN_SECRET` instead of silently falling back to `SESSION_SECRET`.
-- On first admin bootstrap, require `ADMIN_PASSWORD` in production instead of logging a generated password.
-
-## Priority 1: Architecture And Maintainability
-
-### 4. Split `server.js` into smaller composition modules
-
-`server.js` is 1,282 lines and currently owns environment setup, app setup, database initialization, payment services, rate limiting, CSRF, view locals, helper functions, route registration, and server startup.
+Invalid upload, validation-failure cleanup, and successful derivative persistence paths are covered through integration behavior.
 
 References:
 
-- `server.js:82-111`
-- `server.js:1016-1060`
-- `server.js:1180-1260`
+- `lib/upload-handlers.js`
+- `routes/admin-modules/catalog.js`
+- `test/app-admin-flows.test.js`
 
-Recommended cleanup:
+Maintenance note:
 
-- Create an `app.js` or `lib/create-app.js` that builds and returns the Express app.
-- Move environment parsing into `lib/config.js`.
-- Move payment provider setup into `lib/payments/`.
-- Move auth/session/CSRF middleware into `lib/http/` or `middleware/`.
-- Keep `server.js` as the thin entrypoint: load config, create app, listen.
+- Keep adding targeted upload tests whenever derivative formats or storage rules change.
 
-Expected result:
+### 4. Asset Cache Policy Precision
 
-- Easier tests without binding a real port.
-- Smaller route registration signatures.
-- Less risk when changing payment, session, or admin behavior.
-
-### 5. Replace wide dependency bags with focused contexts
-
-`registerAdminRoutes` destructures roughly 80 dependencies. This makes route code explicit, but it is now too wide to reason about easily.
-
-References:
-
-- `routes/admin.js:10-90`
-- `server.js:1180-1260`
-
-Recommended cleanup:
-
-- Group dependencies into contexts:
-  - `repos.products`, `repos.orders`, `repos.admins`
-  - `services.checkout`, `services.mail`, `services.uploads`, `services.documents`
-  - `http.requireAdmin`, `http.render`, `http.flash`
-- Keep route modules focused on HTTP concerns and call named services for domain work.
-
-### 6. Split `lib/db.js` by responsibility
-
-`lib/db.js` is 1,318 lines and mixes schema creation, seed data, migrations, product repositories, admin repositories, review/promo repositories, dashboard aggregation, order creation, and order payment transactions.
-
-References:
-
-- `lib/db.js:60-189`
-- `lib/db.js:441-560`
-- `lib/db.js:877-906`
-- `lib/db.js:1090-1264`
-
-Recommended cleanup:
-
-- Move schema/bootstrap into `lib/db/schema.js`.
-- Move query groups into `lib/repositories/products.js`, `orders.js`, `admins.js`, `reviews.js`, `promo-codes.js`, `settings.js`.
-- Move `markOrderPaid` inventory/promo mutation into an `order-service` module with tests.
-- Keep `lib/db.js` as connection/bootstrap only, or remove it after migration.
-
-### 7. Add focused tests for high-risk domain logic
-
-There are no automated unit/integration tests beyond syntax/template compilation.
-
-Highest-value test targets:
-
-- Product option parsing and strict validation in `lib/product-normalizers.js`.
-- Cart quantity and service tag validation in `lib/cart-session.js`.
-- Checkout pricing, promo codes, delivery rules, and payment method rules in `lib/checkout-state.js`.
-- `markOrderPaid` inventory reduction and promo redemption in `lib/db.js`.
-- Webhook idempotency and state transitions in `routes/webhooks.js`.
-- PDF document generation smoke tests in `lib/order-documents.js`.
-
-Recommended cleanup:
-
-- Use Node's built-in `node:test` runner to avoid adding a large test framework.
-- Add a `test` script and run it in CI/deploy before upload.
-
-## Priority 2: Optimization And Scaling
-
-### 8. Push more product filtering into SQL
-
-`listPublishedProducts` selects and hydrates all published products, then filters category, availability, and price in JavaScript. It also supports `ORDER BY RANDOM()`, which is fine for a tiny catalog but expensive as data grows.
+Bundled template assets now use mtime-versioned URLs with immutable cache headers while user uploads stay on conservative cache settings.
 
 Reference:
 
-- `lib/db.js:441-504`
+- `lib/http/app-middleware.js`
 
 Recommended cleanup:
 
-- Add indexes for common filters/sorts: `products(published, featured, created_at)`, `products(published, product_kind)`, and order-related indexes.
-- Push availability and simple price filters into SQL where possible.
-- Consider storing searchable/lowercase category fields or a normalized category join table if categories become important for performance.
-- Avoid `ORDER BY RANDOM()` on large product sets; use a lightweight seed/order strategy or limit candidate rows first.
+- Keep uploads conservative.
+- If a build step is introduced later, replace mtime query strings with hashed filenames.
 
-### 9. Avoid repeated full hydration for dashboard and locals
+Expected benefit:
 
-The app currently builds settings and cart locals on every handled request, and dashboard stats hydrate all admin products to compute potential revenue.
+- Better browser caching without risking stale user uploads.
+
+### 5. Production Observability Provider Wiring
+
+The logger now has text/JSON modes, levels, optional compact access logs, request IDs, and structured fallback error context. The deploy path can also run `npm run health:check` after restart and send failed checks to `ALERT_WEBHOOK_URL`. Full production observability would mainly mean connecting JSON logs and that alert webhook to the chosen external monitoring provider.
 
 References:
 
-- `server.js:1049-1051`
-- `lib/db.js:877-906`
+- `lib/logger.js`
+- `lib/http/app-middleware.js`
+- `lib/app-routes.js:24`
+- `scripts/check-health.js`
+- `.github/workflows/deploy.yml`
 
-Recommended cleanup:
+Operations note:
 
-- Cache settings in memory and invalidate after `saveSettings`.
-- Build cart locals only for routes/templates that need them, or lazy-compute it.
-- For dashboard stats, use SQL aggregates where possible and isolate expensive inventory projections behind a dedicated function.
+- Send JSON logs to a production log collector if operations grow.
+- Point `ALERT_WEBHOOK_URL` at the chosen incident/chat/uptime relay in production.
 
-### 10. Bound in-memory rate-limit trackers
+Expected benefit:
 
-Login and Stripe intent attempt tracking use process-local `Map` instances. Entries are deleted when a key is checked after expiry, but there is no global pruning or size cap.
+- Easier debugging under real traffic.
 
-References:
+### 6. Package Metadata
 
-- `server.js:96-97`
-- `server.js:465-565`
-
-Recommended cleanup:
-
-- Add scheduled pruning and a maximum map size.
-- Or move to a small reusable TTL map helper.
-- If multi-process deployment is planned, use a shared store instead of process-local maps.
-
-### 11. Add static asset cache policy
-
-Static files are served without explicit cache options.
+The package description now reflects that this is a standalone shop, not just a prototype.
 
 Reference:
 
-- `server.js:111`
+- `package.json`
 
-Recommended cleanup:
+Maintenance note:
 
-- Add a conservative cache policy for immutable assets if filenames are versioned.
-- At minimum, define explicit behavior for `/static/uploads` versus bundled CSS/JS/images.
+- Keep package metadata aligned with any future public naming or deployment changes.
 
-## Priority 3: Frontend And Template Cleanliness
+Expected benefit:
 
-### 12. Deduplicate configuration parsing in browser scripts
+- Documentation matches the code’s actual maturity.
 
-`product-configurator.js` and `manual-order-form.js` parse configuration JSON, normalize selections, compute compatibility, and find complete configurations in similar ways.
+## Closed Polish From This Pass
 
-References:
+Repo-side polish from the previous pass has been closed:
 
-- `public/scripts/product-configurator.js:19-95`
-- `public/scripts/manual-order-form.js:20-96`
+- Broad `SELECT *` reads were replaced with explicit column lists.
+- PDF document tests now extract text and assert core invoice/delivery-slip content.
+- `checkout-stripe.js` has direct controller unit coverage with stubbed Stripe/fetch/DOM dependencies.
+- README now includes a short architecture note explaining the infrastructure/domain/route context split.
+- `.env.example` no longer contains live-looking secrets or production URLs.
+- Production config rejects placeholder/short app secrets and copied payment placeholders.
+- Stripe checkout validates Stripe Elements before reserving stock.
+- Pack availability tests cover hydrated component inventory.
+- Paid promo finalization no longer revalidates a promo snapshot after payment.
+- Deploy takes a SQLite backup before restart/migration.
+- Referer redirects in upload/error paths use safe redirect targets.
+- Review submission has a lightweight session rate limit.
+- Operational scripts have `require.main === module` guards where they expose helpers.
+- Stale Stripe and Swiss Bitcoin Pay reservations are reconciled and release stock when safe.
+- Pack availability pagination refills after hydrated filtering.
+- Static asset version lookups are cached with a short TTL.
+- Stripe intent, Swiss Bitcoin Pay, and mail-service failure paths have targeted unit coverage.
+- `eslint` is patch-current.
 
-Recommended cleanup:
+## External And Conditional Follow-Up
 
-- Extract shared helpers into a browser module such as `public/scripts/configurations.js`.
-- Reuse a single `parseConfigurations`, `getSelections`, `isConfigurationCompatible`, and `findCompleteConfiguration`.
+1. Review, stage, and commit the large working-tree change set before treating it as a release candidate.
+2. Connect JSON logs and `ALERT_WEBHOOK_URL` to the chosen external monitoring provider.
+3. Normalize configuration storage only when catalogue size justifies it.
 
-### 13. Replace manual `innerHTML` option building with DOM helpers
+## Current Verdict
 
-The manual order form carefully escapes option values, but the escaping is inline and duplicated.
-
-Reference:
-
-- `public/scripts/manual-order-form.js:226-228`
-
-Recommended cleanup:
-
-- Build `<option>` elements with `document.createElement("option")` and `textContent`.
-- Or centralize escaping in one helper if string templates are kept.
-
-### 14. Move SEO metadata out of the `head` partial
-
-`views/partials/head.ejs` hard-codes `https://shop.recytech.me` even though the server already has URL helpers and sets `res.locals.canonicalUrl`.
-
-References:
-
-- `views/partials/head.ejs:6-18`
-- `views/partials/head.ejs:46-66`
-- `server.js:1055-1056`
-
-Recommended cleanup:
-
-- Compute canonical URL, image URL, and structured-data URLs in a server-side presenter.
-- Pass final metadata into the template instead of calculating it inside `head.ejs`.
-
-### 15. Clean CSS ownership and design tokens
-
-CSS is split, but file ownership is blurred. `footer-responsive.css` is much broader than footer/responsive rules. Also, `--bg: red` looks like leftover development state.
-
-References:
-
-- `public/styles/base-layout.css:7`
-- `public/styles/main.css:1-5`
-
-Recommended cleanup:
-
-- Rename/split CSS files by ownership: base, header/nav, hero/catalogue, product, forms/checkout, admin, footer, responsive.
-- Remove unused tokens.
-- Centralize repeated semantic colors such as success/error/info.
-
-## Priority 4: Specialized Risk Areas
-
-### 16. Add tests or visual snapshots for PDF generation
-
-`lib/order-documents.js` hand-builds PDF bytes, text encoding, drawing commands, SVG parsing, pagination, and document layout. This is impressive and dependency-light, but easy to regress.
-
-References:
-
-- `lib/order-documents.js:1-120`
-
-Recommended cleanup:
-
-- Add smoke tests that generate invoice and delivery slip PDFs from representative orders.
-- Validate that the output starts with `%PDF`, includes expected page count, and does not throw on accented French text.
-- For higher confidence, render sample PDFs in CI and compare basic text extraction or page dimensions.
-
-### 17. Add linting and formatting
-
-The code has consistent indentation, but there is no lint or format gate.
-
-Recommended cleanup:
-
-- Add ESLint for Node/browser globals and basic correctness rules.
-- Add Prettier or an agreed formatting command.
-- Add scripts:
-  - `lint`
-  - `format:check`
-  - `test`
-  - `verify` running check + lint + test
-
-## Suggested Cleanup Order
-
-1. Update dependencies and clear the audit.
-2. Add CI/deploy validation using the existing `npm run check`.
-3. Add production config assertions for secrets.
-4. Add tests for checkout pricing, product parsing, and `markOrderPaid`.
-5. Split `server.js` into config/app/middleware/services.
-6. Split `lib/db.js` into schema/repositories/order service.
-7. Optimize product listing and dashboard queries.
-8. Deduplicate frontend configuration helpers.
-9. Clean CSS ownership and remove dead tokens.
-10. Add PDF smoke tests.
-
-## Validation Run During Audit
-
-- `npm run check`: passed.
-- `npm audit --omit=dev --json`: failed due to 5 production advisories.
-- `npm outdated --json`: reported available updates for `better-sqlite3`, `dotenv`, `ejs`, `express`, `multer`, `nodemailer`, and `stripe`.
-- Git working tree was clean before this report file was added.
-
+The codebase is now in solid production shape from a code and test standpoint. It should still go through normal release hygiene: review the large diff, ensure every new file is intentionally tracked, and deploy from a clean commit or PR. After that review boundary, the remaining work is operational rather than repository-readiness: production log collection, alert routing, and periodic backup-restore rehearsal.

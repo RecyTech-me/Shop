@@ -142,6 +142,14 @@ function listProductUploadFiles() {
     return fs.readdirSync(uploadDir).sort();
 }
 
+function removeProductUploadFiles(fileNames = []) {
+    const uploadDir = path.join(__dirname, "..", "public", "uploads", "products");
+
+    for (const fileName of fileNames) {
+        fs.rmSync(path.join(uploadDir, fileName), { force: true });
+    }
+}
+
 function tinyPngBlob() {
     return new Blob([
         Buffer.from(
@@ -156,6 +164,9 @@ function tinyPngBlob() {
 test("admin workflows cover login, settings, product creation, review moderation, and logout", async (t) => {
     const baseUrl = await createTestServer(t);
     const client = createClient(baseUrl);
+    const uploadedFilesToClean = [];
+
+    t.after(() => removeProductUploadFiles(uploadedFilesToClean));
 
     let page = await client.request("/admin/login");
     assert.equal(page.response.status, 200);
@@ -169,6 +180,35 @@ test("admin workflows cover login, settings, product creation, review moderation
     page = await client.follow(result);
     assert.equal(page.response.status, 200);
     assert.match(page.text, /Tableau de bord/);
+
+    page = await client.request("/admin/admins/new");
+    assert.equal(page.response.status, 200);
+    result = await client.postForm("/admin/admins/new", {
+        username: "catalog-admin",
+        role: "admin",
+        password: "catalog-admin-password",
+    });
+    assert.equal(result.response.status, 302);
+    page = await client.follow(result);
+    assert.match(page.text, /catalog-admin/);
+
+    result = await client.postForm("/admin/logout");
+    assert.equal(result.response.status, 302);
+    page = await client.follow(result);
+    assert.match(page.text, /Connexion/);
+
+    result = await client.postForm("/admin/login", {
+        username: "catalog-admin",
+        password: "catalog-admin-password",
+    });
+    assert.equal(result.response.status, 302);
+    page = await client.follow(result);
+    assert.equal(page.response.status, 200);
+    result = await client.request("/admin/admins");
+    assert.equal(result.response.status, 302);
+    assert.equal(result.location, "/admin");
+    page = await client.follow(result);
+    assert.match(page.text, /Accès réservé aux superadmins/);
 
     page = await client.request("/admin/settings");
     assert.equal(page.response.status, 200);
@@ -282,6 +322,42 @@ test("admin workflows cover login, settings, product creation, review moderation
     assert.equal(result.response.status, 400);
     assert.match(result.text, /Création impossible/);
     assert.deepEqual(listProductUploadFiles(), uploadsBeforeValidationFailure);
+
+    const uploadsBeforeSuccessfulUpload = listProductUploadFiles();
+    const uploadedProductName = `Uploaded Image Laptop ${Date.now()}`;
+    result = await client.postMultipart("/admin/products/new", {
+        product_kind: "product",
+        name: uploadedProductName,
+        categories: "Tests",
+        price_chf: "149.00",
+        inventory: "1",
+        image_url: "",
+        image_gallery_urls: "",
+        short_description: "Successful derivative generation test.",
+        description: "This product validates optimized upload URLs.",
+        admin_notes: "",
+        bundle_items: "",
+        option_groups: "",
+        valid_configurations: "",
+        info_rows: "",
+        published: "",
+    }, [
+        {
+            name: "image_file",
+            value: tinyPngBlob(),
+            filename: "derivative-source.png",
+        },
+    ]);
+    assert.equal(result.response.status, 302);
+    page = await client.follow(result);
+    const uploadedProductId = page.text.match(new RegExp(`${uploadedProductName}[\\s\\S]*?/admin/products/(\\d+)/edit`))?.[1];
+    assert.ok(uploadedProductId, "Expected uploaded product edit link");
+    const uploadedFiles = listProductUploadFiles().filter((fileName) => !uploadsBeforeSuccessfulUpload.includes(fileName));
+    uploadedFilesToClean.push(...uploadedFiles);
+    assert.ok(uploadedFiles.some((fileName) => fileName.endsWith("-display.webp")), "Expected uploaded image derivative");
+    page = await client.request(`/admin/products/${uploadedProductId}/edit`);
+    assert.match(page.text, /-display\.webp/);
+    removeProductUploadFiles(uploadedFiles);
 
     page = await client.request("/admin/orders/new");
     assert.equal(page.response.status, 200);

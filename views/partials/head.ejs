@@ -21,8 +21,8 @@
     <meta name="twitter:description" content="<%= seo.description %>">
     <meta name="twitter:image" content="<%= seo.imageUrl %>">
     <title><%= seo.title %></title>
-    <link rel="icon" href="/static/images/recytech-logo.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="/static/styles/main.css">
+    <link rel="icon" href="<%= staticAsset('/static/images/recytech-logo.svg') %>" type="image/svg+xml">
+    <link rel="stylesheet" href="<%= staticAsset('/static/styles/main.css') %>">
     <% seo.structuredDataItems.forEach((item) => { %>
         <script nonce="<%= cspNonce %>" type="application/ld+json"><%- JSON.stringify(item).replace(/</g, "\\u003c") %></script>
     <% }) %>

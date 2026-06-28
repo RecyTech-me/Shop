@@ -5,7 +5,7 @@ const path = require("node:path");
 const test = require("node:test");
 const { chromium } = require("playwright");
 const { createApp } = require("../app");
-const { createProduct } = require("../lib/db");
+const { createProduct, createPromoCode } = require("../lib/db");
 
 async function createBrowserTestServer(t) {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "recytech-browser-test-"));
@@ -89,5 +89,53 @@ test("checkout browser UI updates payment availability and totals", async (t) =>
     assert.match(await textContent(page.locator("#checkout-shipping-price")), /11/);
     assert.match(await textContent(total), /111/);
 
+    assert.deepEqual(browserErrors, []);
+});
+
+test("checkout browser applies and removes promo discount state", async (t) => {
+    const { baseUrl, db } = await createBrowserTestServer(t);
+    const product = createProduct(db, {
+        product_kind: "product",
+        name: "Promo Checkout Laptop",
+        categories: "Tests",
+        price_chf: "100.00",
+        inventory: "3",
+        short_description: "Promo checkout test product.",
+        description: "Used by the Playwright promo checkout test.",
+        published: "1",
+    });
+    createPromoCode(db, {
+        code: "MERCI",
+        discount_type: "percent",
+        discount_value: 10,
+        active: 1,
+    });
+    const browser = await chromium.launch({ headless: true });
+
+    t.after(() => browser.close());
+
+    const page = await browser.newPage();
+    const browserErrors = [];
+    page.on("pageerror", (error) => browserErrors.push(error.message));
+
+    await page.goto(`${baseUrl}/products/${product.slug}`);
+    await page.getByRole("button", { name: "Ajouter au panier" }).click();
+    await page.goto(`${baseUrl}/checkout`);
+
+    await page.locator('input[name="promo_code"]').fill("MERCI");
+    await page.getByRole("button", { name: "Appliquer" }).click();
+    await page.waitForLoadState("networkidle");
+
+    assert.match(await textContent(page.locator(".promo-code-state-success")), /MERCI appliqué/);
+    assert.equal(await page.locator("#checkout-promo-row").isHidden(), false);
+    assert.match(await textContent(page.locator("#checkout-promo-amount")), /10/);
+    assert.match(await textContent(page.locator("#checkout-order-total")), /101/);
+
+    await page.locator('input[name="promo_code"]').fill("");
+    await page.getByRole("button", { name: "Appliquer" }).click();
+    await page.waitForLoadState("networkidle");
+
+    assert.equal(await page.locator("#checkout-promo-row").isHidden(), true);
+    assert.match(await textContent(page.locator("#checkout-order-total")), /111/);
     assert.deepEqual(browserErrors, []);
 });

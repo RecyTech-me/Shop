@@ -4,7 +4,6 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const { execFileSync } = require("child_process");
-require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 
 const { initializeDatabase, listAdminProducts, listAdmins } = require("../lib/db");
 const { hashPassword } = require("../lib/auth");
@@ -237,6 +236,8 @@ function ensureDirectory(targetPath) {
 }
 
 function main() {
+    require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
+
     const args = parseArgs(process.argv.slice(2));
     if (!args.wpRoot || !args.sqlite) {
         fail("Usage: node scripts/import-wordpress-shop.js --wp-root /path/to/wordpress --sqlite /path/to/shop.db [--report /path/to/report.json]");
@@ -431,4 +432,14 @@ function main() {
     process.stdout.write(`${JSON.stringify(stats, null, 2)}\n`);
 }
 
-main();
+if (require.main === module) {
+    main();
+}
+
+module.exports = {
+    buildProductPayload,
+    mapImportedOrderItems,
+    normalizeMatchKey,
+    parseArgs,
+    slugify,
+};

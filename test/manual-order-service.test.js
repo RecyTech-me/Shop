@@ -33,6 +33,7 @@ const {
 function createTestDb(t) {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), "recytech-manual-order-test-"));
     const db = initializeDatabase(path.join(directory, "shop.db"), {
+        NODE_ENV: "test",
         ADMIN_PASSWORD: "test-admin-password",
     });
 

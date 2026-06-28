@@ -1,7 +1,10 @@
 const assert = require("node:assert/strict");
 const express = require("express");
 const test = require("node:test");
+const logger = require("../lib/logger");
 const { registerWebhookRoutes } = require("../routes/webhooks");
+
+logger.configureLogger({ level: "silent" });
 
 function listen(app, t) {
     const server = app.listen(0, "127.0.0.1");

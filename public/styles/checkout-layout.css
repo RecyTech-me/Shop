@@ -1,0 +1,89 @@
+.form-stack {
+    display: grid;
+    gap: 1rem;
+}
+
+.payment-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.checkout-form,
+.checkout-group,
+.choice-stack {
+    display: grid;
+    gap: 1rem;
+}
+
+.checkout-layout > *,
+.checkout-form,
+.checkout-group,
+.checkout-grid,
+.choice-grid,
+.choice-card,
+.choice-surface,
+.choice-card-copy,
+.stripe-card-panel,
+.stripe-card-copy,
+.stripe-payment-element,
+.summary-card,
+.summary-row {
+    min-width: 0;
+}
+
+.checkout-group h2 {
+    margin: 0;
+    font-family: "Raleway-SemiBold", sans-serif;
+    font-size: 1.18rem;
+}
+
+.field-label {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.35rem;
+    font-size: 0.95rem;
+    font-weight: 600;
+}
+
+.field-label small {
+    color: var(--text-soft);
+    font-size: 0.8rem;
+    font-weight: 400;
+}
+
+.checkout-grid {
+    display: grid;
+    gap: 1rem;
+}
+
+.checkout-grid-two,
+.choice-grid-two {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.checkout-grid-full {
+    grid-column: 1 / -1;
+}
+
+.promo-code-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.85rem;
+    align-items: end;
+}
+
+.promo-code-row .button {
+    min-height: 3.35rem;
+}
+
+.promo-code-state {
+    margin: -0.35rem 0 0;
+    font-size: 0.95rem;
+}
+
+.promo-code-state-success {
+    color: var(--status-success);
+}
+
+.promo-code-state-error {
+    color: var(--status-error);
+}
