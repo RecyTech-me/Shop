@@ -94,6 +94,25 @@
                     </tbody>
                 </table>
             </div>
+            <%
+                const pageUrl = (targetPage) => {
+                    const params = new URLSearchParams();
+                    if (filters.query) params.set("q", filters.query);
+                    if (filters.status) params.set("status", filters.status);
+                    if (targetPage > 1) params.set("page", String(targetPage));
+                    const queryString = params.toString();
+                    return `/admin/orders${queryString ? `?${queryString}` : ""}`;
+                };
+            %>
+            <div class="form-actions">
+                <% if (pagination.hasPrevious) { %>
+                    <a href="<%= pageUrl(pagination.previousPage) %>" class="button button-secondary">Précédent</a>
+                <% } %>
+                <span class="muted">Page <%= pagination.page %> / <%= pagination.totalPages %> · <%= pagination.totalOrders %> commande(s)</span>
+                <% if (pagination.hasNext) { %>
+                    <a href="<%= pageUrl(pagination.nextPage) %>" class="button button-secondary">Suivant</a>
+                <% } %>
+            </div>
         <% } %>
     </section>
 </main>

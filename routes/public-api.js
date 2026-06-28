@@ -1,3 +1,5 @@
+const logger = require("../lib/logger");
+
 function registerPublicApiRoutes(deps) {
     const {
         app,
@@ -21,13 +23,14 @@ function registerPublicApiRoutes(deps) {
         setCheckoutForm,
         buildCheckoutDraft,
         getCheckoutForm,
+        getStripeDraft,
         clearStripeDraft,
         getPromoCodeOutcome,
         validateCheckoutInput,
         prepareCheckoutOrder,
-        createPreparedCheckoutOrder,
+        createReservedPreparedCheckoutOrder,
     } = checkout;
-    const { createOrReuseStripeIntent, paymentState, createOrderViewToken } = payments;
+    const { createOrReuseStripeIntent, paymentState, isStripeDraftCurrent, createOrderViewToken } = payments;
     const { getOrderByProviderReference } = orders;
     const { notifyNewOrder } = mail;
 
@@ -90,14 +93,21 @@ function registerPublicApiRoutes(deps) {
     });
 
     app.post("/checkout/stripe/prepare", async (req, res) => {
+        let createdOrderId = null;
+
         try {
             if (!paymentState().stripeEnabled) {
                 return res.status(400).json({ error: "Le paiement par carte est indisponible." });
             }
 
-            const paymentIntentId = normalizeText(req.body.stripe_payment_intent_id);
+            const paymentIntentId = normalizeText((req.body || {}).stripe_payment_intent_id);
             if (!paymentIntentId) {
                 return res.status(400).json({ error: "Session de paiement Stripe manquante." });
+            }
+
+            const stripeDraft = getStripeDraft(req);
+            if (!stripeDraft || stripeDraft.paymentIntentId !== paymentIntentId) {
+                return res.status(400).json({ error: "Session de paiement Stripe expirée. Veuillez actualiser le paiement par carte." });
             }
 
             const checkoutDetails = validateCheckoutInput(req.body || {});
@@ -105,6 +115,11 @@ function registerPublicApiRoutes(deps) {
             setCheckoutForm(req, checkoutDetails.form);
 
             const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+            if (paymentIntent.status === "canceled") {
+                clearStripeDraft(req);
+                return res.status(400).json({ error: "Cette session Stripe a été annulée. Veuillez réessayer." });
+            }
+
             const preparedOrder = prepareCheckoutOrder({
                 req,
                 provider: "stripe",
@@ -116,6 +131,16 @@ function registerPublicApiRoutes(deps) {
                 },
             });
 
+            if (!isStripeDraftCurrent(stripeDraft, {
+                paymentIntentId: paymentIntent.id,
+                amountCents: preparedOrder.pricing.totalCents,
+                deliveryMethod: checkoutDetails.form.delivery_method,
+                promoCode: preparedOrder.promoCodeOutcome.code,
+                cart: preparedOrder.cart,
+            })) {
+                return res.status(400).json({ error: "La session de paiement Stripe n'est plus à jour. Veuillez actualiser le paiement par carte." });
+            }
+
             if (paymentIntent.currency !== "chf" || paymentIntent.amount !== preparedOrder.pricing.totalCents) {
                 return res.status(400).json({ error: "Le montant Stripe ne correspond plus à la commande." });
             }
@@ -123,8 +148,10 @@ function registerPublicApiRoutes(deps) {
             let order = getOrderByProviderReference(db, "stripe", paymentIntent.id);
             let createdOrder = false;
             if (!order) {
-                order = createPreparedCheckoutOrder(preparedOrder);
+                order = createReservedPreparedCheckoutOrder(preparedOrder);
                 createdOrder = true;
+                createdOrderId = order.id;
+                logger.info(`[payments] Prepared Stripe order ${order.order_number} for intent ${paymentIntent.id}`);
             }
 
             if (createdOrder) {
@@ -148,6 +175,13 @@ function registerPublicApiRoutes(deps) {
                 });
             });
         } catch (error) {
+            if (createdOrderId) {
+                logger.error(`[payments] Stripe prepare failed after order creation ${createdOrderId}: ${error.message}`);
+                orders.updateOrderStatus?.(db, createdOrderId, "failed", {
+                    stripePrepareError: error.message,
+                });
+            }
+
             res.status(400).json({ error: error.message });
         }
     });

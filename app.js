@@ -14,26 +14,18 @@ function createApp(options = {}) {
         ...options,
         rootDir,
     });
+    const routeContexts = context.createRouteContexts(app);
 
-    registerWebhookEndpoints({
-        app,
-        ...context.webhookRoutes,
-    });
+    registerWebhookEndpoints(routeContexts.webhooks);
 
     registerAppMiddleware({
         app,
         ...context.middleware,
     });
 
-    registerPageRoutes({
-        app,
-        ...context.pageRoutes,
-    });
+    registerPageRoutes(routeContexts);
 
-    registerFallbackRoutes({
-        app,
-        ...context.fallbackRoutes,
-    });
+    registerFallbackRoutes(routeContexts.fallback);
 
     app.locals.runtime = context.runtime;
 

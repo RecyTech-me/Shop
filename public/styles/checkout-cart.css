@@ -1,0 +1,108 @@
+.cart-layout {
+    grid-template-columns: 1.25fr 0.75fr;
+    align-items: start;
+}
+
+.cart-items {
+    display: grid;
+    gap: 1rem;
+}
+
+.cart-item {
+    display: grid;
+    grid-template-columns: 132px minmax(0, 1fr) minmax(190px, 220px);
+    gap: 1rem;
+    padding: 1rem;
+    align-items: start;
+}
+
+.cart-thumb {
+    width: 100%;
+    max-width: 100%;
+    min-height: 0;
+    border-radius: var(--radius-md);
+    aspect-ratio: 1 / 1;
+    align-self: start;
+}
+
+.cart-item-media {
+    display: grid;
+    width: 100%;
+    min-width: 0;
+    align-self: start;
+}
+
+.cart-copy {
+    min-width: 0;
+}
+
+.cart-copy h2 {
+    margin: 0 0 0.35rem;
+    font-size: 1.06rem;
+}
+
+.cart-copy p {
+    margin: 0;
+}
+
+.cart-price {
+    display: block;
+    margin-top: 0.75rem;
+    font-family: var(--font-price);
+    font-size: 1.45rem;
+}
+
+.cart-inline-form {
+    min-width: 0;
+    display: grid;
+    gap: 0.45rem;
+    align-content: start;
+}
+
+.cart-item-actions,
+.flash {
+    display: flex;
+    gap: 0.9rem;
+}
+
+.cart-item-actions {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.45rem;
+}
+
+.cart-item-actions form {
+    margin: 0;
+}
+
+.cart-item-actions label {
+    gap: 0.3rem;
+}
+
+.cart-item-actions .button {
+    min-height: 0;
+}
+
+.cart-item-actions .button {
+    width: 100%;
+}
+
+.flash {
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+}
+
+.flash-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 2.7rem;
+    padding: 0.7rem 1rem;
+    border-radius: 999px;
+    border: 1px solid rgba(36, 76, 56, 0.16);
+    background: rgba(255, 255, 255, 0.82);
+    color: var(--text);
+    font-family: "Raleway-SemiBold", sans-serif;
+    text-decoration: none;
+}

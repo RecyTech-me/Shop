@@ -4,7 +4,7 @@
 
 <section class="hero">
     <div class="shell hero-grid">
-        <% const heroImageUrl = settings.hero_image_url || "/static/images/illustrations/hero-workshop.jpg"; %>
+        <% const heroImageUrl = staticAsset(settings.hero_image_url || "/static/images/illustrations/hero-workshop.jpg"); %>
         <div class="hero-copy">
             <img class="hero-copy-image" src="<%= heroImageUrl %>" alt="" loading="eager" referrerpolicy="no-referrer">
             <h1><%= settings.hero_title %></h1>

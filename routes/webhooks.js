@@ -1,4 +1,9 @@
 const express = require("express");
+const logger = require("../lib/logger");
+
+function orderLogId(order) {
+    return order?.order_number || `#${order?.id}`;
+}
 
 function registerWebhookRoutes(deps) {
     const {
@@ -32,6 +37,7 @@ function registerWebhookRoutes(deps) {
                         stripePaymentIntentId: paymentIntent.id,
                         paymentStatus: paymentIntent.status,
                     });
+                    logger.info(`[payments] Stripe webhook marked order ${orderLogId(order)} paid for intent ${paymentIntent.id}`);
                 }
             }
 
@@ -44,6 +50,7 @@ function registerWebhookRoutes(deps) {
                         stripePaymentIntentId: paymentIntent.id,
                         paymentStatus: paymentIntent.status,
                     });
+                    logger.info(`[payments] Stripe webhook marked order ${orderLogId(order)} failed for intent ${paymentIntent.id}`);
                 }
             }
 
@@ -81,8 +88,10 @@ function registerWebhookRoutes(deps) {
 
             if (nextStatus === "paid") {
                 markOrderPaid(db, order.id, metadata);
+                logger.info(`[payments] Swiss Bitcoin Pay webhook marked order ${orderLogId(order)} paid for invoice ${invoiceId}`);
             } else {
                 updateOrderStatus(db, order.id, nextStatus, metadata);
+                logger.info(`[payments] Swiss Bitcoin Pay webhook marked order ${orderLogId(order)} ${nextStatus} for invoice ${invoiceId}`);
             }
 
             res.status(200).json({ received: true });

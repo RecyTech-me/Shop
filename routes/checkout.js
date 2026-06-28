@@ -1,3 +1,5 @@
+const logger = require("../lib/logger");
+
 function registerCheckoutRoutes(deps) {
     const {
         app,
@@ -92,16 +94,26 @@ function registerCheckoutRoutes(deps) {
                     customer: checkoutDetails.customer,
                     checkoutDetails,
                 });
-                await notifyNewOrder(order);
-                const invoice = await createSwissBitcoinPayInvoice(order, req);
 
-                updateOrderProviderReference(db, order.id, invoice.id, {
-                    checkoutUrl: invoice.checkoutUrl || "",
-                    lightningInvoice: invoice.pr || "",
-                    onChainAddress: invoice.onChainAddr || "",
-                });
+                try {
+                    await notifyNewOrder(order);
+                    const invoice = await createSwissBitcoinPayInvoice(order, req);
+                    logger.info(`[payments] Created Swiss Bitcoin Pay invoice ${invoice.id} for order ${order.order_number}`);
 
-                return saveSessionAndRedirect(req, res, invoice.checkoutUrl);
+                    updateOrderProviderReference(db, order.id, invoice.id, {
+                        checkoutUrl: invoice.checkoutUrl || "",
+                        lightningInvoice: invoice.pr || "",
+                        onChainAddress: invoice.onChainAddr || "",
+                    });
+
+                    return saveSessionAndRedirect(req, res, invoice.checkoutUrl);
+                } catch (error) {
+                    logger.error(`[payments] Swiss Bitcoin Pay invoice creation failed for order ${order.order_number}: ${error.message}`);
+                    updateOrderStatus(db, order.id, "failed", {
+                        swissBitcoinPayInvoiceError: error.message,
+                    });
+                    throw error;
+                }
             }
 
             if (checkoutDetails.form.payment_method === "cash") {

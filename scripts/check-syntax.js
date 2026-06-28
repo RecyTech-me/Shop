@@ -55,28 +55,42 @@ function checkEjsTemplate(filePath) {
     });
 }
 
-const nodeFiles = [
-    path.join(rootDir, "app.js"),
-    path.join(rootDir, "server.js"),
-    ...walkFiles(path.join(rootDir, "lib"), (filePath) => filePath.endsWith(".js")),
-    ...walkFiles(path.join(rootDir, "routes"), (filePath) => filePath.endsWith(".js")),
-    ...walkFiles(path.join(rootDir, "scripts"), (filePath) =>
-        filePath.endsWith(".js") && path.basename(filePath) !== "check-syntax.js"
-    ),
-];
-const browserModules = walkFiles(path.join(rootDir, "public", "scripts"), (filePath) => filePath.endsWith(".js"));
-const templates = walkFiles(path.join(rootDir, "views"), (filePath) => filePath.endsWith(".ejs"));
+function main() {
+    const nodeFiles = [
+        path.join(rootDir, "app.js"),
+        path.join(rootDir, "server.js"),
+        ...walkFiles(path.join(rootDir, "lib"), (filePath) => filePath.endsWith(".js")),
+        ...walkFiles(path.join(rootDir, "routes"), (filePath) => filePath.endsWith(".js")),
+        ...walkFiles(path.join(rootDir, "scripts"), (filePath) =>
+            filePath.endsWith(".js") && path.basename(filePath) !== "check-syntax.js"
+        ),
+    ];
+    const browserModules = walkFiles(path.join(rootDir, "public", "scripts"), (filePath) => filePath.endsWith(".js"));
+    const templates = walkFiles(path.join(rootDir, "views"), (filePath) => filePath.endsWith(".ejs"));
 
-for (const filePath of nodeFiles) {
-    checkNodeFile(filePath);
+    for (const filePath of nodeFiles) {
+        checkNodeFile(filePath);
+    }
+
+    for (const filePath of browserModules) {
+        checkBrowserModule(filePath);
+    }
+
+    for (const filePath of templates) {
+        checkEjsTemplate(filePath);
+    }
+
+    console.log(`Checked ${nodeFiles.length} Node files, ${browserModules.length} browser modules, and ${templates.length} EJS templates.`);
 }
 
-for (const filePath of browserModules) {
-    checkBrowserModule(filePath);
+if (require.main === module) {
+    main();
 }
 
-for (const filePath of templates) {
-    checkEjsTemplate(filePath);
-}
-
-console.log(`Checked ${nodeFiles.length} Node files, ${browserModules.length} browser modules, and ${templates.length} EJS templates.`);
+module.exports = {
+    checkBrowserModule,
+    checkEjsTemplate,
+    checkNodeFile,
+    main,
+    walkFiles,
+};

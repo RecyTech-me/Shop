@@ -9,7 +9,7 @@ function registerAdminDashboardRoutes(deps) {
         orders,
     } = deps;
     const { requireAdmin, render, setFlash, saveSessionAndRedirect } = http;
-    const { listAdminProducts } = products;
+    const { listAdminProductRows } = products;
     const { listPendingSiteReviews, approveSiteReview, deleteSiteReview } = reviews;
     const { getDashboardStats } = dashboard;
     const { listRecentOrders } = orders;
@@ -18,7 +18,7 @@ function registerAdminDashboardRoutes(deps) {
         render(res, "admin/dashboard", {
             title: "Administration",
             stats: getDashboardStats(db),
-            products: listAdminProducts(db),
+            products: listAdminProductRows(db),
             recentOrders: listRecentOrders(db),
             pendingReviews: listPendingSiteReviews(db),
         });

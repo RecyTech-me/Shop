@@ -37,14 +37,16 @@ function createOldProductSchema(databasePath) {
     `);
     db.prepare(`
         INSERT INTO products (
-            slug, product_kind, name, short_description, description, image_url,
+            slug, product_kind, name, category, categories_json, short_description, description, image_url,
             valid_configurations_json, price_cents, inventory, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
         "old-configured-product",
         "product",
         "Old configured product",
+        "Ordinateurs",
+        JSON.stringify(["Ordinateurs", "Promos"]),
         "Short",
         "Long",
         "",
@@ -71,6 +73,7 @@ test("schema migrations add and backfill product price ranges on old databases",
     createOldProductSchema(databasePath);
 
     const db = initializeDatabase(databasePath, {
+        NODE_ENV: "test",
         ADMIN_PASSWORD: "test-admin-password",
     });
     t.after(() => db.close());
@@ -82,6 +85,12 @@ test("schema migrations add and backfill product price ranges on old databases",
         WHERE slug = ?
     `).get("old-configured-product");
     const migration = db.prepare("SELECT id FROM schema_migrations WHERE id = ?").get("2026-06-23-product-price-ranges");
+    const categoryMigration = db.prepare("SELECT id FROM schema_migrations WHERE id = ?").get("2026-06-26-product-categories");
+    const categories = db.prepare(`
+        SELECT category, position
+        FROM product_categories
+        ORDER BY position
+    `).all();
 
     assert.ok(columns.includes("starting_price_cents"));
     assert.ok(columns.includes("maximum_price_cents"));
@@ -90,4 +99,21 @@ test("schema migrations add and backfill product price ranges on old databases",
         maximum_price_cents: 12000,
     });
     assert.ok(migration);
+    assert.ok(categoryMigration);
+    assert.deepEqual(categories, [
+        { category: "Ordinateurs", position: 0 },
+        { category: "Promos", position: 1 },
+    ]);
+});
+
+test("production admin bootstrap rejects placeholder passwords", (t) => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "recytech-admin-bootstrap-test-"));
+    const databasePath = path.join(directory, "shop.db");
+    t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+
+    assert.throws(() => initializeDatabase(databasePath, {
+        NODE_ENV: "production",
+        ADMIN_USERNAME: "admin",
+        ADMIN_PASSWORD: "change-me-now",
+    }), /placeholder/);
 });

@@ -74,6 +74,14 @@ function renderPdf(type) {
     });
 }
 
+function extractPdfText(pdf) {
+    return [...pdf.toString("latin1").matchAll(/<([0-9A-F]+)> Tj/g)]
+        .map((match) => Buffer.from(match[1], "hex").toString("latin1"))
+        .join("\n")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
 test("invoice and delivery slip PDFs render valid PDF bytes", () => {
     for (const type of ["invoice", "delivery-slip"]) {
         const pdf = renderPdf(type);
@@ -84,6 +92,31 @@ test("invoice and delivery slip PDFs render valid PDF bytes", () => {
         assert.match(text, /\/Type \/Page/);
         assert.ok(pdf.length > 1000);
     }
+});
+
+test("invoice PDF includes core order, customer, item, and payment text", () => {
+    const text = extractPdfText(renderPdf("invoice"));
+
+    assert.match(text, /FACTURE/);
+    assert.match(text, /F-RT-2026-0007/);
+    assert.match(text, /Élodie Exemple/);
+    assert.match(text, /ThinkPad T480 reconditionné/);
+    assert.match(text, /RAM: 16 GB/);
+    assert.match(text, /1 299\.00 CHF/);
+    assert.match(text, /Payment details/);
+    assert.match(text, /Conditions générales de vente/);
+});
+
+test("delivery slip PDF includes fulfillment text without invoice totals", () => {
+    const text = extractPdfText(renderPdf("delivery-slip"));
+
+    assert.match(text, /BON DE LIVRAISON/);
+    assert.match(text, /BL-RT-2026-0007/);
+    assert.match(text, /Mode : Expédition/);
+    assert.match(text, /ThinkPad T480 reconditionné/);
+    assert.match(text, /Remis \/ reçu par/);
+    assert.doesNotMatch(text, /Prix unit\./);
+    assert.doesNotMatch(text, /1 299\.00 CHF/);
 });
 
 test("document filenames are sanitized and type-specific", () => {

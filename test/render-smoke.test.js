@@ -47,7 +47,7 @@ async function fetchText(baseUrl, path) {
 function assertHtmlPage(html, titlePrefix) {
     assert.match(html, new RegExp(`<title>${titlePrefix} \\| [^<]+</title>`));
     assert.match(html, /<meta name="csrf-token" content="[a-f0-9]+">/);
-    assert.match(html, /<link rel="stylesheet" href="\/static\/styles\/main\.css">/);
+    assert.match(html, /<link rel="stylesheet" href="\/static\/styles\/main\.css\?v=[a-z0-9]+">/);
 }
 
 function escapeRegExp(value) {
@@ -67,8 +67,10 @@ test("critical pages render with SEO metadata and static CSS assets", async (t) 
     for (const page of pages) {
         const { response, text } = await fetchText(baseUrl, page.path);
         const csp = response.headers.get("content-security-policy") || "";
+        const requestId = response.headers.get("x-request-id") || "";
 
         assert.equal(response.status, page.status, `${page.path} should return ${page.status}`);
+        assert.match(requestId, /^[a-zA-Z0-9._:-]{8,128}$/);
         assert.match(csp, /default-src 'self'/);
         assert.match(csp, /script-src 'self' 'nonce-[^']+' https:\/\/js\.stripe\.com/);
         assert.doesNotMatch(csp, /unsafe-inline/);
@@ -80,6 +82,14 @@ test("critical pages render with SEO metadata and static CSS assets", async (t) 
     }
 
     const home = await fetchText(baseUrl, "/");
+    const stylesheetMatch = home.text.match(/<link rel="stylesheet" href="([^"]+)">/);
+    assert.ok(stylesheetMatch, "Expected a versioned stylesheet URL");
+    assert.match(stylesheetMatch[1], /^\/static\/styles\/main\.css\?v=[a-z0-9]+$/);
+
+    const versionedMainCss = await fetchText(baseUrl, stylesheetMatch[1]);
+    assert.equal(versionedMainCss.response.status, 200);
+    assert.match(versionedMainCss.response.headers.get("cache-control") || "", /immutable/);
+
     const productMatch = home.text.match(/href="(\/products\/[^"]+)"/);
     if (productMatch) {
         const { response, text } = await fetchText(baseUrl, productMatch[1]);
@@ -91,6 +101,7 @@ test("critical pages render with SEO metadata and static CSS assets", async (t) 
 
     const mainCss = await fetchText(baseUrl, "/static/styles/main.css");
     assert.equal(mainCss.response.status, 200);
+    assert.doesNotMatch(mainCss.response.headers.get("cache-control") || "", /immutable/);
     assert.doesNotMatch(mainCss.text, /footer-responsive/);
 
     const imports = [...mainCss.text.matchAll(/@import "\.\/([^"]+)";/g)].map((match) => match[1]);
@@ -103,5 +114,22 @@ test("critical pages render with SEO metadata and static CSS assets", async (t) 
 
         assert.equal(asset.response.status, 200, `${fileName} should be served`);
         assert.ok(asset.text.trim().length > 0, `${fileName} should not be empty`);
+
+        const nestedImports = [...asset.text.matchAll(/@import "\.\/([^"]+)";/g)].map((match) => match[1]);
+        for (const nestedFileName of nestedImports) {
+            const nestedAsset = await fetchText(baseUrl, `/static/styles/${nestedFileName}`);
+
+            assert.equal(nestedAsset.response.status, 200, `${nestedFileName} should be served`);
+            assert.ok(nestedAsset.text.trim().length > 0, `${nestedFileName} should not be empty`);
+        }
     }
+
+    const health = await fetchText(baseUrl, "/healthz");
+    const healthJson = JSON.parse(health.text);
+    assert.equal(health.response.status, 200);
+    assert.equal(health.response.headers.get("content-type")?.includes("application/json"), true);
+    assert.match(health.response.headers.get("cache-control") || "", /no-store/);
+    assert.match(health.response.headers.get("x-request-id") || "", /^[a-zA-Z0-9._:-]{8,128}$/);
+    assert.deepEqual(healthJson.checks, { database: "ok" });
+    assert.equal(healthJson.status, "ok");
 });

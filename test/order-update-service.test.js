@@ -24,6 +24,7 @@ const { createOrderUpdateService } = require("../lib/order-update-service");
 function createTestDb(t) {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), "recytech-order-update-test-"));
     const db = initializeDatabase(path.join(directory, "shop.db"), {
+        NODE_ENV: "test",
         ADMIN_PASSWORD: "test-admin-password",
     });
 
