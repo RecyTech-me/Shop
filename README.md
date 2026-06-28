@@ -40,6 +40,8 @@ This runs:
 - `npm audit --omit=dev --audit-level=high`
 - `npm run coverage:check` runs the Node coverage report and fails below the configured minimums
 
+CI runs `npm ci`, `npm run verify`, `npm run coverage:check`, `npm audit --audit-level=moderate`, and a Gitleaks secret scan. Configure branch protection so these checks are required before merging.
+
 For quicker iteration, run individual checks directly:
 
 ```sh
@@ -47,6 +49,12 @@ npm run check
 npm test
 npm run coverage
 ```
+
+See also:
+
+- `docs/architecture.md` for request, payment, inventory, and deployment lifecycle notes.
+- `docs/operations.md` for reservation cleanup and backup verification runbooks.
+- `docs/release-checklist.md` for repeatable deployment checks.
 
 ## Default admin bootstrap
 
@@ -144,6 +152,12 @@ npm run backup:sqlite
 ```
 
 Pass `-- --database=/path/to/shop.db --out-dir=/secure/backup/dir` to override the defaults.
+
+Verify a backup by restoring/checking a temporary copy:
+
+```sh
+npm run backup:verify -- --backup=/secure/backup/dir/shop-YYYYMMDD-HHMMSS.db
+```
 
 Keep backups outside the deployed release directory and protect them like secrets because order records, SMTP settings, and customer contact details are stored in SQLite.
 

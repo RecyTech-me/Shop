@@ -16,6 +16,7 @@
     "coverage": "node --test --experimental-test-coverage",
     "coverage:check": "node scripts/check-coverage.js",
     "backup:sqlite": "node scripts/backup-sqlite.js",
+    "backup:verify": "node scripts/verify-sqlite-backup.js",
     "health:check": "node scripts/check-health.js",
     "verify": "npm run check && npm run lint && npm test && npm audit --omit=dev --audit-level=high"
   },

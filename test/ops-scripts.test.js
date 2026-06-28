@@ -155,3 +155,41 @@ test("SQLite backup script writes a restorable backup file", (t) => {
         backup.close();
     }
 });
+
+test("SQLite backup verification script restores and checks a backup copy", (t) => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "recytech-backup-verify-"));
+    const databasePath = path.join(directory, "shop.db");
+    const backupDir = path.join(directory, "backups");
+    const db = new Database(databasePath);
+
+    db.exec(`
+        CREATE TABLE orders (id INTEGER PRIMARY KEY, order_number TEXT NOT NULL);
+        INSERT INTO orders (order_number) VALUES ('RCT-VERIFY');
+    `);
+    db.close();
+
+    t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+
+    const backupResult = spawnSync(process.execPath, [
+        path.join(rootDir, "scripts", "backup-sqlite.js"),
+        `--database=${databasePath}`,
+        `--out-dir=${backupDir}`,
+    ], {
+        cwd: rootDir,
+        encoding: "utf8",
+    });
+    assert.equal(backupResult.status, 0, backupResult.stderr || backupResult.stdout);
+
+    const backupPath = path.join(backupDir, fs.readdirSync(backupDir).find((fileName) => fileName.endsWith(".db")));
+    const verifyResult = spawnSync(process.execPath, [
+        path.join(rootDir, "scripts", "verify-sqlite-backup.js"),
+        `--backup=${backupPath}`,
+    ], {
+        cwd: rootDir,
+        encoding: "utf8",
+    });
+
+    assert.equal(verifyResult.status, 0, verifyResult.stderr || verifyResult.stdout);
+    assert.match(verifyResult.stdout, /SQLite backup verified/);
+    assert.match(verifyResult.stdout, /Orders table present: yes/);
+});
