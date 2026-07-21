@@ -1,5 +1,9 @@
-const { verifyPassword } = require("../../lib/auth");
+const { verifyPassword, verifyPasswordAsync } = require("../../lib/auth");
+const { parseInteger } = require("../../lib/input-utils");
+const logger = require("../../lib/logger");
 const { ADMIN_ROLE_OPTIONS } = require("../../lib/shop-formatters");
+
+const INVALID_LOGIN_PASSWORD_HASH = "00000000000000000000000000000000:abfdd81bf7129c0eb2d1a12469d84d24639044a94ce15e6b8fa230aaed3949eaca1910f40f5f90e40ce744bd47bcfd7ef54b3cc73cb2c6a91138b11e84b2d69c";
 
 function registerAdminSessionRoutes(deps) {
     const {
@@ -16,8 +20,8 @@ function registerAdminSessionRoutes(deps) {
         setFlash,
         saveSessionAndRedirect,
         getLoginRateLimitState,
-        registerLoginFailure,
-        clearLoginFailures,
+        registerLoginAttempt,
+        clearLoginAttempts,
         getOrCreateCsrfToken,
     } = http;
     const { readAdminUserInput, readAdminAccountInput } = forms;
@@ -41,7 +45,7 @@ function registerAdminSessionRoutes(deps) {
         });
     });
 
-    app.post("/admin/login", (req, res) => {
+    app.post("/admin/login", async (req, res) => {
         const rateLimitState = getLoginRateLimitState(req);
         if (rateLimitState.blockedUntil > Date.now()) {
             setFlash(req, "error", "Trop de tentatives de connexion. Réessayez plus tard.");
@@ -51,14 +55,18 @@ function registerAdminSessionRoutes(deps) {
         const username = String(req.body.username || "").trim();
         const password = String(req.body.password || "");
         const admin = getAdminByUsername(db, username);
+        registerLoginAttempt(req);
+        const passwordMatches = await verifyPasswordAsync(
+            password,
+            admin?.password_hash || INVALID_LOGIN_PASSWORD_HASH
+        );
 
-        if (!admin || !verifyPassword(password, admin.password_hash)) {
-            registerLoginFailure(req);
+        if (!admin || !passwordMatches) {
             setFlash(req, "error", "Identifiants invalides.");
             return saveSessionAndRedirect(req, res, "/admin/login");
         }
 
-        clearLoginFailures(req);
+        clearLoginAttempts(req);
         req.session.regenerate((error) => {
             if (error) {
                 setFlash(req, "error", "Impossible d'ouvrir une session sécurisée.");
@@ -66,6 +74,7 @@ function registerAdminSessionRoutes(deps) {
             }
 
             req.session.adminId = admin.id;
+            req.session.adminAuthVersion = admin.auth_version;
             getOrCreateCsrfToken(req);
             setFlash(req, "success", "Connexion réussie.");
             return saveSessionAndRedirect(req, res, "/");
@@ -73,9 +82,17 @@ function registerAdminSessionRoutes(deps) {
     });
 
     app.post("/admin/logout", requireAdmin, (req, res) => {
-        req.session.destroy(() => {
+        req.session.destroy((error) => {
+            if (error) {
+                logger.error("session.logout_destroy_failed", {
+                    requestId: req.requestId,
+                    error: error.message,
+                });
+                return res.status(503).send("Déconnexion temporairement indisponible. Veuillez réessayer.");
+            }
+
             res.clearCookie("connect.sid");
-            res.redirect("/admin/login");
+            return res.redirect("/admin/login");
         });
     });
 
@@ -100,11 +117,12 @@ function registerAdminSessionRoutes(deps) {
                 throw new Error("Le mot de passe actuel est incorrect.");
             }
 
-            updateAdminUser(db, adminRecord.id, {
+            const updatedAdmin = updateAdminUser(db, adminRecord.id, {
                 username: input.username,
                 role: adminRecord.role,
                 password: input.password,
             });
+            req.session.adminAuthVersion = updatedAdmin.auth_version;
 
             setFlash(req, "success", "Votre compte a été mis à jour.");
             return saveSessionAndRedirect(req, res, "/admin/account");
@@ -151,7 +169,7 @@ function registerAdminSessionRoutes(deps) {
     });
 
     app.get("/admin/admins/:id/edit", requireSuperadmin, (req, res) => {
-        const adminUser = getAdminById(db, Number.parseInt(req.params.id, 10));
+        const adminUser = getAdminById(db, parseInteger(req.params.id, Number.NaN));
         if (!adminUser) {
             return res.status(404).render("not-found", { title: "Administrateur introuvable" });
         }
@@ -166,7 +184,7 @@ function registerAdminSessionRoutes(deps) {
     });
 
     app.post("/admin/admins/:id/edit", requireSuperadmin, (req, res) => {
-        const adminId = Number.parseInt(req.params.id, 10);
+        const adminId = parseInteger(req.params.id, Number.NaN);
         const existingAdmin = getAdminById(db, adminId);
         if (!existingAdmin) {
             return res.status(404).render("not-found", { title: "Administrateur introuvable" });
@@ -178,7 +196,10 @@ function registerAdminSessionRoutes(deps) {
                 throw new Error("Le dernier superadmin ne peut pas être rétrogradé.");
             }
 
-            updateAdminUser(db, adminId, input);
+            const updatedAdmin = updateAdminUser(db, adminId, input);
+            if (adminId === req.currentAdmin.id) {
+                req.session.adminAuthVersion = updatedAdmin.auth_version;
+            }
             setFlash(req, "success", "Administrateur mis à jour.");
             return saveSessionAndRedirect(req, res, "/admin/admins");
         } catch (error) {
@@ -191,7 +212,7 @@ function registerAdminSessionRoutes(deps) {
     });
 
     app.post("/admin/admins/:id/delete", requireSuperadmin, (req, res) => {
-        const adminId = Number.parseInt(req.params.id, 10);
+        const adminId = parseInteger(req.params.id, Number.NaN);
         const adminUser = getAdminById(db, adminId);
         if (!adminUser) {
             return res.status(404).render("not-found", { title: "Administrateur introuvable" });

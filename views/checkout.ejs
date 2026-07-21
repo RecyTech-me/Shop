@@ -21,20 +21,21 @@
                 data-stripe-prepare-url="/checkout/stripe/prepare"
             >
                 <%- include("partials/csrf-field") %>
+                <input type="hidden" name="checkout_attempt_id" value="<%= checkoutAttemptId %>">
                 <div class="checkout-group">
                     <h2>Coordonnées</h2>
                     <div class="checkout-grid checkout-grid-two">
                         <label class="checkout-grid-full">
                             Adresse e-mail
-                            <input type="email" name="customer_email" value="<%= checkoutForm.customer_email %>" required>
+                            <input type="email" name="customer_email" value="<%= checkoutForm.customer_email %>" maxlength="254" required>
                         </label>
                         <label>
                             Prénom
-                            <input type="text" name="customer_first_name" value="<%= checkoutForm.customer_first_name %>" required>
+                            <input type="text" name="customer_first_name" value="<%= checkoutForm.customer_first_name %>" maxlength="100" required>
                         </label>
                         <label>
                             Nom
-                            <input type="text" name="customer_last_name" value="<%= checkoutForm.customer_last_name %>" required>
+                            <input type="text" name="customer_last_name" value="<%= checkoutForm.customer_last_name %>" maxlength="100" required>
                         </label>
                     </div>
                 </div>
@@ -95,30 +96,30 @@
                     <div class="checkout-grid checkout-grid-two">
                         <label class="checkout-grid-full">
                             Pays/Région
-                            <input type="text" name="shipping_country" value="<%= checkoutForm.shipping_country %>" required>
+                            <input type="text" name="shipping_country" value="<%= checkoutForm.shipping_country %>" maxlength="100" required>
                         </label>
                         <label class="checkout-grid-full">
                             Adresse
-                            <input type="text" name="shipping_address1" value="<%= checkoutForm.shipping_address1 %>">
+                            <input type="text" name="shipping_address1" value="<%= checkoutForm.shipping_address1 %>" maxlength="200">
                         </label>
                         <label>
                             Code postal
-                            <input type="text" name="shipping_postal_code" value="<%= checkoutForm.shipping_postal_code %>">
+                            <input type="text" name="shipping_postal_code" value="<%= checkoutForm.shipping_postal_code %>" maxlength="32">
                         </label>
                         <label>
                             Ville
-                            <input type="text" name="shipping_city" value="<%= checkoutForm.shipping_city %>">
+                            <input type="text" name="shipping_city" value="<%= checkoutForm.shipping_city %>" maxlength="100">
                         </label>
                         <label>
                             Canton
-                            <input type="text" name="shipping_region" value="<%= checkoutForm.shipping_region %>">
+                            <input type="text" name="shipping_region" value="<%= checkoutForm.shipping_region %>" maxlength="100">
                         </label>
                         <label>
                             <span class="field-label">
                                 Téléphone
                                 <small>(optionnel)</small>
                             </span>
-                            <input type="text" name="shipping_phone" value="<%= checkoutForm.shipping_phone %>">
+                            <input type="text" name="shipping_phone" value="<%= checkoutForm.shipping_phone %>" maxlength="40">
                         </label>
                     </div>
                 </div>
@@ -140,38 +141,38 @@
                         <div class="checkout-grid checkout-grid-two">
                         <label class="checkout-grid-full">
                             Pays/Région
-                            <input type="text" name="billing_country" value="<%= checkoutForm.billing_country %>">
+                            <input type="text" name="billing_country" value="<%= checkoutForm.billing_country %>" maxlength="100">
                         </label>
                         <label>
                             Prénom
-                            <input type="text" name="billing_first_name" value="<%= checkoutForm.billing_first_name %>">
+                            <input type="text" name="billing_first_name" value="<%= checkoutForm.billing_first_name %>" maxlength="100">
                         </label>
                         <label>
                             Nom
-                            <input type="text" name="billing_last_name" value="<%= checkoutForm.billing_last_name %>">
+                            <input type="text" name="billing_last_name" value="<%= checkoutForm.billing_last_name %>" maxlength="100">
                         </label>
                         <label class="checkout-grid-full">
                             Adresse
-                            <input type="text" name="billing_address1" value="<%= checkoutForm.billing_address1 %>">
+                            <input type="text" name="billing_address1" value="<%= checkoutForm.billing_address1 %>" maxlength="200">
                         </label>
                         <label>
                             Code postal
-                            <input type="text" name="billing_postal_code" value="<%= checkoutForm.billing_postal_code %>">
+                            <input type="text" name="billing_postal_code" value="<%= checkoutForm.billing_postal_code %>" maxlength="32">
                         </label>
                         <label>
                             Ville
-                            <input type="text" name="billing_city" value="<%= checkoutForm.billing_city %>">
+                            <input type="text" name="billing_city" value="<%= checkoutForm.billing_city %>" maxlength="100">
                         </label>
                         <label>
                             Canton
-                            <input type="text" name="billing_region" value="<%= checkoutForm.billing_region %>">
+                            <input type="text" name="billing_region" value="<%= checkoutForm.billing_region %>" maxlength="100">
                         </label>
                         <label>
                             <span class="field-label">
                                 Téléphone
                                 <small>(optionnel)</small>
                             </span>
-                            <input type="text" name="billing_phone" value="<%= checkoutForm.billing_phone %>">
+                            <input type="text" name="billing_phone" value="<%= checkoutForm.billing_phone %>" maxlength="40">
                         </label>
                         </div>
                     </div>
@@ -245,7 +246,7 @@
                     <div class="promo-code-row">
                         <label class="checkout-grid-full">
                             Code promo
-                            <input type="text" name="promo_code" value="<%= checkoutForm.promo_code %>" placeholder="Code promo" autocapitalize="characters" autocomplete="off">
+                            <input type="text" name="promo_code" value="<%= checkoutForm.promo_code %>" maxlength="64" placeholder="Code promo" autocapitalize="characters" autocomplete="off">
                         </label>
                         <button
                             type="submit"
@@ -272,7 +273,7 @@
                 <div class="checkout-group">
                     <label>
                         Ajouter une note à votre commande
-                        <textarea name="order_note" rows="4"><%= checkoutForm.order_note %></textarea>
+                        <textarea name="order_note" rows="4" maxlength="2000"><%= checkoutForm.order_note %></textarea>
                     </label>
                 </div>
 

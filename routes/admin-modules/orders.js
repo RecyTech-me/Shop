@@ -1,4 +1,5 @@
 const { buildOrderDocumentPdf, buildOrderDocumentFilename } = require("../../lib/order-documents");
+const { parseInteger: parseRouteInteger } = require("../../lib/input-utils");
 const { createManualOrderService } = require("../../lib/manual-order-service");
 const { createOrderUpdateService } = require("../../lib/order-update-service");
 const {
@@ -31,7 +32,7 @@ function registerAdminOrderRoutes(deps) {
         mail,
     } = deps;
     const { requireAdmin, render, setFlash, saveSessionAndRedirect } = http;
-    const { normalizeText, normalizeSingleLineText } = text;
+    const { normalizeText, normalizeSingleLineText, parseInteger } = text;
     const { parseMoneyToCents, parseOptionalMoneyToCents, normalizeOrderDateTimeField } = money;
     const { readSelectedProductOptions } = forms;
     const { productCategoryList } = publicProducts;
@@ -58,6 +59,7 @@ function registerAdminOrderRoutes(deps) {
         getOrderById,
         updateOrderRecord,
         markOrderPaid,
+        reserveOrderInventory,
         listOrders,
         countOrders,
         deleteOrder,
@@ -73,6 +75,7 @@ function registerAdminOrderRoutes(deps) {
         db,
         normalizeText,
         normalizeSingleLineText,
+        parseInteger,
         parseMoneyToCents,
         parseOptionalMoneyToCents,
         normalizeOrderDateTimeField,
@@ -89,6 +92,7 @@ function registerAdminOrderRoutes(deps) {
         getProductById,
         createOrder,
         markOrderPaid,
+        reserveOrderInventory,
         updateOrderRecord,
     });
     const orderUpdateService = createOrderUpdateService({
@@ -104,7 +108,7 @@ function registerAdminOrderRoutes(deps) {
     });
 
     function sendOrderDocumentPdf(req, res, type) {
-        const order = getOrderById(db, Number.parseInt(req.params.id, 10));
+        const order = getOrderById(db, parseRouteInteger(req.params.id, Number.NaN));
         if (!order) {
             return res.status(404).render("not-found", { title: "Commande introuvable" });
         }
@@ -167,7 +171,7 @@ function registerAdminOrderRoutes(deps) {
     });
 
     app.get("/admin/orders/:id", requireAdmin, (req, res) => {
-        const order = getOrderById(db, Number.parseInt(req.params.id, 10));
+        const order = getOrderById(db, parseRouteInteger(req.params.id, Number.NaN));
         if (!order) {
             return res.status(404).render("not-found", { title: "Commande introuvable" });
         }
@@ -191,7 +195,7 @@ function registerAdminOrderRoutes(deps) {
     });
 
     app.post("/admin/orders/:id/update", requireAdmin, (req, res) => {
-        const order = getOrderById(db, Number.parseInt(req.params.id, 10));
+        const order = getOrderById(db, parseRouteInteger(req.params.id, Number.NaN));
         if (!order) {
             return res.status(404).render("not-found", { title: "Commande introuvable" });
         }
@@ -208,7 +212,7 @@ function registerAdminOrderRoutes(deps) {
     });
 
     app.post("/admin/orders/:id/send-email", requireAdmin, async (req, res) => {
-        const order = getOrderById(db, Number.parseInt(req.params.id, 10));
+        const order = getOrderById(db, parseRouteInteger(req.params.id, Number.NaN));
         if (!order) {
             return res.status(404).render("not-found", { title: "Commande introuvable" });
         }
@@ -242,14 +246,18 @@ function registerAdminOrderRoutes(deps) {
     });
 
     app.post("/admin/orders/:id/delete", requireAdmin, (req, res) => {
-        const order = getOrderById(db, Number.parseInt(req.params.id, 10));
+        const order = getOrderById(db, parseRouteInteger(req.params.id, Number.NaN));
         if (!order) {
             setFlash(req, "error", "Commande introuvable.");
             return saveSessionAndRedirect(req, res, "/admin/orders");
         }
 
-        deleteOrder(db, order.id);
-        setFlash(req, "success", `La commande ${order.order_number} a été supprimée.`);
+        try {
+            deleteOrder(db, order.id);
+            setFlash(req, "success", `La commande ${order.order_number} a été supprimée.`);
+        } catch (error) {
+            setFlash(req, "error", error.message);
+        }
         return saveSessionAndRedirect(req, res, "/admin/orders");
     });
 }

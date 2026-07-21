@@ -1,4 +1,6 @@
 const { getLegalPages } = require("../lib/legal-pages");
+const logger = require("../lib/logger");
+const { getPublicErrorResponse } = require("../lib/http/public-errors");
 
 const REVIEW_SUBMISSION_WINDOW_MS = 60 * 1000;
 
@@ -21,7 +23,7 @@ function registerStorefrontRoutes(deps) {
         getReviewSubmissionRateLimitState = () => ({ blockedUntil: 0 }),
         registerReviewSubmissionAttempt = () => {},
     } = rateLimiters;
-    const { normalizeText } = text;
+    const { normalizeText, parseInteger } = text;
     const { parseMoneyToCents } = money;
     const { readSiteReviewInput, readSelectedProductOptions } = forms;
     const {
@@ -47,6 +49,15 @@ function registerStorefrontRoutes(deps) {
         getSiteReviewSummary,
         createSiteReview,
     } = reviews;
+
+    function readPositiveInteger(value, label) {
+        const parsed = parseInteger(value, Number.NaN);
+        if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+            throw new Error(`${label} invalide.`);
+        }
+
+        return parsed;
+    }
 
     function readCatalogueFilters(values) {
         const priceMin = normalizeText(values.price_min);
@@ -150,16 +161,27 @@ function registerStorefrontRoutes(deps) {
             registerReviewSubmissionAttempt(req);
             setFlash(req, "success", "Merci ! Nous vérifions les avis avant publication pour éviter le spam.");
         } catch (error) {
-            setFlash(req, "error", error.message);
+            const publicError = getPublicErrorResponse(
+                error,
+                "Impossible d'enregistrer votre avis. Veuillez réessayer."
+            );
+            if (publicError.internal) {
+                logger.error("reviews.submission_failed", {
+                    requestId: req.requestId,
+                    error: error.message,
+                });
+            }
+            setFlash(req, "error", publicError.message);
         }
 
         return saveSessionAndRedirect(req, res, "/#reviews");
     });
 
     app.post("/cart/add", (req, res) => {
-        const productId = Number.parseInt(req.body.product_id, 10);
-        const quantity = Number.parseInt(req.body.quantity || "1", 10) || 1;
-        const product = getProductById(db, productId);
+        const productId = parseInteger(req.body.product_id, Number.NaN);
+        const product = Number.isSafeInteger(productId) && productId > 0
+            ? getProductById(db, productId)
+            : null;
 
         if (!product || !product.published) {
             setFlash(req, "error", "Produit introuvable.");
@@ -176,14 +198,15 @@ function registerStorefrontRoutes(deps) {
         let selectedOptions = [];
 
         try {
+            const quantity = readPositiveInteger(req.body.quantity || "1", "Quantité");
             selectedOptions = readSelectedProductOptions(product, req.body);
             ensureAvailableProductQuantity(product, selectedOptions, quantity);
+            upsertCartItem(req, productId, quantity, selectedOptions);
         } catch (error) {
             setFlash(req, "error", error.message);
             return saveSessionAndRedirect(req, res, redirectTarget);
         }
 
-        upsertCartItem(req, productId, quantity, selectedOptions);
         setFlash(req, "success", `${product.name} a été ajouté au panier.`, {
             actionHref: "/cart",
             actionLabel: "Voir le panier",
@@ -199,12 +222,18 @@ function registerStorefrontRoutes(deps) {
 
     app.post("/cart/update", (req, res) => {
         const itemKey = normalizeText(req.body.item_key);
-        const productId = Number.parseInt(req.body.product_id, 10);
-        const quantity = Number.parseInt(req.body.quantity || "1", 10) || 1;
-        const product = getProductById(db, productId);
+        const productId = parseInteger(req.body.product_id, Number.NaN);
+        const product = Number.isSafeInteger(productId) && productId > 0
+            ? getProductById(db, productId)
+            : null;
         const cartItem = getCartItems(req).find((item) => (item.itemKey || makeCartItemKey(item.productId, item.selectedOptions || [])) === itemKey);
 
-        if (!product || product.inventory <= 0) {
+        if (!cartItem || Number(cartItem.productId) !== productId) {
+            setFlash(req, "error", "Cet article ne correspond plus à votre panier.");
+            return saveSessionAndRedirect(req, res, "/cart");
+        }
+
+        if (!product || !product.published || product.inventory <= 0) {
             if (itemKey) {
                 removeCartItem(req, itemKey);
             }
@@ -213,13 +242,14 @@ function registerStorefrontRoutes(deps) {
         }
 
         try {
+            const quantity = readPositiveInteger(req.body.quantity || "1", "Quantité");
             ensureAvailableProductQuantity(product, cartItem?.selectedOptions || [], quantity);
+            upsertCartItem(req, productId, quantity, cartItem?.selectedOptions || []);
         } catch (error) {
             setFlash(req, "error", error.message);
             return saveSessionAndRedirect(req, res, "/cart");
         }
 
-        upsertCartItem(req, productId, quantity, cartItem?.selectedOptions || []);
         setFlash(req, "success", "Le panier a été mis à jour.");
         saveSessionAndRedirect(req, res, "/cart");
     });

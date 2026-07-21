@@ -1,6 +1,9 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const { registerStorefrontRoutes } = require("../routes/storefront");
+const logger = require("../lib/logger");
+
+logger.configureLogger({ level: "silent" });
 
 function registerRoutes(overrides = {}) {
     const handlers = new Map();
@@ -35,6 +38,9 @@ function registerRoutes(overrides = {}) {
         },
         text: {
             normalizeText: (value) => String(value || "").trim(),
+            parseInteger: (value, fallback) => /^\d+$/.test(String(value || ""))
+                ? Number.parseInt(value, 10)
+                : fallback,
         },
         money: {
             parseMoneyToCents: () => Number.NaN,
@@ -66,12 +72,14 @@ function registerRoutes(overrides = {}) {
             getCartItems: () => [],
             makeCartItemKey: () => "key",
             removeCartItem: () => {},
+            ...overrides.cart,
         },
         products: {
             listPublishedProducts: () => [],
             listProductCategories: () => [],
             getProductBySlug: () => null,
             getProductById: () => null,
+            ...overrides.products,
         },
         reviews: {
             listApprovedSiteReviews: () => [],
@@ -80,6 +88,7 @@ function registerRoutes(overrides = {}) {
                 calls.push(["createSiteReview", input.rating]);
                 reviews.push(input);
             },
+            ...overrides.reviews,
         },
     };
 
@@ -89,6 +98,7 @@ function registerRoutes(overrides = {}) {
         calls,
         reviews,
         handler: handlers.get("/reviews"),
+        handlers,
     };
 }
 
@@ -155,6 +165,21 @@ test("invalid review input does not stamp successful throttle", () => {
     assert.ok(calls.some((call) => call[0] === "flash" && /Note obligatoire/.test(call[2])));
 });
 
+test("review submission does not expose database errors", () => {
+    const { calls, handler } = registerRoutes({
+        reviews: {
+            createSiteReview: () => {
+                throw Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" });
+            },
+        },
+    });
+
+    handler(createRequest({ rating: "5" }), createResponse());
+
+    assert.ok(calls.some((call) => call[0] === "flash" && /Impossible d'enregistrer votre avis/.test(call[2])));
+    assert.ok(!calls.some((call) => call[0] === "flash" && /database is locked/.test(call[2])));
+});
+
 test("review submission rejects IP-rate-limited clients even without session throttle", () => {
     const { calls, reviews, handler } = registerRoutes({
         rateLimiters: {
@@ -172,4 +197,70 @@ test("review submission rejects IP-rate-limited clients even without session thr
     assert.equal(res.redirectedTo, "/#reviews");
     assert.equal(reviews.length, 0);
     assert.ok(calls.some((call) => call[0] === "flash" && /Veuillez patienter/.test(call[2])));
+});
+
+test("cart updates cannot target a product outside the matching cart item", () => {
+    const mutations = [];
+    const cartItem = { productId: 1, itemKey: "item-1", selectedOptions: [] };
+    const { calls, handlers } = registerRoutes({
+        cart: {
+            getCartItems: () => [cartItem],
+            upsertCartItem: (...args) => mutations.push(["upsert", ...args]),
+            removeCartItem: (...args) => mutations.push(["remove", ...args]),
+        },
+        products: {
+            getProductById: () => ({ id: 2, published: 1, inventory: 3 }),
+        },
+    });
+    const req = createRequest({ item_key: "item-1", product_id: "2", quantity: "1" });
+
+    handlers.get("/cart/update")(req, createResponse());
+
+    assert.deepEqual(mutations, []);
+    assert.ok(calls.some((call) => call[0] === "flash" && /correspond plus/.test(call[2])));
+});
+
+test("cart updates remove products that are no longer published", () => {
+    const mutations = [];
+    const cartItem = { productId: 1, itemKey: "item-1", selectedOptions: [] };
+    const { calls, handlers } = registerRoutes({
+        cart: {
+            getCartItems: () => [cartItem],
+            upsertCartItem: (...args) => mutations.push(["upsert", ...args]),
+            removeCartItem: (_req, itemKey) => mutations.push(["remove", itemKey]),
+        },
+        products: {
+            getProductById: () => ({ id: 1, published: 0, inventory: 3 }),
+        },
+    });
+    const req = createRequest({ item_key: "item-1", product_id: "1", quantity: "1" });
+
+    handlers.get("/cart/update")(req, createResponse());
+
+    assert.deepEqual(mutations, [["remove", "item-1"]]);
+    assert.ok(calls.some((call) => call[0] === "flash" && /n'est plus disponible/.test(call[2])));
+});
+
+test("cart updates reject partial and non-positive quantities", () => {
+    for (const quantity of ["2items", "0", "-1"]) {
+        const mutations = [];
+        const cartItem = { productId: 1, itemKey: "item-1", selectedOptions: [] };
+        const { calls, handlers } = registerRoutes({
+            cart: {
+                getCartItems: () => [cartItem],
+                upsertCartItem: (...args) => mutations.push(args),
+            },
+            products: {
+                getProductById: () => ({ id: 1, published: 1, inventory: 3 }),
+            },
+        });
+
+        handlers.get("/cart/update")(
+            createRequest({ item_key: "item-1", product_id: "1", quantity }),
+            createResponse()
+        );
+
+        assert.deepEqual(mutations, []);
+        assert.ok(calls.some((call) => call[0] === "flash" && /Quantité invalide/.test(call[2])));
+    }
 });

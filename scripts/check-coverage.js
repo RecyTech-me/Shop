@@ -1,14 +1,17 @@
 const { spawnSync } = require("child_process");
 
 const DEFAULT_THRESHOLDS = {
-    line: 75,
-    branch: 55,
-    funcs: 75,
+    line: 80,
+    branch: 60,
+    funcs: 80,
 };
 
 function readThreshold(name, fallback) {
-    const parsed = Number.parseFloat(process.env[name] || "");
-    return Number.isFinite(parsed) ? parsed : fallback;
+    const normalized = String(process.env[name] || "").trim();
+    const parsed = /^(?:\d+(?:\.\d*)?|\.\d+)$/.test(normalized)
+        ? Number(normalized)
+        : Number.NaN;
+    return Number.isFinite(parsed) && parsed >= 0 && parsed <= 100 ? parsed : fallback;
 }
 
 function stripAnsi(value) {

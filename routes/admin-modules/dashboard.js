@@ -1,3 +1,5 @@
+const { parseInteger } = require("../../lib/input-utils");
+
 function registerAdminDashboardRoutes(deps) {
     const {
         app,
@@ -25,7 +27,7 @@ function registerAdminDashboardRoutes(deps) {
     });
 
     app.post("/admin/reviews/:id/approve", requireAdmin, (req, res) => {
-        const reviewId = Number.parseInt(req.params.id, 10);
+        const reviewId = parseInteger(req.params.id, Number.NaN);
         const review = approveSiteReview(db, reviewId);
 
         if (!review) {
@@ -38,7 +40,7 @@ function registerAdminDashboardRoutes(deps) {
     });
 
     app.post("/admin/reviews/:id/delete", requireAdmin, (req, res) => {
-        const reviewId = Number.parseInt(req.params.id, 10);
+        const reviewId = parseInteger(req.params.id, Number.NaN);
         const deleted = deleteSiteReview(db, reviewId);
 
         setFlash(req, deleted ? "success" : "error", deleted ? "Avis supprimé." : "Avis introuvable.");

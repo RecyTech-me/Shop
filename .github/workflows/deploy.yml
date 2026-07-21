@@ -8,19 +8,22 @@ on:
 
 concurrency:
   group: deploy-production
-  cancel-in-progress: true
+  cancel-in-progress: false
+
+permissions:
+  contents: read
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Setup Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: 24
           cache: npm
@@ -28,6 +31,7 @@ jobs:
       - name: Validate before deploy
         run: |
           npm ci
+          npx playwright install --with-deps chromium
           npm run verify
           npm run coverage:check
 
@@ -36,7 +40,15 @@ jobs:
           mkdir -p ~/.ssh
           printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -p "${{ secrets.DEPLOY_PORT || 22 }}" -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts
+          printf '%s\n' "${{ secrets.DEPLOY_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          test -s ~/.ssh/known_hosts
+
+      - name: Prepare staging directory
+        run: |
+          ssh -i ~/.ssh/deploy_key -p "${{ secrets.DEPLOY_PORT || 22 }}" \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+            "mkdir -p '${{ secrets.DEPLOY_PATH }}.staging'"
 
       - name: Upload application files
         run: |
@@ -48,21 +60,86 @@ jobs:
             --exclude 'storage/' \
             --exclude 'public/uploads/' \
             -e "ssh -i ~/.ssh/deploy_key -p ${{ secrets.DEPLOY_PORT || 22 }}" \
-            ./ "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:${{ secrets.DEPLOY_PATH }}/"
+            ./ "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:${{ secrets.DEPLOY_PATH }}.staging/"
 
-      - name: Install dependencies and restart
+      - name: Install, back up, promote, and restart
         run: |
           ssh -i ~/.ssh/deploy_key -p "${{ secrets.DEPLOY_PORT || 22 }}" "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" <<'EOF'
             set -euo pipefail
-            cd "${{ secrets.DEPLOY_PATH }}"
-            mkdir -p storage public/uploads/products
+            LIVE_DIR="${{ secrets.DEPLOY_PATH }}"
+            STAGING_DIR="${{ secrets.DEPLOY_PATH }}.staging"
+            PREVIOUS_DIR="${{ secrets.DEPLOY_PATH }}.previous"
+            HAD_PREVIOUS_RELEASE=0
+
+            cd "$STAGING_DIR"
             npm ci --omit=dev
-            DATABASE_PATH="$(node -e "require('dotenv').config(); process.stdout.write(process.env.DATABASE_PATH || 'storage/shop.db')")"
-            BACKUP_DIR="$(node -e "require('dotenv').config(); process.stdout.write(process.env.BACKUP_DIR || 'storage/backups')")"
-            if [ -f "$DATABASE_PATH" ]; then
-              npm run backup:sqlite -- --database="$DATABASE_PATH" --out-dir="$BACKUP_DIR"
+
+            mkdir -p "$LIVE_DIR/storage" "$LIVE_DIR/public/uploads/products" "$LIVE_DIR/public/uploads/settings"
+            if [ -f "$LIVE_DIR/.env" ]; then
+              DATABASE_PATH="$(cd "$STAGING_DIR" && DOTENV_CONFIG_PATH="$LIVE_DIR/.env" node -r dotenv/config -e "process.stdout.write(process.env.DATABASE_PATH || 'storage/shop.db')")"
+              BACKUP_DIR="$(cd "$STAGING_DIR" && DOTENV_CONFIG_PATH="$LIVE_DIR/.env" node -r dotenv/config -e "process.stdout.write(process.env.BACKUP_DIR || 'storage/backups')")"
+            else
+              DATABASE_PATH="storage/shop.db"
+              BACKUP_DIR="storage/backups"
             fi
-            sudo systemctl restart shopsite
-            sleep 2
-            SHOP_PUBLIC_URL="${{ secrets.DEPLOY_URL }}" ALERT_WEBHOOK_URL="${{ secrets.ALERT_WEBHOOK_URL }}" npm run health:check
+
+            case "$DATABASE_PATH" in
+              /*) DATABASE_FILE="$DATABASE_PATH" ;;
+              *) DATABASE_FILE="$LIVE_DIR/$DATABASE_PATH" ;;
+            esac
+            case "$BACKUP_DIR" in
+              /*) BACKUP_PATH="$BACKUP_DIR" ;;
+              *) BACKUP_PATH="$LIVE_DIR/$BACKUP_DIR" ;;
+            esac
+
+            if [ -f "$DATABASE_FILE" ]; then
+              node "$STAGING_DIR/scripts/backup-sqlite.js" --database="$DATABASE_FILE" --out-dir="$BACKUP_PATH"
+            fi
+
+            if [ -f "$LIVE_DIR/package.json" ]; then
+              mkdir -p "$PREVIOUS_DIR"
+              rsync -a --delete --delay-updates --delete-delay \
+                --exclude '.env' \
+                --exclude 'storage/' \
+                --exclude 'public/uploads/' \
+                "$LIVE_DIR/" "$PREVIOUS_DIR/"
+              HAD_PREVIOUS_RELEASE=1
+            fi
+
+            rsync -a --delete --delay-updates --delete-delay \
+              --exclude '.env' \
+              --exclude 'storage/' \
+              --exclude 'public/uploads/' \
+              "$STAGING_DIR/" "$LIVE_DIR/"
+
+            cd "$LIVE_DIR"
+            if ! sudo systemctl restart shopsite; then
+              if [ "$HAD_PREVIOUS_RELEASE" -eq 1 ]; then
+                rsync -a --delete --delay-updates --delete-delay \
+                  --exclude '.env' \
+                  --exclude 'storage/' \
+                  --exclude 'public/uploads/' \
+                  "$PREVIOUS_DIR/" "$LIVE_DIR/"
+                sudo systemctl restart shopsite
+              fi
+              exit 1
+            fi
+
+            if ! SHOP_PUBLIC_URL="${{ secrets.DEPLOY_URL }}" \
+              ALERT_WEBHOOK_URL="${{ secrets.ALERT_WEBHOOK_URL }}" \
+              HEALTHCHECK_ATTEMPTS=10 \
+              HEALTHCHECK_RETRY_DELAY_MS=2000 \
+              npm run health:check; then
+              if [ "$HAD_PREVIOUS_RELEASE" -eq 1 ]; then
+                rsync -a --delete --delay-updates --delete-delay \
+                  --exclude '.env' \
+                  --exclude 'storage/' \
+                  --exclude 'public/uploads/' \
+                  "$PREVIOUS_DIR/" "$LIVE_DIR/"
+                sudo systemctl restart shopsite
+              else
+                sudo systemctl stop shopsite || true
+              fi
+              exit 1
+            fi
           EOF

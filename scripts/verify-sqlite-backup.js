@@ -40,12 +40,21 @@ function verifyBackup(backupPath) {
             }
 
             const schemaObjects = db.prepare("SELECT COUNT(*) AS count FROM sqlite_master").get().count;
-            const ordersTable = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'orders'").get();
+            const requiredTables = ["admins", "orders", "products", "settings"];
+            const presentTables = new Set(db.prepare(`
+                SELECT name
+                FROM sqlite_master
+                WHERE type = 'table'
+            `).all().map((row) => row.name));
+            const missingTables = requiredTables.filter((tableName) => !presentTables.has(tableName));
+            if (missingTables.length) {
+                throw new Error(`SQLite backup is not a complete shop database; missing tables: ${missingTables.join(", ")}`);
+            }
 
             return {
                 restoredPath,
                 schemaObjects,
-                ordersTablePresent: Boolean(ordersTable),
+                ordersTablePresent: true,
             };
         } finally {
             db.close();

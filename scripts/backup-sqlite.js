@@ -36,18 +36,40 @@ async function main() {
         throw new Error(`Database file not found: ${source}`);
     }
 
-    fs.mkdirSync(backupDir, { recursive: true });
-    const destination = path.join(backupDir, `shop-${timestamp()}.db`);
-    const db = new Database(source, { readonly: true, fileMustExist: true });
-
+    const previousUmask = process.umask(0o077);
+    let destination = "";
     try {
-        await db.backup(destination);
-    } finally {
-        db.close();
-    }
+        fs.mkdirSync(backupDir, { recursive: true });
+        destination = path.join(backupDir, `shop-${timestamp()}.db`);
+        const db = new Database(source, { readonly: true, fileMustExist: true });
 
-    const sizeBytes = fs.statSync(destination).size;
-    console.log(`SQLite backup written: ${destination} (${sizeBytes} bytes)`);
+        try {
+            await db.backup(destination);
+        } finally {
+            db.close();
+        }
+        fs.chmodSync(destination, 0o600);
+
+        const backup = new Database(destination, { readonly: true, fileMustExist: true });
+        try {
+            const integrity = backup.prepare("PRAGMA integrity_check").get();
+            if (integrity.integrity_check !== "ok") {
+                throw new Error(`SQLite backup integrity check failed: ${integrity.integrity_check}`);
+            }
+        } finally {
+            backup.close();
+        }
+
+        const sizeBytes = fs.statSync(destination).size;
+        console.log(`SQLite backup written and verified: ${destination} (${sizeBytes} bytes)`);
+    } catch (error) {
+        if (destination) {
+            fs.rmSync(destination, { force: true });
+        }
+        throw error;
+    } finally {
+        process.umask(previousUmask);
+    }
 }
 
 if (require.main === module) {

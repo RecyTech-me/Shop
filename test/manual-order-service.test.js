@@ -15,11 +15,13 @@ const {
     initializeDatabase,
     createOrder,
     markOrderPaid,
+    reserveOrderInventory,
     updateOrderRecord,
 } = require("../lib/db");
 const {
     normalizeText,
     normalizeSingleLineText,
+    parseInteger,
     parseMoneyToCents,
     parseOptionalMoneyToCents,
     normalizeOrderDateTimeField,
@@ -51,12 +53,13 @@ function productCategoryList(product) {
         : [product?.category].filter(Boolean);
 }
 
-function createService(db) {
+function createService(db, overrides = {}) {
     const cart = createCartSessionHelpers({
         db,
         getProductById,
         normalizeText,
         normalizeSingleLineText,
+        parseInteger,
         productCategoryList,
     });
     const checkout = createCheckoutStateHelpers({
@@ -80,6 +83,7 @@ function createService(db) {
         db,
         normalizeText,
         normalizeSingleLineText,
+        parseInteger,
         parseMoneyToCents,
         parseOptionalMoneyToCents,
         normalizeOrderDateTimeField,
@@ -96,7 +100,9 @@ function createService(db) {
         getProductById,
         createOrder,
         markOrderPaid,
+        reserveOrderInventory,
         updateOrderRecord,
+        ...overrides,
     });
 }
 
@@ -154,7 +160,7 @@ test("manual order service creates paid orders, records received amount, and con
     assert.equal(stats.revenueCents, 13000);
 });
 
-test("manual order service leaves stock untouched for non-stock-reducing statuses", (t) => {
+test("manual pending orders reserve stock until payment or cancellation", (t) => {
     const db = createTestDb(t);
     const service = createService(db);
     const product = createProduct(db, {
@@ -187,5 +193,55 @@ test("manual order service leaves stock untouched for non-stock-reducing statuse
 
     assert.equal(order.status, "awaiting_transfer");
     assert.equal(order.amount_cents, 8000);
-    assert.equal(nextProduct.inventory, 1);
+    assert.ok(order.metadata.inventory_reserved_at);
+    assert.equal(nextProduct.inventory, 0);
+
+    const cancelledOrder = updateOrderRecord(db, order.id, { status: "cancelled" });
+    assert.ok(cancelledOrder.metadata.inventory_released_at);
+    assert.equal(getProductById(db, product.id).inventory, 1);
+});
+
+test("manual order creation rolls back when reservation cannot be completed", (t) => {
+    const db = createTestDb(t);
+    const service = createService(db, {
+        reserveOrderInventory() {
+            throw new Error("Simulated reservation failure");
+        },
+    });
+    const product = createProduct(db, {
+        product_kind: "product",
+        name: "Manual rollback item",
+        categories: "Accessoires",
+        price_chf: "20.00",
+        inventory: "1",
+        published: "1",
+    });
+
+    assert.throws(() => service.createManualOrder({
+        customer_name: "Rollback Customer",
+        customer_email: "rollback@example.test",
+        payment_label: "Virement",
+        order_created_at: "2026-06-23T11:00",
+        product_id: String(product.id),
+        quantity: "1",
+        status: "awaiting_transfer",
+    }), /Simulated reservation failure/);
+    assert.equal(db.prepare("SELECT COUNT(*) AS count FROM orders").get().count, 0);
+});
+
+test("manual order input rejects partial identifiers and non-positive quantities", (t) => {
+    const db = createTestDb(t);
+    const service = createService(db);
+
+    assert.throws(() => service.readManualOrderInput({
+        customer_name: "Invalid Customer",
+        product_id: "12junk",
+        quantity: "1",
+    }), /Produit invalide/);
+
+    assert.throws(() => service.readManualOrderInput({
+        customer_name: "Invalid Customer",
+        product_id: "12",
+        quantity: "0",
+    }), /Quantité invalide/);
 });

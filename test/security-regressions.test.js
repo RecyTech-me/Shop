@@ -131,3 +131,18 @@ test("CSP allows Stripe scripts without unsafe-inline", async (t) => {
     assert.match(csp, /https:\/\/js\.stripe\.com/);
     assert.doesNotMatch(csp, /unsafe-inline/);
 });
+
+test("stateless health and product API probes do not create sessions", async (t) => {
+    const { app, baseUrl } = await createTestServer(t);
+
+    const health = await fetch(`${baseUrl}/healthz`);
+    const products = await fetch(`${baseUrl}/api/products`);
+
+    assert.equal(health.headers.get("set-cookie"), null);
+    assert.equal(products.headers.get("set-cookie"), null);
+    assert.equal(app.locals.runtime.db.prepare("SELECT COUNT(*) AS count FROM sessions").get().count, 0);
+
+    const storefront = await fetch(`${baseUrl}/`);
+    assert.ok(storefront.headers.get("set-cookie"));
+    assert.equal(app.locals.runtime.db.prepare("SELECT COUNT(*) AS count FROM sessions").get().count, 1);
+});

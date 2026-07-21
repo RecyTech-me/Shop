@@ -74,6 +74,41 @@ test("checkout validation enforces delivery/payment constraints and billing copy
     const helpers = createHelpers();
 
     assert.throws(() => helpers.validateCheckoutInput({
+        customer_email: "invalid-address",
+        customer_first_name: "Ada",
+        customer_last_name: "Lovelace",
+    }), /e-mail est invalide/);
+
+    assert.throws(() => helpers.validateCheckoutInput({
+        customer_email: "client@example.test",
+        customer_first_name: "Ada",
+        customer_last_name: "Lovelace",
+        delivery_method: "teleport",
+        payment_method: "transfer",
+    }), /Mode de livraison invalide/);
+
+    assert.throws(() => helpers.validateCheckoutInput({
+        customer_email: "client@example.test",
+        customer_first_name: "Ada",
+        customer_last_name: "Lovelace",
+        delivery_method: "pickup",
+        payment_method: "barter",
+    }), /Mode de paiement invalide/);
+
+    assert.throws(() => helpers.validateCheckoutInput({
+        customer_email: "client@example.test",
+        customer_first_name: "A".repeat(101),
+        customer_last_name: "Lovelace",
+    }), /longueur autorisée/);
+
+    assert.throws(() => helpers.validateCheckoutInput({
+        customer_email: "client@example.test",
+        customer_first_name: "Ada",
+        customer_last_name: "Lovelace",
+        pickup_location: "x".repeat(65),
+    }), /longueur autorisée/);
+
+    assert.throws(() => helpers.validateCheckoutInput({
         customer_email: "client@example.test",
         customer_first_name: "Ada",
         customer_last_name: "Lovelace",
@@ -100,4 +135,62 @@ test("checkout validation enforces delivery/payment constraints and billing copy
     assert.equal(checkout.customer.name, "Ada Lovelace");
     assert.equal(checkout.form.billing_address1, "Rue 1");
     assert.equal(checkout.shippingOption.key, "ship");
+});
+
+test("checkout drafts bound persisted session field sizes", () => {
+    const helpers = createHelpers();
+    const draft = helpers.buildCheckoutDraft({
+        customer_first_name: "A".repeat(10_000),
+        promo_code: "B".repeat(10_000),
+        order_note: "C".repeat(10_000),
+    });
+
+    assert.equal(draft.customer_first_name.length, 100);
+    assert.equal(draft.promo_code.length, 64);
+    assert.equal(draft.order_note.length, 2000);
+});
+
+test("promo calendar dates use the shop's Zurich timezone", () => {
+    const helpers = createHelpers();
+
+    assert.equal(
+        helpers.todayIsoDate(new Date("2026-01-01T22:59:59.000Z")),
+        "2026-01-01"
+    );
+    assert.equal(
+        helpers.todayIsoDate(new Date("2026-01-01T23:00:00.000Z")),
+        "2026-01-02"
+    );
+});
+
+test("checkout attempts are session-bound and retain the completed order for safe retries", () => {
+    const helpers = createHelpers();
+    const req = { session: {} };
+    const attemptId = helpers.getOrCreateCheckoutAttemptId(req);
+
+    assert.match(attemptId, /^[A-Za-z0-9_-]{32}$/);
+    assert.equal(helpers.getOrCreateCheckoutAttemptId(req), attemptId);
+    assert.equal(helpers.requireCheckoutAttemptId(req, attemptId), attemptId);
+    assert.throws(
+        () => helpers.requireCheckoutAttemptId(req, "b".repeat(32)),
+        /tentative de commande a expiré/
+    );
+
+    helpers.completeCheckoutAttempt(req, attemptId, 42);
+
+    assert.equal(req.session.checkoutAttemptId, undefined);
+    assert.equal(helpers.getOrCreateCheckoutAttemptId(req), attemptId);
+    assert.equal(helpers.requireCheckoutAttemptId(req, attemptId), attemptId);
+    assert.equal(helpers.getCompletedCheckoutOrderId(req, attemptId), 42);
+});
+
+test("abandoning an active checkout attempt permits a fresh provider retry", () => {
+    const helpers = createHelpers();
+    const req = { session: {} };
+    const failedAttemptId = helpers.getOrCreateCheckoutAttemptId(req);
+
+    helpers.abandonCheckoutAttempt(req, failedAttemptId);
+
+    assert.equal(req.session.checkoutAttemptId, undefined);
+    assert.notEqual(helpers.getOrCreateCheckoutAttemptId(req), failedAttemptId);
 });

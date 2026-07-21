@@ -1,18 +1,22 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const { createStripeIntentService } = require("../lib/payments/stripe-intents");
+const logger = require("../lib/logger");
+
+logger.configureLogger({ level: "silent" });
 
 function createService(overrides = {}) {
     const calls = [];
     const request = {
         session: {
+            checkoutAttemptId: "a".repeat(32),
             stripeDraft: overrides.existingDraft || null,
         },
     };
     const stripe = overrides.stripe || {
         paymentIntents: {
-            create: async (payload) => {
-                calls.push(["create", payload]);
+            create: async (payload, requestOptions) => {
+                calls.push(["create", payload, requestOptions]);
                 return {
                     id: "pi_created",
                     client_secret: "secret_created",
@@ -118,7 +122,7 @@ test("Stripe intent service creates and stores a new draft", async () => {
     });
     assert.equal(request.session.stripeDraft, draft);
     assert.equal(calls[0][0], "attempt");
-    assert.deepEqual(calls[1], ["create", {
+    assert.deepEqual(calls[1].slice(0, 2), ["create", {
         amount: 1500,
         currency: "chf",
         payment_method_types: ["card"],
@@ -129,5 +133,27 @@ test("Stripe intent service creates and stores a new draft", async () => {
             promo_code: "MERCI",
         },
     }]);
+    assert.match(calls[1][2].idempotencyKey, /^checkout-intent-a{32}-[a-f0-9]{24}$/);
     assert.equal(calls[2][0], "setDraft");
+});
+
+test("Stripe intent service does not expose provider errors to shoppers", async () => {
+    const { service, request } = createService({
+        stripe: {
+            paymentIntents: {
+                create: async () => {
+                    throw new Error("private Stripe request detail");
+                },
+            },
+        },
+    });
+
+    await assert.rejects(
+        service.createOrReuseStripeIntent(request, {}),
+        (error) => {
+            assert.match(error.message, /Impossible d'initialiser le paiement par carte/);
+            assert.doesNotMatch(error.message, /private Stripe request detail/);
+            return true;
+        }
+    );
 });

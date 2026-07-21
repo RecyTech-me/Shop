@@ -45,12 +45,20 @@ function registerStripePrepareRoute(overrides = {}) {
         setCheckoutForm: () => calls.push(["setCheckoutForm"]),
         buildCheckoutDraft: () => ({}),
         getCheckoutForm: () => ({}),
+        requireCheckoutAttemptId: () => "a".repeat(32),
+        completeCheckoutAttempt: (req, attemptId, orderId) => {
+            calls.push(["completeCheckoutAttempt", attemptId, orderId]);
+        },
         getStripeDraft: (req) => req.session.stripeDraft || null,
         clearStripeDraft: (req) => {
             calls.push(["clearStripeDraft"]);
             delete req.session.stripeDraft;
         },
         getPromoCodeOutcome: () => ({ error: "" }),
+        assertPreparedCheckoutOrderMatch: (preparedOrder, order) => {
+            calls.push(["assertPreparedCheckoutOrderMatch", preparedOrder, order]);
+            return order;
+        },
         validateCheckoutInput: () => ({
             form: {
                 payment_method: "card",
@@ -82,11 +90,14 @@ function registerStripePrepareRoute(overrides = {}) {
                 code: "",
             },
         }),
-        createReservedPreparedCheckoutOrder: () => {
-            calls.push(["createReservedPreparedCheckoutOrder"]);
+        createOrReuseReservedPreparedCheckoutOrder: () => {
+            calls.push(["createOrReuseReservedPreparedCheckoutOrder"]);
             return {
-                id: 1,
-                order_number: "RCT-TEST",
+                order: {
+                    id: 1,
+                    order_number: "RCT-TEST",
+                },
+                createdOrder: true,
             };
         },
         ...overrides.checkout,
@@ -185,7 +196,7 @@ test("Stripe prepare rejects stale session drafts after cart or amount changes",
     assert.equal(res.statusCode, 400);
     assert.match(res.payload.error, /plus à jour/);
     assert.ok(calls.some((call) => call[0] === "retrieve"));
-    assert.ok(!calls.some((call) => call[0] === "createReservedPreparedCheckoutOrder"));
+    assert.ok(!calls.some((call) => call[0] === "createOrReuseReservedPreparedCheckoutOrder"));
 });
 
 test("Stripe prepare rejects canceled PaymentIntents and clears the draft", async () => {
@@ -225,7 +236,7 @@ test("Stripe prepare rejects canceled PaymentIntents and clears the draft", asyn
     assert.equal(res.statusCode, 400);
     assert.match(res.payload.error, /Stripe/);
     assert.equal(req.session.stripeDraft, undefined);
-    assert.ok(!calls.some((call) => call[0] === "createReservedPreparedCheckoutOrder"));
+    assert.ok(!calls.some((call) => call[0] === "createOrReuseReservedPreparedCheckoutOrder"));
 });
 
 test("Stripe prepare creates a reserved order and updates PaymentIntent metadata", async () => {
@@ -257,7 +268,7 @@ test("Stripe prepare creates a reserved order and updates PaymentIntent metadata
     assert.match(res.payload.successUrl, /payment_intent=pi_session/);
     assert.match(res.payload.successUrl, /view=view-token/);
     assert.ok(calls.some((call) => call[0] === "setCheckoutForm"));
-    assert.ok(calls.some((call) => call[0] === "createReservedPreparedCheckoutOrder"));
+    assert.ok(calls.some((call) => call[0] === "createOrReuseReservedPreparedCheckoutOrder"));
     assert.ok(calls.some((call) => call[0] === "notifyNewOrder"));
     assert.ok(calls.some((call) => call[0] === "sessionSave"));
 
@@ -305,7 +316,44 @@ test("Stripe prepare reuses an existing provider order without reserving stock t
 
     assert.equal(res.statusCode, 200);
     assert.equal(res.payload.orderNumber, "RCT-EXISTING");
-    assert.ok(!calls.some((call) => call[0] === "createReservedPreparedCheckoutOrder"));
+    assert.ok(calls.some((call) => call[0] === "assertPreparedCheckoutOrderMatch"));
+    assert.ok(!calls.some((call) => call[0] === "createOrReuseReservedPreparedCheckoutOrder"));
     assert.ok(!calls.some((call) => call[0] === "notifyNewOrder"));
     assert.ok(calls.some((call) => call[0] === "update"));
+});
+
+test("Stripe prepare rejects a changed payload for an existing provider order", async () => {
+    const { calls, handler } = registerStripePrepareRoute({
+        checkout: {
+            assertPreparedCheckoutOrderMatch: () => {
+                throw new Error("Cette tentative de commande a déjà été utilisée avec un contenu différent.");
+            },
+        },
+        orders: {
+            getOrderByProviderReference: () => ({
+                id: 10,
+                order_number: "RCT-EXISTING",
+            }),
+        },
+    });
+    const req = {
+        body: { stripe_payment_intent_id: "pi_session" },
+        session: {
+            stripeDraft: {
+                paymentIntentId: "pi_session",
+                clientSecret: "secret",
+                amountCents: 2000,
+                deliveryMethod: "pickup",
+                promoCode: "",
+                cartSignature: "product:1:1:2000",
+            },
+        },
+    };
+    const res = createResponse();
+
+    await handler(req, res);
+
+    assert.equal(res.statusCode, 400);
+    assert.match(res.payload.error, /contenu différent/);
+    assert.ok(!calls.some((call) => call[0] === "update"));
 });

@@ -5,6 +5,7 @@ const {
     WEBHOOK_SECRET_HEADER,
     createSwissBitcoinPayService,
     mapSwissBitcoinPayStatus,
+    requireSecureCheckoutUrl,
 } = require("../lib/payments/swiss-bitcoin-pay");
 
 function createService(overrides = {}) {
@@ -24,6 +25,21 @@ test("Swiss Bitcoin Pay status mapper handles paid, expired, and pending invoice
     assert.equal(mapSwissBitcoinPayStatus({ isExpired: true }), "failed");
     assert.equal(mapSwissBitcoinPayStatus({ status: "expired" }), "failed");
     assert.equal(mapSwissBitcoinPayStatus({ status: "new" }), "pending");
+});
+
+test("Swiss Bitcoin Pay checkout URLs are canonical and header-safe", () => {
+    assert.equal(
+        requireSecureCheckoutUrl("  https://pay.example.test/invoice?q=1  "),
+        "https://pay.example.test/invoice?q=1"
+    );
+    assert.throws(
+        () => requireSecureCheckoutUrl("https://pay.example.test/invoice\r\nX-Injected: yes"),
+        /URL de paiement HTTPS valide/
+    );
+    assert.throws(
+        () => requireSecureCheckoutUrl(`https://pay.example.test/${"a".repeat(2048)}`),
+        /URL de paiement HTTPS valide/
+    );
 });
 
 test("Swiss Bitcoin Pay webhook verification accepts custom secret and HMAC fallback", () => {
@@ -65,7 +81,28 @@ test("Swiss Bitcoin Pay invoice creation fails on provider errors", async (t) =>
             customer_email: "client@example.test",
             items: [],
         }, {}),
-        /503 unavailable/
+        (error) => /503 unavailable/.test(error.message) && error.providerOutcomeKnownFailed === false
+    );
+});
+
+test("Swiss Bitcoin Pay marks client-side invoice rejections as definitive", async () => {
+    const service = createService({
+        fetchImpl: async () => ({
+            ok: false,
+            status: 400,
+            text: async () => "invalid invoice",
+        }),
+    });
+
+    await assert.rejects(
+        service.createInvoice({
+            order_number: "RCT-REJECTED",
+            amount_cents: 1200,
+            currency: "CHF",
+            customer_email: "client@example.test",
+            items: [],
+        }, {}),
+        (error) => /400 invalid invoice/.test(error.message) && error.providerOutcomeKnownFailed === true
     );
 });
 
@@ -88,8 +125,33 @@ test("Swiss Bitcoin Pay invoice creation requires a checkout URL", async (t) => 
             customer_email: "client@example.test",
             items: [],
         }, {}),
-        /URL de paiement/
+        /URL de paiement HTTPS valide/
     );
+});
+
+test("Swiss Bitcoin Pay invoice creation rejects missing identities and unsafe redirects", async () => {
+    const order = {
+        order_number: "RCT-INVALID",
+        amount_cents: 1200,
+        currency: "CHF",
+        customer_email: "client@example.test",
+        items: [],
+    };
+    const missingIdService = createService({
+        fetchImpl: async () => ({
+            ok: true,
+            json: async () => ({ checkoutUrl: "https://pay.example.test/invoice" }),
+        }),
+    });
+    const unsafeRedirectService = createService({
+        fetchImpl: async () => ({
+            ok: true,
+            json: async () => ({ id: "invoice-unsafe", checkoutUrl: "javascript:alert(1)" }),
+        }),
+    });
+
+    await assert.rejects(missingIdService.createInvoice(order, {}), /identifiant de facture/);
+    await assert.rejects(unsafeRedirectService.createInvoice(order, {}), /URL de paiement HTTPS valide/);
 });
 
 test("Swiss Bitcoin Pay invoice fetch reports provider failures", async (t) => {
@@ -107,5 +169,19 @@ test("Swiss Bitcoin Pay invoice fetch reports provider failures", async (t) => {
     await assert.rejects(
         service.fetchInvoice("invoice-missing"),
         /404 missing/
+    );
+});
+
+test("Swiss Bitcoin Pay invoice fetch rejects mismatched invoice identities", async () => {
+    const service = createService({
+        fetchImpl: async () => ({
+            ok: true,
+            json: async () => ({ id: "invoice-other", status: "paid" }),
+        }),
+    });
+
+    await assert.rejects(
+        service.fetchInvoice("invoice-requested"),
+        /facture différente/
     );
 });
