@@ -3,5 +3,6 @@ node_modules/
 .codex
 storage/*.db
 storage/*.db-*
+storage/backups/
 public/uploads/
 *.log

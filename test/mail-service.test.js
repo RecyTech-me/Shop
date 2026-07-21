@@ -64,7 +64,11 @@ test("mail service sends text and escaped HTML through nodemailer", async (t) =>
             host: "smtp.example.test",
             port: 587,
             secure: false,
+            requireTLS: false,
             auth: { user: "smtp-user", pass: "smtp-pass" },
+            connectionTimeout: 10_000,
+            greetingTimeout: 10_000,
+            socketTimeout: 30_000,
         });
 
         return {
@@ -99,6 +103,32 @@ test("mail service sends text and escaped HTML through nodemailer", async (t) =>
     assert.match(sentMessages[0].html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
 });
 
+test("production SMTP requires STARTTLS when implicit TLS is disabled", async (t) => {
+    const originalCreateTransport = nodemailer.createTransport;
+    const service = createService({ env: { NODE_ENV: "production" } });
+
+    t.after(() => {
+        nodemailer.createTransport = originalCreateTransport;
+    });
+
+    nodemailer.createTransport = (config) => {
+        assert.equal(config.secure, false);
+        assert.equal(config.requireTLS, true);
+        return { sendMail: async () => ({ messageId: "message-starttls" }) };
+    };
+
+    await service.sendStoreEmail({
+        smtp_host: "smtp.example.test",
+        smtp_port: "587",
+        smtp_secure: "0",
+        smtp_from_email: "shop@example.test",
+    }, {
+        to: "client@example.test",
+        subject: "Commande",
+        text: "Bonjour",
+    });
+});
+
 test("new order notifications no-op when mail is not configured", async (t) => {
     const originalCreateTransport = nodemailer.createTransport;
     const service = createService({
@@ -127,4 +157,50 @@ test("new order notifications no-op when mail is not configured", async (t) => {
         metadata: {},
         created_at: "2026-06-28T12:00:00.000Z",
     });
+});
+
+test("new order notifications prefer the canonical shop URL", async (t) => {
+    const originalCreateTransport = nodemailer.createTransport;
+    const sentMessages = [];
+    const settings = {
+        smtp_host: "smtp.example.test",
+        smtp_port: "587",
+        smtp_from_email: "shop@example.test",
+        order_notification_email: "team@example.test",
+    };
+    const service = createService({
+        env: {
+            BASE_URL: "http://localhost:3000",
+            SHOP_PUBLIC_URL: "https://shop.example.test",
+        },
+        settings,
+    });
+
+    t.after(() => {
+        nodemailer.createTransport = originalCreateTransport;
+    });
+    nodemailer.createTransport = () => ({
+        sendMail: async (message) => {
+            sentMessages.push(message);
+            return { messageId: "message-canonical-url" };
+        },
+    });
+
+    await service.sendNewOrderNotification({
+        id: 42,
+        order_number: "RCT-CANONICAL",
+        provider: "transfer",
+        status: "pending",
+        customer_name: "Client",
+        customer_email: "client@example.test",
+        amount_cents: 1200,
+        currency: "CHF",
+        items: [],
+        metadata: {},
+        created_at: "2026-07-21T12:00:00.000Z",
+    });
+
+    assert.equal(sentMessages.length, 1);
+    assert.match(sentMessages[0].text, /https:\/\/shop\.example\.test\/admin\/orders\/42/);
+    assert.doesNotMatch(sentMessages[0].text, /localhost/);
 });

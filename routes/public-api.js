@@ -1,4 +1,33 @@
 const logger = require("../lib/logger");
+const { getPublicErrorResponse } = require("../lib/http/public-errors");
+
+function sendJsonAfterSessionSave(req, res, payload, statusCode = 200) {
+    req.session.save((error) => {
+        if (error) {
+            logger.error("session.save_failed", {
+                requestId: req.requestId,
+                path: req.path,
+                error: error.message,
+            });
+            return res.status(503).json({ error: "Impossible d'enregistrer la session. Veuillez réessayer." });
+        }
+
+        return res.status(statusCode).json(payload);
+    });
+}
+
+async function runStripeRequest(req, operation, request, publicMessage) {
+    try {
+        return await request();
+    } catch (error) {
+        logger.error("payments.stripe_request_failed", {
+            requestId: req.requestId,
+            operation,
+            error: error.message,
+        });
+        throw new Error(publicMessage, { cause: error });
+    }
+}
 
 function registerPublicApiRoutes(deps) {
     const {
@@ -23,12 +52,15 @@ function registerPublicApiRoutes(deps) {
         setCheckoutForm,
         buildCheckoutDraft,
         getCheckoutForm,
+        requireCheckoutAttemptId,
+        completeCheckoutAttempt,
         getStripeDraft,
         clearStripeDraft,
         getPromoCodeOutcome,
         validateCheckoutInput,
+        assertPreparedCheckoutOrderMatch,
         prepareCheckoutOrder,
-        createReservedPreparedCheckoutOrder,
+        createOrReuseReservedPreparedCheckoutOrder,
     } = checkout;
     const { createOrReuseStripeIntent, paymentState, isStripeDraftCurrent, createOrderViewToken } = payments;
     const { getOrderByProviderReference } = orders;
@@ -46,8 +78,17 @@ function registerPublicApiRoutes(deps) {
 
     app.post("/checkout/session", (req, res) => {
         setCheckoutForm(req, buildCheckoutDraft(req.body || {}, getCheckoutForm(req)));
-        req.session.save(() => {
-            res.status(204).end();
+        req.session.save((error) => {
+            if (error) {
+                logger.error("session.save_failed", {
+                    requestId: req.requestId,
+                    path: req.path,
+                    error: error.message,
+                });
+                return res.status(503).json({ error: "Impossible d'enregistrer la session. Veuillez réessayer." });
+            }
+
+            return res.status(204).end();
         });
     });
 
@@ -80,15 +121,25 @@ function registerPublicApiRoutes(deps) {
     app.post("/checkout/stripe/intent", async (req, res) => {
         try {
             const draft = await createOrReuseStripeIntent(req, req.body || {});
-            req.session.save(() => {
-                res.json({
-                    paymentIntentId: draft.paymentIntentId,
-                    clientSecret: draft.clientSecret,
-                });
+            sendJsonAfterSessionSave(req, res, {
+                paymentIntentId: draft.paymentIntentId,
+                clientSecret: draft.clientSecret,
             });
         } catch (error) {
-            const statusCode = /Trop de tentatives de paiement carte/i.test(error.message) ? 429 : 400;
-            res.status(statusCode).json({ error: error.message });
+            const publicError = getPublicErrorResponse(
+                error,
+                "Impossible de préparer le paiement par carte. Veuillez réessayer."
+            );
+            const statusCode = /Trop de tentatives de paiement carte/i.test(publicError.message)
+                ? 429
+                : publicError.statusCode;
+            if (publicError.internal) {
+                logger.error("payments.stripe_intent_failed", {
+                    requestId: req.requestId,
+                    error: error.message,
+                });
+            }
+            res.status(statusCode).json({ error: publicError.message });
         }
     });
 
@@ -105,6 +156,8 @@ function registerPublicApiRoutes(deps) {
                 return res.status(400).json({ error: "Session de paiement Stripe manquante." });
             }
 
+            const checkoutAttemptId = requireCheckoutAttemptId(req, (req.body || {}).checkout_attempt_id);
+
             const stripeDraft = getStripeDraft(req);
             if (!stripeDraft || stripeDraft.paymentIntentId !== paymentIntentId) {
                 return res.status(400).json({ error: "Session de paiement Stripe expirée. Veuillez actualiser le paiement par carte." });
@@ -114,7 +167,12 @@ function registerPublicApiRoutes(deps) {
             checkoutDetails.form.payment_method = "card";
             setCheckoutForm(req, checkoutDetails.form);
 
-            const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+            const paymentIntent = await runStripeRequest(
+                req,
+                "retrieve_prepare_intent",
+                () => stripe.paymentIntents.retrieve(paymentIntentId),
+                "Impossible de vérifier la session Stripe. Veuillez réessayer."
+            );
             if (paymentIntent.status === "canceled") {
                 clearStripeDraft(req);
                 return res.status(400).json({ error: "Cette session Stripe a été annulée. Veuillez réessayer." });
@@ -126,6 +184,7 @@ function registerPublicApiRoutes(deps) {
                 providerReference: paymentIntent.id,
                 customer: checkoutDetails.customer,
                 checkoutDetails,
+                idempotencyKey: checkoutAttemptId,
                 extraMetadata: {
                     stripePaymentIntentId: paymentIntent.id,
                 },
@@ -147,44 +206,61 @@ function registerPublicApiRoutes(deps) {
 
             let order = getOrderByProviderReference(db, "stripe", paymentIntent.id);
             let createdOrder = false;
-            if (!order) {
-                order = createReservedPreparedCheckoutOrder(preparedOrder);
-                createdOrder = true;
-                createdOrderId = order.id;
-                logger.info(`[payments] Prepared Stripe order ${order.order_number} for intent ${paymentIntent.id}`);
+            if (order) {
+                assertPreparedCheckoutOrderMatch(preparedOrder, order);
+            } else {
+                const result = createOrReuseReservedPreparedCheckoutOrder(preparedOrder);
+                order = result.order;
+                createdOrder = result.createdOrder;
+                if (createdOrder) {
+                    createdOrderId = order.id;
+                    logger.info(`[payments] Prepared Stripe order ${order.order_number} for intent ${paymentIntent.id}`);
+                }
             }
+
+            completeCheckoutAttempt(req, checkoutAttemptId, order.id);
 
             if (createdOrder) {
                 await notifyNewOrder(order);
             }
 
-            await stripe.paymentIntents.update(paymentIntent.id, {
-                receipt_email: checkoutDetails.customer.email,
-                metadata: {
-                    source: "recytech-shop",
-                    order_number: order.order_number,
-                    delivery_method: checkoutDetails.shippingOption.key,
-                    promo_code: preparedOrder.promoCodeOutcome.code || "",
-                },
-            });
+            await runStripeRequest(
+                req,
+                "update_prepare_intent",
+                () => stripe.paymentIntents.update(paymentIntent.id, {
+                    receipt_email: checkoutDetails.customer.email,
+                    metadata: {
+                        source: "recytech-shop",
+                        order_number: order.order_number,
+                        delivery_method: checkoutDetails.shippingOption.key,
+                        promo_code: preparedOrder.promoCodeOutcome.code || "",
+                    },
+                }),
+                "Impossible de finaliser la préparation Stripe. Veuillez réessayer."
+            );
 
-            req.session.save(() => {
-                res.json({
-                    successUrl: `/checkout/success?provider=stripe&payment_intent=${encodeURIComponent(paymentIntent.id)}&order=${encodeURIComponent(order.order_number)}&view=${encodeURIComponent(createOrderViewToken(order))}`,
-                    orderNumber: order.order_number,
-                });
+            sendJsonAfterSessionSave(req, res, {
+                successUrl: `/checkout/success?provider=stripe&payment_intent=${encodeURIComponent(paymentIntent.id)}&order=${encodeURIComponent(order.order_number)}&view=${encodeURIComponent(createOrderViewToken(order))}`,
+                orderNumber: order.order_number,
             });
         } catch (error) {
             if (createdOrderId) {
                 logger.error(`[payments] Stripe prepare failed after order creation ${createdOrderId}: ${error.message}`);
-                orders.updateOrderStatus?.(db, createdOrderId, "failed", {
-                    stripePrepareError: error.message,
-                });
             }
 
-            res.status(400).json({ error: error.message });
+            const publicError = getPublicErrorResponse(
+                error,
+                "Impossible de préparer la commande. Veuillez réessayer."
+            );
+            if (publicError.internal) {
+                logger.error("payments.stripe_prepare_failed", {
+                    requestId: req.requestId,
+                    error: error.message,
+                });
+            }
+            res.status(publicError.statusCode).json({ error: publicError.message });
         }
     });
 }
 
-module.exports = { registerPublicApiRoutes };
+module.exports = { registerPublicApiRoutes, runStripeRequest, sendJsonAfterSessionSave };

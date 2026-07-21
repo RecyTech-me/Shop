@@ -64,15 +64,18 @@ export function createCheckoutDraftSaver({
     delayMs = 250,
 }) {
     let timer = null;
+    let inFlightRequest = null;
+    let suspended = false;
 
     function persist() {
         const payload = buildCheckoutDraftPayload(checkoutForm);
 
         if (!payload) {
-            return;
+            return Promise.resolve();
         }
 
-        fetch(endpoint, {
+        const previousRequest = inFlightRequest || Promise.resolve();
+        const request = previousRequest.then(() => fetch(endpoint, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
@@ -80,13 +83,20 @@ export function createCheckoutDraftSaver({
             },
             body: JSON.stringify(payload),
             keepalive: true,
-        }).catch(() => {
+        })).catch(() => {
             // Draft persistence is best-effort and should not block checkout usage.
         });
+        inFlightRequest = request;
+        request.finally(() => {
+            if (inFlightRequest === request) {
+                inFlightRequest = null;
+            }
+        });
+        return request;
     }
 
     function schedule() {
-        if (!checkoutForm) {
+        if (!checkoutForm || suspended) {
             return;
         }
 
@@ -94,8 +104,21 @@ export function createCheckoutDraftSaver({
         timer = window.setTimeout(persist, delayMs);
     }
 
+    function flush() {
+        suspended = true;
+        window.clearTimeout(timer);
+        timer = null;
+        return inFlightRequest;
+    }
+
+    function resume() {
+        suspended = false;
+    }
+
     return {
+        flush,
         persist,
+        resume,
         schedule,
     };
 }

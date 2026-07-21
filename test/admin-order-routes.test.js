@@ -103,6 +103,7 @@ function registerRoutes(overrides = {}) {
         text: {
             normalizeText: (value) => String(value || "").trim(),
             normalizeSingleLineText: (value) => String(value || "").trim().replace(/\s+/g, " "),
+            parseInteger: (value, fallback) => /^\d+$/.test(String(value || "")) ? Number(value) : fallback,
         },
         money: {
             parseMoneyToCents: () => 0,
@@ -319,4 +320,21 @@ test("admin order delete handles missing and existing orders", async () => {
     assert.equal(existingRes.redirectedTo, "/admin/orders");
     assert.ok(existing.calls.some((call) => call[0] === "deleteOrder" && call[1] === 12));
     assert.ok(existing.calls.some((call) => call[0] === "flash" && /a été supprimée/.test(call[2])));
+});
+
+test("admin order delete reports protected order history", async () => {
+    const routes = registerRoutes({
+        orders: {
+            deleteOrder: () => {
+                throw new Error("Cette commande doit être conservée.");
+            },
+        },
+    });
+    const req = createRequest({ params: { id: "12" } });
+    const res = createResponse();
+
+    await routes.handler("POST", "/admin/orders/:id/delete")(req, res);
+
+    assert.equal(res.redirectedTo, "/admin/orders");
+    assert.ok(routes.calls.some((call) => call[0] === "flash" && call[1] === "error" && /conservée/.test(call[2])));
 });

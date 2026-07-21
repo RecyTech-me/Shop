@@ -1,3 +1,5 @@
+const { parseInteger } = require("../../lib/input-utils");
+
 function registerAdminPromoCodeRoutes(deps) {
     const {
         app,
@@ -47,7 +49,7 @@ function registerAdminPromoCodeRoutes(deps) {
     });
 
     app.get("/admin/promo-codes/:id/edit", requireAdmin, (req, res) => {
-        const promoCode = getPromoCodeById(db, Number.parseInt(req.params.id, 10));
+        const promoCode = getPromoCodeById(db, parseInteger(req.params.id, Number.NaN));
         if (!promoCode) {
             return res.status(404).render("not-found", { title: "Code promo introuvable" });
         }
@@ -60,7 +62,7 @@ function registerAdminPromoCodeRoutes(deps) {
     });
 
     app.post("/admin/promo-codes/:id/edit", requireAdmin, (req, res) => {
-        const promoCodeId = Number.parseInt(req.params.id, 10);
+        const promoCodeId = parseInteger(req.params.id, Number.NaN);
 
         try {
             const input = readPromoCodeInput(req.body);
@@ -82,7 +84,7 @@ function registerAdminPromoCodeRoutes(deps) {
     });
 
     app.post("/admin/promo-codes/:id/delete", requireAdmin, (req, res) => {
-        const promoCodeId = Number.parseInt(req.params.id, 10);
+        const promoCodeId = parseInteger(req.params.id, Number.NaN);
         const promoCode = getPromoCodeById(db, promoCodeId);
 
         if (!promoCode) {

@@ -30,6 +30,8 @@ export function initCheckout() {
     const checkoutForm = document.querySelector(".checkout-form");
     const stripeMount = document.getElementById("stripe-payment-element");
     const stripeMessage = document.getElementById("stripe-payment-message");
+    let localCheckoutSubmitting = false;
+    let nativeSubmissionReady = false;
     const getCheckoutDraftPayload = () => buildCheckoutDraftPayload(checkoutForm);
     const draftSaver = createCheckoutDraftSaver({ checkoutForm, csrfToken });
     const stripeCheckout = createStripeCheckoutController({
@@ -39,6 +41,8 @@ export function initCheckout() {
         stripeMessage,
         csrfToken,
         buildCheckoutDraftPayload: getCheckoutDraftPayload,
+        beforeSubmit: draftSaver.flush,
+        afterSubmitFailure: draftSaver.resume,
     });
 
     function getSelectedPaymentMethod() {
@@ -165,13 +169,64 @@ export function initCheckout() {
         checkoutForm.addEventListener("input", draftSaver.schedule);
         checkoutForm.addEventListener("change", draftSaver.schedule);
         checkoutForm.addEventListener("submit", (event) => {
+            if (nativeSubmissionReady) {
+                nativeSubmissionReady = false;
+                return;
+            }
+
             if (event.submitter?.hasAttribute("data-skip-stripe-submit")) {
+                if (localCheckoutSubmitting) {
+                    event.preventDefault();
+                    return;
+                }
+
+                localCheckoutSubmitting = true;
+                const submitter = event.submitter;
+                checkoutForm.setAttribute("aria-busy", "true");
+                const pendingDraft = draftSaver.flush();
+                if (!pendingDraft) {
+                    return;
+                }
+
+                event.preventDefault();
+                submitter.setAttribute("disabled", "disabled");
+                pendingDraft.finally(() => {
+                    nativeSubmissionReady = true;
+                    submitter.removeAttribute("disabled");
+                    checkoutForm.requestSubmit(submitter);
+                });
                 return;
             }
 
             if (getSelectedPaymentMethod() === "card") {
                 stripeCheckout.submitCheckout(event);
+                return;
             }
+
+            if (!checkoutForm.reportValidity() || localCheckoutSubmitting) {
+                event.preventDefault();
+                return;
+            }
+
+            localCheckoutSubmitting = true;
+            const submitter = event.submitter;
+            checkoutForm.setAttribute("aria-busy", "true");
+            const pendingDraft = draftSaver.flush();
+            if (!pendingDraft) {
+                return;
+            }
+
+            event.preventDefault();
+            submitter?.setAttribute("disabled", "disabled");
+            pendingDraft.finally(() => {
+                nativeSubmissionReady = true;
+                submitter?.removeAttribute("disabled");
+                if (submitter) {
+                    checkoutForm.requestSubmit(submitter);
+                } else {
+                    checkoutForm.requestSubmit();
+                }
+            });
         });
     }
 

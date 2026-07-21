@@ -4,13 +4,19 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const {
+    createOrder,
     createProduct,
+    deleteProduct,
     initializeDatabase,
+    listAdminProducts,
     listAdminProductRows,
     listAdminCategories,
     listProductCategories,
     listPacksContainingProduct,
     listPublishedProducts,
+    reserveOrderInventory,
+    updateProduct,
+    updateOrderStatus,
     deleteProductCategory,
 } = require("../lib/db");
 
@@ -90,6 +96,116 @@ test("published product listing uses stored price ranges for SQL filtering and s
     assert.deepEqual(categoryLimited.map((product) => product.name), ["Budget monitor"]);
 });
 
+test("product writes reject malformed names, prices, and inventory", (t) => {
+    const db = createTestDb(t);
+    const valid = {
+        product_kind: "product",
+        name: "Validated product",
+        price_chf: "10.00",
+        inventory: "1",
+    };
+
+    assert.throws(() => createProduct(db, { ...valid, name: "" }), /nom du produit est obligatoire/);
+    assert.throws(() => createProduct(db, { ...valid, price_chf: "10 CHF" }), /prix du produit est invalide/);
+    assert.throws(() => createProduct(db, { ...valid, price_chf: "-1" }), /prix du produit est invalide/);
+    assert.throws(() => createProduct(db, { ...valid, inventory: "1 item" }), /stock du produit est invalide/);
+    assert.throws(() => createProduct(db, { ...valid, inventory: "-1" }), /stock du produit est invalide/);
+    assert.equal(db.prepare("SELECT COUNT(*) AS count FROM products").get().count, 0);
+});
+
+test("products reserved by an active order cannot be deleted", (t) => {
+    const db = createTestDb(t);
+    const product = createProduct(db, {
+        product_kind: "product",
+        name: "Reserved product",
+        price_chf: "25.00",
+        inventory: "2",
+    });
+    const order = createOrder(db, {
+        provider: "stripe",
+        provider_reference: "pi_reserved_product",
+        customer_name: "Client",
+        customer_email: "client@example.test",
+        amount_cents: 2500,
+        currency: "CHF",
+        items: [{
+            product_id: product.id,
+            name: product.name,
+            quantity: 1,
+            selected_options: [],
+        }],
+        status: "pending",
+        metadata: {},
+    });
+    reserveOrderInventory(db, order.id);
+
+    assert.throws(() => deleteProduct(db, product.id), /réservé par une commande en cours/);
+    assert.ok(db.prepare("SELECT id FROM products WHERE id = ?").get(product.id));
+
+    updateOrderStatus(db, order.id, "failed");
+    assert.equal(deleteProduct(db, product.id).changes, 1);
+});
+
+test("active reservations protect inventory models while allowing ordinary product edits", (t) => {
+    const db = createTestDb(t);
+    const product = createProduct(db, {
+        product_kind: "product",
+        name: "Reserved configurable product",
+        price_chf: "25.00",
+        inventory: "2",
+        option_groups: "RAM: 8 GB",
+        valid_configurations: "RAM=8 GB ; stock=2 => 25.00",
+    });
+    const order = createOrder(db, {
+        provider: "stripe",
+        provider_reference: "pi_reserved_product_update",
+        customer_name: "Client",
+        customer_email: "client@example.test",
+        amount_cents: 2500,
+        currency: "CHF",
+        items: [{
+            product_id: product.id,
+            name: product.name,
+            quantity: 1,
+            selected_options: [{ name: "RAM", value: "8 GB" }],
+        }],
+        status: "pending",
+        metadata: {},
+    });
+    reserveOrderInventory(db, order.id);
+
+    const updated = updateProduct(db, product.id, {
+        product_kind: "product",
+        name: "Renamed while reserved",
+        price_chf: "26.00",
+        inventory: "1",
+        option_groups: "RAM: 8 GB",
+        valid_configurations: "RAM=8 GB ; stock=1 => 26.00",
+    });
+    assert.equal(updated.name, "Renamed while reserved");
+    assert.equal(updated.price_cents, 2600);
+    assert.equal(updated.valid_configurations[0].price_cents, 2600);
+
+    assert.throws(() => updateProduct(db, product.id, {
+        product_kind: "product",
+        name: updated.name,
+        price_chf: "26.00",
+        inventory: "1",
+        option_groups: "",
+        valid_configurations: "",
+    }), /modèle de stock.*réservation active/);
+
+    updateOrderStatus(db, order.id, "failed");
+    assert.doesNotThrow(() => updateProduct(db, product.id, {
+        product_kind: "product",
+        name: updated.name,
+        price_chf: "26.00",
+        inventory: "2",
+        option_groups: "",
+        valid_configurations: "",
+    }));
+});
+
 test("admin product rows and category deletion avoid full product hydration", (t) => {
     const db = createTestDb(t);
     createProduct(db, {
@@ -157,6 +273,15 @@ test("pack reference checks read bundle JSON without hydrating pack products", (
     const packs = listPacksContainingProduct(db, component.id);
     assert.deepEqual(packs.map((product) => product.name), ["Starter pack"]);
     assert.equal(packs[0].bundle_items, undefined);
+
+    assert.throws(() => createProduct(db, {
+        product_kind: "pack",
+        name: "Invalid quantity pack",
+        categories: "Packs",
+        price_chf: "120.00",
+        published: "1",
+        bundle_items: `#${component.id}; qty=2units`,
+    }), /quantité invalide/);
 });
 
 test("published product availability filters use hydrated pack inventory", (t) => {
@@ -267,4 +392,49 @@ test("published pack availability filtering refills pages after hydrated filteri
         "Z available pack 1",
         "Z available pack 2",
     ]);
+});
+
+test("published pack hydration reuses shared component lookups", (t) => {
+    const db = createTestDb(t);
+    const component = createProduct(db, {
+        product_kind: "product",
+        name: "Shared component",
+        categories: "Ordinateurs",
+        price_chf: "100.00",
+        inventory: "3",
+        published: "1",
+    });
+
+    for (const name of ["Shared pack one", "Shared pack two"]) {
+        createProduct(db, {
+            product_kind: "pack",
+            name,
+            categories: "Packs",
+            price_chf: "120.00",
+            published: "1",
+            bundle_items: `#${component.id}; qty=1`,
+        });
+    }
+
+    let componentLookups = 0;
+    const instrumentedDb = {
+        prepare(sql) {
+            if (/FROM products WHERE id = \?/.test(sql.replace(/\s+/g, " "))) {
+                componentLookups += 1;
+            }
+            return db.prepare(sql);
+        },
+    };
+    const packs = listPublishedProducts(instrumentedDb, { category: "Packs", sort: "name_asc" });
+
+    assert.deepEqual(packs.map((product) => product.name), ["Shared pack one", "Shared pack two"]);
+    assert.equal(componentLookups, 1);
+
+    componentLookups = 0;
+    const adminProducts = listAdminProducts(instrumentedDb);
+    assert.equal(adminProducts.length, 3);
+    assert.ok(
+        componentLookups <= 1,
+        `expected at most one shared-component lookup, received ${componentLookups}`,
+    );
 });

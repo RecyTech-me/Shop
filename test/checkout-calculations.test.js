@@ -53,3 +53,44 @@ test("checkout browser summary hides discount rows when no discount applies", as
     assert.equal(summary.promoVisible, false);
     assert.equal(summary.totalCents, 10000);
 });
+
+test("checkout draft flush waits for a pending session write before submission", async (t) => {
+    const { createCheckoutDraftSaver } = await importBrowserModule("public/scripts/checkout-form-state.js");
+    const originalFetch = global.fetch;
+    const originalWindow = global.window;
+    const pendingResponses = [];
+    const requestBodies = [];
+
+    t.after(() => {
+        global.fetch = originalFetch;
+        global.window = originalWindow;
+    });
+
+    global.window = {
+        clearTimeout,
+        setTimeout,
+    };
+    global.fetch = (_url, options) => {
+        requestBodies.push(JSON.parse(options.body));
+        return new Promise((resolve) => pendingResponses.push(resolve));
+    };
+
+    const field = { name: "customer_email", type: "email", value: "first@example.test" };
+    const saver = createCheckoutDraftSaver({
+        checkoutForm: {
+            querySelectorAll: () => [field],
+        },
+        csrfToken: "csrf",
+    });
+
+    const firstSave = saver.persist();
+    await Promise.resolve();
+    const flush = saver.flush();
+    await Promise.resolve();
+    assert.deepEqual(requestBodies, [{ customer_email: "first@example.test" }]);
+
+    pendingResponses.shift()({ ok: true });
+    await firstSave;
+    await flush;
+    assert.deepEqual(requestBodies, [{ customer_email: "first@example.test" }]);
+});

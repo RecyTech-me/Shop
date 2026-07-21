@@ -18,7 +18,7 @@ function createApp(options = {}) {
 
     registerWebhookEndpoints(routeContexts.webhooks);
 
-    registerAppMiddleware({
+    const middlewareRuntime = registerAppMiddleware({
         app,
         ...context.middleware,
     });
@@ -27,7 +27,13 @@ function createApp(options = {}) {
 
     registerFallbackRoutes(routeContexts.fallback);
 
-    app.locals.runtime = context.runtime;
+    app.locals.runtime = {
+        ...context.runtime,
+        stop() {
+            middlewareRuntime.stop();
+            return context.runtime.stop();
+        },
+    };
 
     return app;
 }

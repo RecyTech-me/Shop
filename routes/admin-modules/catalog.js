@@ -1,3 +1,5 @@
+const { parseInteger } = require("../../lib/input-utils");
+
 function registerAdminCatalogRoutes(deps) {
     const {
         app,
@@ -89,7 +91,7 @@ function registerAdminCatalogRoutes(deps) {
     });
 
     app.get("/admin/products/:id/edit", requireAdmin, (req, res) => {
-        const product = getProductById(db, Number.parseInt(req.params.id, 10));
+        const product = getProductById(db, parseInteger(req.params.id, Number.NaN));
         if (!product) {
             return res.status(404).render("not-found", { title: "Produit introuvable" });
         }
@@ -103,7 +105,7 @@ function registerAdminCatalogRoutes(deps) {
     });
 
     app.post("/admin/products/:id/edit", requireAdmin, withProductUploads, (req, res) => {
-        const productId = Number.parseInt(req.params.id, 10);
+        const productId = parseInteger(req.params.id, Number.NaN);
         const existingProduct = getProductById(db, productId);
         const productInput = productInputWithUploads(req);
 
@@ -133,16 +135,26 @@ function registerAdminCatalogRoutes(deps) {
     });
 
     app.post("/admin/products/:id/delete", requireAdmin, (req, res) => {
-        const productId = Number.parseInt(req.params.id, 10);
+        const productId = parseInteger(req.params.id, Number.NaN);
         const referencingPacks = listPacksContainingProduct(db, productId);
         if (referencingPacks.length) {
             setFlash(req, "error", `Suppression impossible : ce produit est utilisé dans ${referencingPacks.length} pack(s).`);
             return saveSessionAndRedirect(req, res, `/admin/products/${productId}/edit`);
         }
 
-        deleteProduct(db, productId);
-        setFlash(req, "success", "Produit supprimé.");
-        saveSessionAndRedirect(req, res, "/admin");
+        try {
+            const deletion = deleteProduct(db, productId);
+            if (!deletion.changes) {
+                setFlash(req, "error", "Produit introuvable.");
+                return saveSessionAndRedirect(req, res, "/admin");
+            }
+
+            setFlash(req, "success", "Produit supprimé.");
+            return saveSessionAndRedirect(req, res, "/admin");
+        } catch (error) {
+            setFlash(req, "error", error.message);
+            return saveSessionAndRedirect(req, res, `/admin/products/${productId}/edit`);
+        }
     });
 
     app.get("/admin/settings", requireAdmin, (req, res) => {

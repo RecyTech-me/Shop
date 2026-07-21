@@ -37,6 +37,18 @@ test("strict configurations validate option names, values, stock, tags, and pric
         () => parseValidConfigurationsStrict("RAM=32 GB ; SSD=512 GB", groups),
         /pas autorisée/
     );
+    assert.throws(
+        () => parseValidConfigurationsStrict("RAM=16 GB ; SSD=512 GB ; stock=2units", groups),
+        /stock invalide/
+    );
+    assert.throws(
+        () => parseValidConfigurationsStrict("RAM=16 GB ; SSD=512 GB => 999999999999999999999", groups),
+        /prix invalide/
+    );
+    assert.throws(
+        () => parseValidConfigurationsStrict("RAM=16 GB ; SSD=512 GB => 1e3", groups),
+        /prix invalide/
+    );
 });
 
 test("parsed products normalize configuration quantities and availability", () => {

@@ -30,9 +30,11 @@
 
             <label class="full-span">
                 <%= adminUser ? "Nouveau mot de passe" : "Mot de passe" %>
-                <input type="password" name="password" <%= adminUser ? "" : "required" %>>
+                <input type="password" name="password" minlength="12" maxlength="128" autocomplete="new-password" <%= adminUser ? "" : "required" %>>
                 <% if (adminUser) { %>
-                    <small>Laissez vide pour conserver le mot de passe actuel.</small>
+                    <small>Laissez vide pour conserver le mot de passe actuel. Minimum 12 caractères.</small>
+                <% } else { %>
+                    <small>Minimum 12 caractères.</small>
                 <% } %>
             </label>
 

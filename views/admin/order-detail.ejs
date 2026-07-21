@@ -90,6 +90,7 @@
                                 <option value="<%= option.value %>" <%= order.status === option.value ? "selected" : "" %>><%= option.label %></option>
                             <% }) %>
                         </select>
+                        <small>Le statut « Remboursée » enregistre un remboursement déjà effectué ; il ne déclenche aucun remboursement auprès du prestataire de paiement.</small>
                     </label>
 
                     <label>

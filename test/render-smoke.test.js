@@ -89,6 +89,7 @@ test("critical pages render with SEO metadata and static CSS assets", async (t) 
     const versionedMainCss = await fetchText(baseUrl, stylesheetMatch[1]);
     assert.equal(versionedMainCss.response.status, 200);
     assert.match(versionedMainCss.response.headers.get("cache-control") || "", /immutable/);
+    assert.equal(versionedMainCss.response.headers.get("x-content-type-options"), "nosniff");
 
     const productMatch = home.text.match(/href="(\/products\/[^"]+)"/);
     if (productMatch) {
@@ -101,6 +102,7 @@ test("critical pages render with SEO metadata and static CSS assets", async (t) 
 
     const mainCss = await fetchText(baseUrl, "/static/styles/main.css");
     assert.equal(mainCss.response.status, 200);
+    assert.equal(mainCss.response.headers.get("x-content-type-options"), "nosniff");
     assert.doesNotMatch(mainCss.response.headers.get("cache-control") || "", /immutable/);
     assert.doesNotMatch(mainCss.text, /footer-responsive/);
 

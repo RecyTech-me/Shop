@@ -78,3 +78,48 @@ test("cart builder skips invalid items and clamps quantity to available stock", 
     assert.equal(cart.subtotalCents, 100000);
     assert.equal(cart.itemCount, 2);
 });
+
+test("cart builder normalizes malformed persisted quantities", () => {
+    const helpers = createHelpers();
+    const req = {
+        session: {
+            cart: [{ productId: 42, quantity: "2units", selectedOptions }],
+        },
+    };
+
+    const cart = helpers.buildCart(req);
+
+    assert.equal(cart.items[0].quantity, 1);
+    assert.equal(cart.subtotalCents, 50000);
+    assert.equal(cart.itemCount, 1);
+});
+
+test("every cart mutation invalidates checkout and Stripe replay state", () => {
+    const helpers = createHelpers();
+    const req = {
+        session: {
+            cart: [{ productId: configuredProduct.id, quantity: 1, selectedOptions }],
+            checkoutAttemptId: "a".repeat(32),
+            completedCheckoutAttempt: { id: "b".repeat(32), orderId: 7 },
+            stripeDraft: { paymentIntentId: "pi_stale" },
+        },
+    };
+
+    helpers.upsertCartItem(req, configuredProduct.id, 2, selectedOptions);
+
+    assert.equal(req.session.checkoutAttemptId, undefined);
+    assert.equal(req.session.completedCheckoutAttempt, undefined);
+    assert.equal(req.session.stripeDraft, undefined);
+    assert.equal(req.session.cart.length, 1);
+    assert.equal(req.session.cart[0].quantity, 2);
+
+    req.session.checkoutAttemptId = "c".repeat(32);
+    req.session.completedCheckoutAttempt = { id: "d".repeat(32), orderId: 8 };
+    req.session.stripeDraft = { paymentIntentId: "pi_stale_again" };
+    helpers.removeCartItem(req, helpers.makeCartItemKey(configuredProduct.id, selectedOptions));
+
+    assert.equal(req.session.checkoutAttemptId, undefined);
+    assert.equal(req.session.completedCheckoutAttempt, undefined);
+    assert.equal(req.session.stripeDraft, undefined);
+    assert.deepEqual(req.session.cart, []);
+});

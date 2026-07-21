@@ -50,7 +50,7 @@ function createReservedOrder(db, options = {}) {
     });
     const order = database.createOrder(db, {
         provider: options.provider || "stripe",
-        provider_reference: options.providerReference || "pi_cleanup",
+        provider_reference: options.providerReference ?? "pi_cleanup",
         customer_name: "Cleanup Customer",
         customer_email: "cleanup@example.test",
         amount_cents: 40000,
@@ -155,6 +155,28 @@ test("fresh external reservations are not reconciled before the TTL", async (t) 
 
     assert.equal(summary.checked, 0);
     assert.equal(database.getProductById(db, product.id).inventory, 0);
+});
+
+test("cleanup still reconciles an external reservation moved to awaiting transfer", async (t) => {
+    const db = createTestDb(t);
+    const { order, product } = createReservedOrder(db, {
+        providerReference: "pi_status_changed",
+    });
+    db.prepare("UPDATE orders SET status = 'awaiting_transfer' WHERE id = ?").run(order.id);
+    const service = createCleanupService(db, {
+        stripe: {
+            paymentIntents: {
+                retrieve: async (id) => ({ id, status: "canceled" }),
+            },
+        },
+    });
+
+    const summary = await service.cleanupStaleReservations();
+
+    assert.equal(summary.checked, 1);
+    assert.equal(summary.released, 1);
+    assert.equal(database.getOrderById(db, order.id).status, "failed");
+    assert.equal(database.getProductById(db, product.id).inventory, 1);
 });
 
 test("stale Stripe reservations are marked paid when the PaymentIntent succeeded", async (t) => {
@@ -275,6 +297,30 @@ test("Swiss Bitcoin Pay fetch failures increment failed and keep reservation", a
     const keptOrder = database.getOrderById(db, order.id);
 
     assert.equal(summary.failed, 1);
+    assert.equal(keptOrder.status, "pending");
+    assert.equal(keptOrder.metadata.inventory_released_at, undefined);
+    assert.equal(database.getProductById(db, product.id).inventory, 0);
+});
+
+test("missing provider references fail reconciliation without releasing stock", async (t) => {
+    const db = createTestDb(t);
+    const { order, product } = createReservedOrder(db, {
+        provider: "swissbitcoinpay",
+        providerReference: "",
+    });
+    const service = createCleanupService(db, {
+        swissBitcoinPay: {
+            fetchInvoice: async () => {
+                throw new Error("must not query without an invoice reference");
+            },
+        },
+    });
+
+    const summary = await service.cleanupStaleReservations();
+    const keptOrder = database.getOrderById(db, order.id);
+
+    assert.equal(summary.failed, 1);
+    assert.equal(summary.released, 0);
     assert.equal(keptOrder.status, "pending");
     assert.equal(keptOrder.metadata.inventory_released_at, undefined);
     assert.equal(database.getProductById(db, product.id).inventory, 0);

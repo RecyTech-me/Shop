@@ -5,6 +5,8 @@ export function createStripeCheckoutController({
     stripeMessage,
     csrfToken,
     buildCheckoutDraftPayload,
+    beforeSubmit = async () => {},
+    afterSubmitFailure = () => {},
 }) {
     let stripeClient = null;
     let stripeElements = null;
@@ -12,6 +14,7 @@ export function createStripeCheckoutController({
     let stripeIntentId = "";
     let stripeClientSecret = "";
     let stripeLoadingPromise = null;
+    let stripeRefreshPromise = null;
 
     function showMessage(message, tone = "error") {
         if (!stripeMessage) {
@@ -74,7 +77,20 @@ export function createStripeCheckoutController({
             return stripeLoadingPromise;
         }
 
-        stripeLoadingPromise = (async () => {
+        if (stripeLoadingPromise && forceRefresh) {
+            if (!stripeRefreshPromise) {
+                stripeRefreshPromise = stripeLoadingPromise
+                    .catch(() => {})
+                    .then(() => mountPaymentElement(true))
+                    .finally(() => {
+                        stripeRefreshPromise = null;
+                    });
+            }
+
+            return stripeRefreshPromise;
+        }
+
+        const loadingPromise = (async () => {
             showMessage("");
 
             const client = await ensureStripeClient();
@@ -130,11 +146,15 @@ export function createStripeCheckoutController({
                 },
             });
             stripePaymentElement.mount("#stripe-payment-element");
-        })().finally(() => {
-            stripeLoadingPromise = null;
-        });
+        })();
+        stripeLoadingPromise = loadingPromise;
+        loadingPromise.finally(() => {
+            if (stripeLoadingPromise === loadingPromise) {
+                stripeLoadingPromise = null;
+            }
+        }).catch(() => {});
 
-        return stripeLoadingPromise;
+        return loadingPromise;
     }
 
     function buildBillingDetails() {
@@ -194,6 +214,7 @@ export function createStripeCheckoutController({
         showMessage("");
 
         try {
+            await beforeSubmit();
             await mountPaymentElement();
             if (!stripeClient || !stripeElements || !stripeClientSecret || !stripeIntentId) {
                 throw new Error("Le formulaire Stripe n'est pas prêt.");
@@ -222,6 +243,7 @@ export function createStripeCheckoutController({
 
             window.location.assign(prepared.successUrl);
         } catch (error) {
+            afterSubmitFailure();
             showMessage(error.message || "Le paiement par carte a échoué.");
             submitButton?.removeAttribute("disabled");
         }

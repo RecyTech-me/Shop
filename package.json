@@ -11,7 +11,7 @@
     "dev": "node --watch server.js",
     "start": "node server.js",
     "check": "node scripts/check-syntax.js",
-    "lint": "eslint .",
+    "lint": "eslint . --max-warnings=0",
     "test": "node --test",
     "coverage": "node --test --experimental-test-coverage",
     "coverage:check": "node scripts/check-coverage.js",

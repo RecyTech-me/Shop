@@ -186,6 +186,7 @@ test("Stripe controller mounts payment element, prepares order, and confirms wit
         stripeMessage,
         csrfToken: "csrf-token",
         buildCheckoutDraftPayload: () => ({ ...payload }),
+        beforeSubmit: async () => events.push("draft:flush"),
     });
 
     await controller.submitCheckout({
@@ -202,6 +203,7 @@ test("Stripe controller mounts payment element, prepares order, and confirms wit
     assert.equal(fetchCalls[0].options.headers["X-CSRF-Token"], "csrf-token");
     assert.equal(fetchCalls[1].body.stripe_payment_intent_id, "pi_test_123");
     assert.deepEqual(events, [
+        "draft:flush",
         "fetch:/stripe/intent",
         "stripe:submit",
         "fetch:/stripe/prepare",
@@ -230,6 +232,7 @@ test("Stripe controller does not prepare an order when Stripe Elements submit fa
     const originalWindow = global.window;
     const originalDocument = global.document;
     const fetchCalls = [];
+    let resumedDraftSaving = false;
 
     t.after(() => {
         global.fetch = originalFetch;
@@ -290,6 +293,9 @@ test("Stripe controller does not prepare an order when Stripe Elements submit fa
         stripeMessage,
         csrfToken: "csrf-token",
         buildCheckoutDraftPayload: () => ({}),
+        afterSubmitFailure: () => {
+            resumedDraftSaving = true;
+        },
     });
 
     await controller.submitCheckout({
@@ -300,4 +306,69 @@ test("Stripe controller does not prepare an order when Stripe Elements submit fa
     assert.equal(stripeMessage.hidden, false);
     assert.equal(stripeMessage.textContent, "Carte incomplète");
     assert.equal(submitButton.hasAttribute("disabled"), false);
+    assert.equal(resumedDraftSaving, true);
+});
+
+test("Stripe controller serializes and deduplicates forced intent refreshes", async (t) => {
+    const { createStripeCheckoutController } = await loadStripeModule();
+    const originalFetch = global.fetch;
+    const originalWindow = global.window;
+    const originalDocument = global.document;
+    const pendingResponses = [];
+    let fetchCount = 0;
+
+    t.after(() => {
+        global.fetch = originalFetch;
+        global.window = originalWindow;
+        global.document = originalDocument;
+    });
+
+    global.fetch = () => {
+        fetchCount += 1;
+        return new Promise((resolve) => pendingResponses.push(resolve));
+    };
+    global.window = {
+        Stripe: () => ({
+            elements: () => ({
+                create: () => ({ mount() {}, unmount() {} }),
+            }),
+        }),
+    };
+    global.document = { querySelector: () => null };
+
+    const controller = createStripeCheckoutController({
+        checkoutForm: createElementStub({
+            dataset: {
+                stripePublishableKey: "pk_test_123",
+                stripeIntentUrl: "/stripe/intent",
+            },
+        }),
+        cardPaymentSection: createElementStub({ hidden: false }),
+        stripeMount: createElementStub(),
+        stripeMessage: createElementStub({ dataset: {} }),
+        csrfToken: "csrf",
+        buildCheckoutDraftPayload: () => ({ delivery_method: "pickup" }),
+    });
+
+    const initialMount = controller.mountPaymentElement();
+    const firstRefresh = controller.mountPaymentElement(true);
+    const duplicateRefresh = controller.mountPaymentElement(true);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(fetchCount, 1);
+
+    pendingResponses.shift()(jsonResponse(200, {
+        paymentIntentId: "pi_initial",
+        clientSecret: "secret_initial",
+    }));
+    await initialMount;
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(fetchCount, 2);
+
+    pendingResponses.shift()(jsonResponse(200, {
+        paymentIntentId: "pi_refresh",
+        clientSecret: "secret_refresh",
+    }));
+    await Promise.all([firstRefresh, duplicateRefresh]);
+
+    assert.equal(fetchCount, 2);
 });

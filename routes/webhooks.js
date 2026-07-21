@@ -1,8 +1,44 @@
 const express = require("express");
 const logger = require("../lib/logger");
+const { createRequestId } = require("../lib/http/request-id");
 
 function orderLogId(order) {
     return order?.order_number || `#${order?.id}`;
+}
+
+function stripeFailureOrderStatus(eventType) {
+    return eventType === "payment_intent.canceled" ? "failed" : "pending";
+}
+
+function findSwissBitcoinPayOrder({
+    db,
+    invoice,
+    invoiceId,
+    getOrderByProviderReference,
+    getOrderByNumber,
+    updateOrderProviderReference,
+    normalizeText,
+    nowIso = () => new Date().toISOString(),
+}) {
+    const referencedOrder = getOrderByProviderReference(db, "swissbitcoinpay", invoiceId);
+    if (referencedOrder) {
+        return { order: referencedOrder, recovered: false };
+    }
+
+    const orderNumber = normalizeText(invoice.extra?.orderNumber || invoice.invoice?.extra?.orderNumber);
+    const recoverableOrder = orderNumber ? getOrderByNumber(db, orderNumber) : null;
+    if (
+        recoverableOrder?.provider !== "swissbitcoinpay"
+        || (recoverableOrder.provider_reference && recoverableOrder.provider_reference !== invoiceId)
+    ) {
+        return { order: null, recovered: false };
+    }
+
+    const recoveredOrder = updateOrderProviderReference(db, recoverableOrder.id, invoiceId, {
+        swissBitcoinPayReferenceRecoveredAt: nowIso(),
+    });
+
+    return { order: recoveredOrder, recovered: Boolean(recoveredOrder) };
 }
 
 function registerWebhookRoutes(deps) {
@@ -14,23 +50,53 @@ function registerWebhookRoutes(deps) {
         payments,
         text,
     } = deps;
-    const { stripe, env } = providers;
-    const { getOrderByProviderReference, markOrderPaid, updateOrderStatus } = repositories;
+    const { stripe, stripeWebhookSecret } = providers;
+    const {
+        getOrderByProviderReference,
+        getOrderByNumber,
+        updateOrderProviderReference,
+        markOrderPaid,
+        updateOrderStatus,
+    } = repositories;
     const { verifySwissBitcoinPayWebhook, mapSwissBitcoinPayStatus } = payments;
     const { normalizeText } = text;
 
+    app.use("/webhooks", (req, res, next) => {
+        req.requestId = req.requestId || createRequestId(req);
+        res.set("X-Request-Id", req.requestId);
+        res.set("Cache-Control", "no-store");
+        res.set("X-Content-Type-Options", "nosniff");
+        next();
+    });
+
     app.post("/webhooks/stripe", express.raw({ type: "application/json" }), (req, res) => {
-        if (!stripe || !env.STRIPE_WEBHOOK_SECRET) {
+        if (!stripe || !stripeWebhookSecret) {
             return res.status(204).end();
         }
 
+        let event;
         try {
-            const signature = req.headers["stripe-signature"];
-            const event = stripe.webhooks.constructEvent(req.body, signature, env.STRIPE_WEBHOOK_SECRET);
+            event = stripe.webhooks.constructEvent(
+                req.body,
+                req.headers["stripe-signature"],
+                stripeWebhookSecret
+            );
+        } catch (error) {
+            logger.warn("payments.stripe_webhook_rejected", {
+                requestId: req.requestId,
+                error: error.message,
+            });
+            return res.status(400).send("Invalid webhook");
+        }
 
+        try {
             if (event.type === "payment_intent.succeeded") {
                 const paymentIntent = event.data.object;
                 const order = getOrderByProviderReference(db, "stripe", paymentIntent.id);
+
+                if (!order && paymentIntent.metadata?.source === "recytech-shop") {
+                    return res.status(503).send("Order is not ready");
+                }
 
                 if (order) {
                     markOrderPaid(db, order.id, {
@@ -45,37 +111,71 @@ function registerWebhookRoutes(deps) {
                 const paymentIntent = event.data.object;
                 const order = getOrderByProviderReference(db, "stripe", paymentIntent.id);
 
+                if (!order && paymentIntent.metadata?.source === "recytech-shop") {
+                    return res.status(503).send("Order is not ready");
+                }
+
                 if (order) {
-                    updateOrderStatus(db, order.id, "failed", {
+                    const nextStatus = stripeFailureOrderStatus(event.type);
+                    updateOrderStatus(db, order.id, nextStatus, {
                         stripePaymentIntentId: paymentIntent.id,
                         paymentStatus: paymentIntent.status,
                     });
-                    logger.info(`[payments] Stripe webhook marked order ${orderLogId(order)} failed for intent ${paymentIntent.id}`);
+                    logger.info(`[payments] Stripe webhook marked order ${orderLogId(order)} ${nextStatus} for intent ${paymentIntent.id}`);
                 }
             }
 
-            res.status(200).json({ received: true });
+            return res.status(200).json({ received: true });
         } catch (error) {
-            res.status(400).send(`Webhook Error: ${error.message}`);
+            logger.error("payments.stripe_webhook_processing_failed", {
+                requestId: req.requestId,
+                eventId: event.id,
+                eventType: event.type,
+                error: error.message,
+            });
+            return res.status(500).send("Webhook processing failed");
         }
     });
 
     app.post("/webhooks/swiss-bitcoin-pay", express.raw({ type: "application/json" }), (req, res) => {
+        if (!verifySwissBitcoinPayWebhook(req)) {
+            return res.status(401).json({ error: "Invalid webhook secret" });
+        }
+
+        let invoice;
         try {
-            if (!verifySwissBitcoinPayWebhook(req)) {
-                return res.status(401).json({ error: "Invalid webhook secret" });
+            invoice = JSON.parse(req.body.toString("utf8") || "{}");
+        } catch (error) {
+            logger.warn("payments.sbp_webhook_rejected", {
+                requestId: req.requestId,
+                error: error.message,
+            });
+            return res.status(400).send("Invalid webhook");
+        }
+
+        const invoiceId = normalizeText(invoice.id || invoice.invoice?.id);
+        if (!invoiceId) {
+            return res.status(400).send("Missing invoice id");
+        }
+
+        try {
+            const resolved = findSwissBitcoinPayOrder({
+                db,
+                invoice,
+                invoiceId,
+                getOrderByProviderReference,
+                getOrderByNumber,
+                updateOrderProviderReference,
+                normalizeText,
+            });
+            const { order } = resolved;
+
+            if (resolved.recovered) {
+                logger.warn(`[payments] Recovered Swiss Bitcoin Pay reference ${invoiceId} for order ${orderLogId(order)}`);
             }
 
-            const invoice = JSON.parse(req.body.toString("utf8") || "{}");
-            const invoiceId = normalizeText(invoice.id || invoice.invoice?.id);
-
-            if (!invoiceId) {
-                return res.status(200).json({ received: true });
-            }
-
-            const order = getOrderByProviderReference(db, "swissbitcoinpay", invoiceId);
             if (!order) {
-                return res.status(200).json({ received: true });
+                return res.status(503).send("Order is not ready");
             }
 
             const nextStatus = mapSwissBitcoinPayStatus(invoice);
@@ -94,11 +194,16 @@ function registerWebhookRoutes(deps) {
                 logger.info(`[payments] Swiss Bitcoin Pay webhook marked order ${orderLogId(order)} ${nextStatus} for invoice ${invoiceId}`);
             }
 
-            res.status(200).json({ received: true });
+            return res.status(200).json({ received: true });
         } catch (error) {
-            res.status(400).send(`Webhook Error: ${error.message}`);
+            logger.error("payments.sbp_webhook_processing_failed", {
+                requestId: req.requestId,
+                invoiceId,
+                error: error.message,
+            });
+            return res.status(500).send("Webhook processing failed");
         }
     });
 }
 
-module.exports = { registerWebhookRoutes };
+module.exports = { findSwissBitcoinPayOrder, registerWebhookRoutes, stripeFailureOrderStatus };
