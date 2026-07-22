@@ -9,7 +9,7 @@ Before deployment:
 - `npm run coverage:check` passed.
 - `npm audit --audit-level=moderate` passed.
 - Secret scan passed in CI.
-- `GITLEAKS_LICENSE` is configured when the repository belongs to a GitHub organization.
+- The checksum-verified Gitleaks history scan passed, and any `.gitleaksignore` entry still refers only to a reviewed test fixture.
 - `SHOP_PUBLIC_URL` or `BASE_URL` is the public HTTPS canonical production origin.
 - `DEPLOY_KNOWN_HOSTS` matches the production server key obtained through a trusted channel.
 - Migration notes were reviewed.
