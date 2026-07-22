@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="description" content="<%= seo.description %>">
+    <meta name="robots" content="<%= seo.robots %>">
     <meta name="csrf-token" content="<%= csrfToken || '' %>">
     <% if (seo.canonicalUrl) { %>
         <link rel="canonical" href="<%= seo.canonicalUrl %>">
@@ -28,3 +29,4 @@
     <% }) %>
 </head>
 <body>
+<a class="skip-link" href="#main-content">Aller au contenu principal</a>

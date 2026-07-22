@@ -11,9 +11,14 @@
                                 <use href="<%= staticAsset('/static/images/icons.svg#icon-instagram') %>"></use>
                             </svg>
                         </a>
-                        <a href="https://github.com/RecyLife/Website" target="_blank" rel="noopener noreferrer" aria-label="GitHub">
+                        <a href="https://github.com/RecyTech-me" target="_blank" rel="noopener noreferrer" aria-label="GitHub">
                             <svg class="footer-social-icon" aria-hidden="true">
                                 <use href="<%= staticAsset('/static/images/icons.svg#icon-github') %>"></use>
+                            </svg>
+                        </a>
+                        <a href="https://www.linkedin.com/company/recytech-shop" target="_blank" rel="noopener noreferrer" aria-label="LinkedIn">
+                            <svg class="footer-social-icon" aria-hidden="true">
+                                <use href="<%= staticAsset('/static/images/icons.svg#icon-linkedin') %>"></use>
                             </svg>
                         </a>
                         <a href="https://recytech.me/documents/index.html" aria-label="Documents">
@@ -45,7 +50,7 @@
                             <svg class="footer-icon" aria-hidden="true">
                                 <use href="<%= staticAsset('/static/images/icons.svg#icon-envelope') %>"></use>
                             </svg>
-                            <span><%= settings.support_email %></span>
+                            <a href="mailto:<%= settings.support_email %>"><%= settings.support_email %></a>
                         </p>
                     </div>
                 </div>
