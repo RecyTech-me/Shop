@@ -30,7 +30,8 @@
                                             alt=""
                                             loading="lazy"
                                             referrerpolicy="no-referrer"
-                                            onerror="this.hidden=true;this.nextElementSibling.hidden=false;this.parentElement.classList.add('cart-thumb-empty');"
+                                            data-image-fallback
+                                            data-fallback-class="cart-thumb-empty"
                                         >
                                         <span hidden>RecyTech</span>
                                     <% } else { %>

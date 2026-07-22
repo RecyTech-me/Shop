@@ -1,0 +1,203 @@
+@media (max-width: 980px) {
+    .hero-grid,
+    .product-layout,
+    .checkout-layout,
+    .cart-layout,
+    .admin-order-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .admin-stat-grid,
+    .payment-grid,
+    .admin-form-grid,
+    .review-form-grid,
+    .admin-order-summary-grid,
+    .footer-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .cart-item {
+        grid-template-columns: 112px minmax(0, 1fr);
+    }
+
+    .cart-item-actions {
+        grid-column: 1 / -1;
+        flex-direction: row;
+        flex-wrap: wrap;
+    }
+
+    .cart-item-actions form {
+        flex: 1 1 220px;
+    }
+
+    .catalogue-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        max-width: calc((3 * 240px) + (4 * 1.35rem));
+    }
+}
+
+@media (max-width: 720px) {
+    .shell {
+        width: min(100vw - 1rem, 1120px);
+    }
+
+    .eyebrow {
+        font-size: 0.9rem;
+        letter-spacing: 0.13em;
+    }
+
+    .admin-page.shell {
+        width: min(100vw - 0.5rem, 1120px);
+    }
+
+    .admin-page {
+        gap: 1.2rem;
+        padding-top: 0.7rem;
+        padding-bottom: 1.5rem;
+    }
+
+    .hero {
+        padding: 0.8rem 0 0.9rem;
+    }
+
+    .hero + .section-stack {
+        padding-top: 0;
+        padding-bottom: 1.4rem;
+    }
+
+    .admin-bar-shell,
+    .section-heading,
+    .admin-actions,
+    .hero-actions {
+        align-items: start;
+        flex-direction: column;
+    }
+
+    .site-nav {
+        width: auto;
+    }
+
+    .site-nav a {
+        text-align: left;
+    }
+
+    .hero-copy,
+    .hero-card,
+    .section-block,
+    .payment-card,
+    .summary-card,
+    .auth-card,
+    .status-card {
+        padding: 1.2rem;
+    }
+
+    .admin-page .section-block,
+    .admin-page .payment-card,
+    .admin-page .summary-card,
+    .admin-page .auth-card,
+    .admin-page .status-card {
+        padding: 1rem;
+    }
+
+    .admin-page .detail-panel,
+    .admin-page .admin-stat-card {
+        padding: 1rem;
+    }
+
+    .admin-page .section-heading {
+        margin-bottom: 0.9rem;
+    }
+
+    .admin-stat-grid,
+    .admin-form-grid,
+    .review-form-grid,
+    .admin-order-summary-grid,
+    .footer-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .payment-grid,
+    .checkout-grid-two,
+    .choice-grid-two,
+    .admin-order-filters,
+    .promo-code-row {
+        grid-template-columns: 1fr;
+    }
+
+    .checkout-layout {
+        gap: 1rem;
+    }
+
+    .checkout-group,
+    .stripe-card-panel,
+    .pickup-info {
+        overflow: hidden;
+    }
+
+    .admin-page .admin-stat-grid,
+    .admin-page .admin-form-grid,
+    .admin-page .admin-order-layout,
+    .admin-page .admin-order-summary-grid,
+    .admin-page .admin-order-main,
+    .admin-page .admin-order-items,
+    .admin-page .admin-order-side,
+    .admin-page .admin-order-filters,
+    .admin-page .table-wrap-admin .admin-table tbody {
+        gap: 0.8rem;
+    }
+
+    .choice-surface,
+    .summary-row {
+        align-items: flex-start;
+    }
+
+    .summary-row {
+        gap: 0.9rem;
+    }
+
+    .summary-row span {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+
+    .summary-row strong {
+        flex: 0 0 auto;
+        text-align: right;
+    }
+
+    .checkout-actions {
+        display: grid;
+        grid-template-columns: 1fr;
+    }
+
+    .checkout-actions .button,
+    .promo-code-row .button {
+        width: 100%;
+    }
+
+    .product-purchase-row,
+    .product-info-row {
+        grid-template-columns: 1fr;
+    }
+
+    .catalogue-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        max-width: calc((2 * 240px) + (3 * 1.35rem));
+    }
+
+    .cart-item {
+        grid-template-columns: 1fr;
+    }
+
+    .cart-thumb {
+        max-width: 180px;
+    }
+
+    .cart-item-actions {
+        flex-direction: column;
+    }
+
+    .cart-item-actions form {
+        flex: none;
+    }
+}

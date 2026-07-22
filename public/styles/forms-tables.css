@@ -1,0 +1,230 @@
+.settings-subsection {
+    margin-top: 0.25rem;
+}
+
+.settings-subsection h2 {
+    margin: 0 0 0.35rem;
+    font-family: "Raleway-SemiBold", sans-serif;
+    font-size: 1.15rem;
+}
+
+.section-actions-top {
+    margin-top: 1rem;
+}
+
+.checkbox-field {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    color: var(--text);
+}
+
+.checkbox-field input {
+    width: auto;
+    min-width: 1.1rem;
+    min-height: 1.1rem;
+    margin: 0;
+}
+
+.checkbox-field span {
+    line-height: 1.45;
+}
+
+label {
+    display: grid;
+    gap: 0.45rem;
+    color: var(--text-soft);
+}
+
+input,
+select,
+textarea {
+    width: 100%;
+    padding: 0.9rem 1rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid rgba(36, 76, 56, 0.18);
+    background: rgba(255, 255, 255, 0.9);
+    color: var(--text);
+}
+
+input:not([type="checkbox"]):not([type="radio"]),
+select {
+    min-height: 3.35rem;
+    line-height: 1.2;
+}
+
+select {
+    -webkit-appearance: none;
+    appearance: none;
+    background-image:
+        linear-gradient(45deg, transparent 50%, rgba(36, 76, 56, 0.72) 50%),
+        linear-gradient(135deg, rgba(36, 76, 56, 0.72) 50%, transparent 50%);
+    background-position:
+        calc(100% - 1.15rem) calc(50% - 0.14rem),
+        calc(100% - 0.85rem) calc(50% - 0.14rem);
+    background-size: 0.42rem 0.42rem, 0.42rem 0.42rem;
+    background-repeat: no-repeat;
+    padding-right: 2.6rem;
+}
+
+textarea {
+    resize: vertical;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+    outline: 2px solid rgba(36, 76, 56, 0.22);
+    border-color: transparent;
+}
+
+.auth-card {
+    max-width: 520px;
+    margin: 2rem auto 0;
+}
+
+.table-wrap {
+    overflow-x: auto;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+th,
+td {
+    padding: 0.95rem 0.8rem;
+    text-align: left;
+    border-bottom: 1px solid rgba(36, 76, 56, 0.1);
+}
+
+th {
+    font-size: 0.84rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-soft);
+}
+
+.row-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+}
+
+.order-actions-cell {
+    text-align: right;
+    white-space: nowrap;
+}
+
+.order-actions-cell .row-actions {
+    justify-content: flex-end;
+}
+
+.row-actions form {
+    margin: 0;
+}
+
+.row-actions a,
+.row-actions button {
+    color: var(--text);
+    background: none;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+}
+
+.flash {
+    margin: 1rem auto 0;
+    padding: 1rem 1.25rem;
+    border-radius: 18px;
+    border: 1px solid transparent;
+    transition: opacity 220ms ease, transform 220ms ease;
+}
+
+.flash-success {
+    background: rgba(36, 76, 56, 0.09);
+    border-color: rgba(36, 76, 56, 0.12);
+}
+
+.flash-error {
+    background: rgba(163, 54, 34, 0.08);
+    border-color: rgba(163, 54, 34, 0.15);
+    color: #7a3326;
+}
+
+.flash-hidden {
+    opacity: 0;
+    transform: translateY(-6px);
+}
+
+.flash-shell-hidden {
+    display: none;
+}
+
+.muted {
+    color: var(--text-soft);
+}
+
+.provider-reference {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.confirm-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 90;
+    display: grid;
+    place-items: center;
+    padding: 1rem;
+}
+
+.confirm-modal[hidden] {
+    display: none;
+}
+
+.confirm-modal-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(14, 23, 18, 0.46);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+}
+
+.confirm-modal-panel {
+    position: relative;
+    width: min(100%, 480px);
+    display: grid;
+    gap: 1rem;
+    padding: 1.4rem;
+    border: 1px solid rgba(36, 76, 56, 0.16);
+    border-radius: var(--radius-xl);
+    background: rgba(255, 251, 243, 0.98);
+    box-shadow: 0 24px 60px rgba(17, 34, 24, 0.18);
+}
+
+.confirm-modal-panel h2,
+.confirm-modal-copy {
+    margin: 0;
+}
+
+.confirm-modal-copy {
+    color: var(--text-soft);
+}
+
+.confirm-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.bank-details {
+    display: grid;
+    gap: 0.75rem;
+}
+
+.bank-details p {
+    margin: 0;
+}

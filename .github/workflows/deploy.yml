@@ -3,49 +3,248 @@ name: Deploy
 on:
   push:
     branches:
+      - dev
       - main
   workflow_dispatch:
 
 concurrency:
-  group: deploy-production
-  cancel-in-progress: true
+  group: deploy-${{ github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+      DEPLOY_PATH: ${{ github.ref_name == 'main' && '/home/recytech/apps/shopsite' || '/home/recytech/apps/shopsite-dev' }}
+      DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
+      DEPLOY_SERVICE: ${{ github.ref_name == 'main' && 'shopsite' || 'shopsite-dev' }}
+      DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+      DEPLOY_URL: ${{ github.ref_name == 'main' && 'https://shop.recytech.me' || 'https://dev.shop.recytech.me' }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_BRANCH: ${{ github.ref_name }}
+      ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Validate before deploy
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          npm run verify
+          npm run coverage:check
 
       - name: Configure SSH
         run: |
+          set -euo pipefail
+          test -n "$DEPLOY_HOST"
+          test -n "$DEPLOY_KNOWN_HOSTS"
+          test -n "$DEPLOY_PATH"
+          test -n "$DEPLOY_PORT"
+          test -n "$DEPLOY_SERVICE"
+          test -n "$DEPLOY_SSH_KEY"
+          test -n "$DEPLOY_URL"
+          test -n "$DEPLOY_USER"
+
+          case "$DEPLOY_HOST" in
+            *[!A-Za-z0-9.-]*) echo "DEPLOY_HOST contains unsupported characters" >&2; exit 1 ;;
+          esac
+          case "$DEPLOY_USER" in
+            ''|*[!a-z0-9_-]*) echo "DEPLOY_USER contains unsupported characters" >&2; exit 1 ;;
+          esac
+          case "$DEPLOY_PATH" in
+            /*) ;;
+            *) echo "DEPLOY_PATH must be absolute" >&2; exit 1 ;;
+          esac
+          case "$DEPLOY_PATH" in
+            *[!A-Za-z0-9._/-]*) echo "DEPLOY_PATH contains unsupported characters" >&2; exit 1 ;;
+          esac
+          case "$DEPLOY_PORT" in
+            ''|*[!0-9]*) echo "DEPLOY_PORT must be numeric" >&2; exit 1 ;;
+          esac
+          if [ "$DEPLOY_PORT" -lt 1 ] || [ "$DEPLOY_PORT" -gt 65535 ]; then
+            echo "DEPLOY_PORT is outside the valid range" >&2
+            exit 1
+          fi
+          case "$DEPLOY_BRANCH:$DEPLOY_PATH:$DEPLOY_URL:$DEPLOY_SERVICE" in
+            "dev:/home/recytech/apps/shopsite-dev:https://dev.shop.recytech.me:shopsite-dev") ;;
+            "main:/home/recytech/apps/shopsite:https://shop.recytech.me:shopsite") ;;
+            *) echo "Unsupported deployment target" >&2; exit 1 ;;
+          esac
+
+          umask 077
           mkdir -p ~/.ssh
-          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -p "${{ secrets.DEPLOY_PORT || 22 }}" -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts
+          chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" | sed 's/\r$//' > ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" | sed 's/\r$//' > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/deploy_key ~/.ssh/known_hosts
+          ssh-keygen -y -P '' -f ~/.ssh/deploy_key >/dev/null
+          ssh-keygen -l -f ~/.ssh/known_hosts >/dev/null
+
+      - name: Validate deployment access
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o PasswordAuthentication=no \
+            -o StrictHostKeyChecking=yes \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            "test -d '$DEPLOY_PATH' && test -w '$DEPLOY_PATH'"
+
+      - name: Prepare staging directory
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o PasswordAuthentication=no \
+            -o StrictHostKeyChecking=yes \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            "mkdir -p '$DEPLOY_PATH.staging'"
 
       - name: Upload application files
         run: |
-          rsync -az --delete \
+          set -euo pipefail
+          rsync -az --delete --no-owner --no-group \
             --exclude '.git/' \
             --exclude '.github/' \
-            --exclude '.env' \
+            --exclude '/.env' \
             --exclude 'node_modules/' \
-            --exclude 'storage/' \
-            --exclude 'public/uploads/' \
-            -e "ssh -i ~/.ssh/deploy_key -p ${{ secrets.DEPLOY_PORT || 22 }}" \
-            ./ "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:${{ secrets.DEPLOY_PATH }}/"
+            --exclude '/storage/' \
+            --exclude '/public/uploads/' \
+            -e "ssh -i $HOME/.ssh/deploy_key -p $DEPLOY_PORT -o BatchMode=yes -o IdentitiesOnly=yes -o PasswordAuthentication=no -o StrictHostKeyChecking=yes" \
+            ./ "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH.staging/"
 
-      - name: Install dependencies and restart
+      - name: Install, back up, promote, and restart
         run: |
-          ssh -i ~/.ssh/deploy_key -p "${{ secrets.DEPLOY_PORT || 22 }}" "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" <<'EOF'
+          set -euo pipefail
+          printf -v quoted_deploy_path '%q' "$DEPLOY_PATH"
+          printf -v quoted_deploy_url '%q' "$DEPLOY_URL"
+          printf -v quoted_alert_url '%q' "$ALERT_WEBHOOK_URL"
+          printf -v quoted_deploy_service '%q' "$DEPLOY_SERVICE"
+          ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o PasswordAuthentication=no \
+            -o StrictHostKeyChecking=yes \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            "bash -s -- $quoted_deploy_path $quoted_deploy_url $quoted_alert_url $quoted_deploy_service" <<'EOF'
             set -euo pipefail
-            cd "${{ secrets.DEPLOY_PATH }}"
-            mkdir -p storage public/uploads/products
+            LIVE_DIR="$1"
+            DEPLOY_URL="$2"
+            ALERT_WEBHOOK_URL="$3"
+            DEPLOY_SERVICE="$4"
+            STAGING_DIR="$LIVE_DIR.staging"
+            PREVIOUS_DIR="$LIVE_DIR.previous"
+            RELEASE_MARKER="$LIVE_DIR/.release-complete"
+            HAD_PREVIOUS_RELEASE=0
+            RSYNC_DEPLOY_OPTIONS=(
+              -a
+              --delete
+              --delay-updates
+              --delete-delay
+              --no-owner
+              --no-group
+              --no-perms
+              --omit-dir-times
+              --exclude=/.env
+              --exclude=/.release-complete
+              --exclude=/storage/
+              --exclude=/public/uploads/
+            )
+            export PATH="/opt/shopsite-node/bin:$PATH"
+
+            case "$DEPLOY_SERVICE:$LIVE_DIR" in
+              "shopsite:/home/recytech/apps/shopsite") ;;
+              "shopsite-dev:/home/recytech/apps/shopsite-dev") ;;
+              *) echo "Unsupported remote deployment target" >&2; exit 1 ;;
+            esac
+
+            case "$(node --version)" in
+              v24.*) ;;
+              *) echo "Deployment requires Node.js 24" >&2; exit 1 ;;
+            esac
+
+            restore_previous_release() {
+              if [ "$HAD_PREVIOUS_RELEASE" -eq 1 ]; then
+                rsync "${RSYNC_DEPLOY_OPTIONS[@]}" "$PREVIOUS_DIR/" "$LIVE_DIR/"
+                touch "$RELEASE_MARKER"
+                sudo systemctl restart "$DEPLOY_SERVICE"
+              else
+                rm -f "$RELEASE_MARKER"
+                sudo systemctl stop "$DEPLOY_SERVICE" || true
+              fi
+            }
+
+            cd "$STAGING_DIR"
             npm ci --omit=dev
-            sudo systemctl restart shopsite
-            sleep 2
-            curl -fsS "${{ secrets.DEPLOY_URL }}" >/dev/null
+
+            test -d "$LIVE_DIR/storage"
+            test -d "$LIVE_DIR/public/uploads/products"
+            test -d "$LIVE_DIR/public/uploads/settings"
+            if [ -f "$LIVE_DIR/.env" ]; then
+              DATABASE_PATH="$(cd "$STAGING_DIR" && DOTENV_CONFIG_PATH="$LIVE_DIR/.env" node -r dotenv/config -e "process.stdout.write(process.env.DATABASE_PATH || 'storage/shop.db')")"
+              BACKUP_DIR="$(cd "$STAGING_DIR" && DOTENV_CONFIG_PATH="$LIVE_DIR/.env" node -r dotenv/config -e "process.stdout.write(process.env.BACKUP_DIR || 'storage/backups')")"
+            else
+              DATABASE_PATH="storage/shop.db"
+              BACKUP_DIR="storage/backups"
+            fi
+
+            case "$DATABASE_PATH" in
+              /*) DATABASE_FILE="$DATABASE_PATH" ;;
+              *) DATABASE_FILE="$LIVE_DIR/$DATABASE_PATH" ;;
+            esac
+            case "$BACKUP_DIR" in
+              /*) BACKUP_PATH="$BACKUP_DIR" ;;
+              *) BACKUP_PATH="$LIVE_DIR/$BACKUP_DIR" ;;
+            esac
+
+            if [ -f "$DATABASE_FILE" ]; then
+              sudo -u recytech /opt/shopsite-node/bin/node \
+                "$STAGING_DIR/scripts/backup-sqlite.js" \
+                --database="$DATABASE_FILE" \
+                --out-dir="$BACKUP_PATH"
+            fi
+
+            if [ -f "$RELEASE_MARKER" ]; then
+              mkdir -p "$PREVIOUS_DIR"
+              rsync "${RSYNC_DEPLOY_OPTIONS[@]}" "$LIVE_DIR/" "$PREVIOUS_DIR/"
+              HAD_PREVIOUS_RELEASE=1
+            fi
+
+            if ! rsync "${RSYNC_DEPLOY_OPTIONS[@]}" "$STAGING_DIR/" "$LIVE_DIR/"; then
+              restore_previous_release
+              exit 1
+            fi
+            rm -f "$RELEASE_MARKER"
+
+            cd "$LIVE_DIR"
+            if ! sudo systemctl restart "$DEPLOY_SERVICE"; then
+              restore_previous_release
+              exit 1
+            fi
+
+            if ! SHOP_PUBLIC_URL="$DEPLOY_URL" \
+              ALERT_WEBHOOK_URL="$ALERT_WEBHOOK_URL" \
+              HEALTHCHECK_ATTEMPTS=10 \
+              HEALTHCHECK_RETRY_DELAY_MS=2000 \
+              npm run health:check; then
+              restore_previous_release
+              exit 1
+            fi
+            touch "$RELEASE_MARKER"
           EOF

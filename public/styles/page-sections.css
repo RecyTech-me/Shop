@@ -1,0 +1,51 @@
+.eyebrow {
+    margin: 0 0 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    font-size: 0.78rem;
+    color: #627766;
+}
+
+.section-stack {
+    display: grid;
+    gap: 2rem;
+    padding-top: 1rem;
+    padding-bottom: 3rem;
+}
+
+.section-block,
+.summary-card,
+.payment-card,
+.auth-card,
+.status-card {
+    background: rgba(255, 253, 248, 0.92);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow);
+}
+
+.section-block,
+.payment-card,
+.auth-card,
+.status-card {
+    padding: 1.5rem;
+}
+
+.section-heading {
+    display: flex;
+    justify-content: space-between;
+    align-items: end;
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+}
+
+.section-heading h1,
+.section-heading h2,
+.status-card h1,
+.auth-card h1,
+.summary-card h2,
+.payment-card h2,
+.long-copy h2 {
+    margin: 0;
+    font-family: "Raleway-SemiBold", sans-serif;
+}
