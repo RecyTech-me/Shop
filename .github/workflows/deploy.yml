@@ -119,7 +119,7 @@ jobs:
       - name: Upload application files
         run: |
           set -euo pipefail
-          rsync -az --delete \
+          rsync -az --delete --no-owner --no-group \
             --exclude '.git/' \
             --exclude '.github/' \
             --exclude '.env' \
@@ -151,6 +151,19 @@ jobs:
             STAGING_DIR="$LIVE_DIR.staging"
             PREVIOUS_DIR="$LIVE_DIR.previous"
             HAD_PREVIOUS_RELEASE=0
+            RSYNC_DEPLOY_OPTIONS=(
+              -a
+              --delete
+              --delay-updates
+              --delete-delay
+              --no-owner
+              --no-group
+              --no-perms
+              --omit-dir-times
+              --exclude=.env
+              --exclude=storage/
+              --exclude=public/uploads/
+            )
             export PATH="/opt/shopsite-node/bin:$PATH"
 
             case "$DEPLOY_SERVICE:$LIVE_DIR" in
@@ -196,28 +209,16 @@ jobs:
 
             if [ -f "$LIVE_DIR/package.json" ]; then
               mkdir -p "$PREVIOUS_DIR"
-              rsync -a --delete --delay-updates --delete-delay \
-                --exclude '.env' \
-                --exclude 'storage/' \
-                --exclude 'public/uploads/' \
-                "$LIVE_DIR/" "$PREVIOUS_DIR/"
+              rsync "${RSYNC_DEPLOY_OPTIONS[@]}" "$LIVE_DIR/" "$PREVIOUS_DIR/"
               HAD_PREVIOUS_RELEASE=1
             fi
 
-            rsync -a --delete --delay-updates --delete-delay \
-              --exclude '.env' \
-              --exclude 'storage/' \
-              --exclude 'public/uploads/' \
-              "$STAGING_DIR/" "$LIVE_DIR/"
+            rsync "${RSYNC_DEPLOY_OPTIONS[@]}" "$STAGING_DIR/" "$LIVE_DIR/"
 
             cd "$LIVE_DIR"
             if ! sudo systemctl restart "$DEPLOY_SERVICE"; then
               if [ "$HAD_PREVIOUS_RELEASE" -eq 1 ]; then
-                rsync -a --delete --delay-updates --delete-delay \
-                  --exclude '.env' \
-                  --exclude 'storage/' \
-                  --exclude 'public/uploads/' \
-                  "$PREVIOUS_DIR/" "$LIVE_DIR/"
+                rsync "${RSYNC_DEPLOY_OPTIONS[@]}" "$PREVIOUS_DIR/" "$LIVE_DIR/"
                 sudo systemctl restart "$DEPLOY_SERVICE"
               fi
               exit 1
@@ -229,11 +230,7 @@ jobs:
               HEALTHCHECK_RETRY_DELAY_MS=2000 \
               npm run health:check; then
               if [ "$HAD_PREVIOUS_RELEASE" -eq 1 ]; then
-                rsync -a --delete --delay-updates --delete-delay \
-                  --exclude '.env' \
-                  --exclude 'storage/' \
-                  --exclude 'public/uploads/' \
-                  "$PREVIOUS_DIR/" "$LIVE_DIR/"
+                rsync "${RSYNC_DEPLOY_OPTIONS[@]}" "$PREVIOUS_DIR/" "$LIVE_DIR/"
                 sudo systemctl restart "$DEPLOY_SERVICE"
               else
                 sudo systemctl stop "$DEPLOY_SERVICE" || true
