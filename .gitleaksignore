@@ -1,0 +1,3 @@
+# Deterministic Stripe-format normalization fixtures in test/config.test.js.
+9a46698fbaa10051c04eeb039ec0a8b40fc15eab:test/config.test.js:stripe-access-token:60
+9a46698fbaa10051c04eeb039ec0a8b40fc15eab:test/config.test.js:stripe-access-token:70
