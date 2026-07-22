@@ -21,7 +21,7 @@
     "verify": "npm run check && npm run lint && npm test && npm audit --omit=dev --audit-level=high"
   },
   "dependencies": {
-    "better-sqlite3": "^12.11.1",
+    "better-sqlite3": "^13.0.1",
     "compression": "^1.8.1",
     "dotenv": "^17.4.2",
     "ejs": "^6.0.1",
