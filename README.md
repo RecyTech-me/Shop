@@ -126,6 +126,17 @@ The GitHub deploy workflow runs `npm run verify` and `npm run coverage:check` be
 
 Configure `DEPLOY_KNOWN_HOSTS` with the trusted SSH host-key line obtained through a verified channel (for a non-default port, use the `[host]:port` known-hosts form). The workflow deliberately does not trust a key discovered with `ssh-keyscan` during deployment.
 
+The deployment workflow requires these GitHub Actions secrets:
+
+- `DEPLOY_SSH_KEY`: unencrypted private key for the restricted deployment account.
+- `DEPLOY_KNOWN_HOSTS`: pinned SSH host-key line verified through an existing trusted connection.
+- `DEPLOY_HOST`, `DEPLOY_PORT`, and `DEPLOY_USER`: SSH endpoint. `DEPLOY_PORT` may be omitted to use port 22.
+- `DEPLOY_PATH`: absolute path to the live application directory.
+- `DEPLOY_URL`: canonical public HTTPS origin used for the post-restart `/healthz` check.
+- `ALERT_WEBHOOK_URL`: optional incident webhook for a failed health check.
+
+The remote host must provide Node.js 24 at `/opt/shopsite-node/bin`, and the deployment account must be able to write the live, staging, and previous-release directories. Keep its sudo access limited to restarting or stopping `shopsite`; it does not require general root access. The workflow validates the key format, pinned host key, endpoint values, non-interactive SSH access, and destination permissions before uploading files.
+
 The app sets security headers, CSRF protection for mutating routes, upload type/size validation, response compression, request IDs, mtime-versioned static asset URLs, immutable cache headers for versioned bundled assets, and a Content Security Policy that allows the current local assets and Stripe.js.
 
 Product and hero uploads are validated by file signature. JPG, PNG, and WebP uploads also get a generated `-display.webp` derivative, and product/settings records point at that optimized derivative. GIF uploads are kept as originals to avoid accidentally dropping animation.

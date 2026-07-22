@@ -17,6 +17,15 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+      DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
+      DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+      DEPLOY_URL: ${{ secrets.DEPLOY_URL }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
 
     steps:
       - name: Checkout
@@ -37,21 +46,70 @@ jobs:
 
       - name: Configure SSH
         run: |
+          set -euo pipefail
+          test -n "$DEPLOY_HOST"
+          test -n "$DEPLOY_KNOWN_HOSTS"
+          test -n "$DEPLOY_PATH"
+          test -n "$DEPLOY_PORT"
+          test -n "$DEPLOY_SSH_KEY"
+          test -n "$DEPLOY_URL"
+          test -n "$DEPLOY_USER"
+
+          case "$DEPLOY_HOST" in
+            *[!A-Za-z0-9.-]*) echo "DEPLOY_HOST contains unsupported characters" >&2; exit 1 ;;
+          esac
+          case "$DEPLOY_USER" in
+            ''|*[!a-z0-9_-]*) echo "DEPLOY_USER contains unsupported characters" >&2; exit 1 ;;
+          esac
+          case "$DEPLOY_PATH" in
+            /*) ;;
+            *) echo "DEPLOY_PATH must be absolute" >&2; exit 1 ;;
+          esac
+          case "$DEPLOY_PATH" in
+            *[!A-Za-z0-9._/-]*) echo "DEPLOY_PATH contains unsupported characters" >&2; exit 1 ;;
+          esac
+          case "$DEPLOY_PORT" in
+            ''|*[!0-9]*) echo "DEPLOY_PORT must be numeric" >&2; exit 1 ;;
+          esac
+          if [ "$DEPLOY_PORT" -lt 1 ] || [ "$DEPLOY_PORT" -gt 65535 ]; then
+            echo "DEPLOY_PORT is outside the valid range" >&2
+            exit 1
+          fi
+
+          umask 077
           mkdir -p ~/.ssh
-          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          printf '%s\n' "${{ secrets.DEPLOY_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
-          chmod 600 ~/.ssh/known_hosts
-          test -s ~/.ssh/known_hosts
+          chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" | sed 's/\r$//' > ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" | sed 's/\r$//' > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/deploy_key ~/.ssh/known_hosts
+          ssh-keygen -y -P '' -f ~/.ssh/deploy_key >/dev/null
+          ssh-keygen -l -f ~/.ssh/known_hosts >/dev/null
+
+      - name: Validate deployment access
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o PasswordAuthentication=no \
+            -o StrictHostKeyChecking=yes \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            "test -d '$DEPLOY_PATH' && test -w '$DEPLOY_PATH'"
 
       - name: Prepare staging directory
         run: |
-          ssh -i ~/.ssh/deploy_key -p "${{ secrets.DEPLOY_PORT || 22 }}" \
-            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
-            "mkdir -p '${{ secrets.DEPLOY_PATH }}.staging'"
+          set -euo pipefail
+          ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o PasswordAuthentication=no \
+            -o StrictHostKeyChecking=yes \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            "mkdir -p '$DEPLOY_PATH.staging'"
 
       - name: Upload application files
         run: |
+          set -euo pipefail
           rsync -az --delete \
             --exclude '.git/' \
             --exclude '.github/' \
@@ -59,17 +117,35 @@ jobs:
             --exclude 'node_modules/' \
             --exclude 'storage/' \
             --exclude 'public/uploads/' \
-            -e "ssh -i ~/.ssh/deploy_key -p ${{ secrets.DEPLOY_PORT || 22 }}" \
-            ./ "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:${{ secrets.DEPLOY_PATH }}.staging/"
+            -e "ssh -i $HOME/.ssh/deploy_key -p $DEPLOY_PORT -o BatchMode=yes -o IdentitiesOnly=yes -o PasswordAuthentication=no -o StrictHostKeyChecking=yes" \
+            ./ "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH.staging/"
 
       - name: Install, back up, promote, and restart
         run: |
-          ssh -i ~/.ssh/deploy_key -p "${{ secrets.DEPLOY_PORT || 22 }}" "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" <<'EOF'
+          set -euo pipefail
+          printf -v quoted_deploy_path '%q' "$DEPLOY_PATH"
+          printf -v quoted_deploy_url '%q' "$DEPLOY_URL"
+          printf -v quoted_alert_url '%q' "$ALERT_WEBHOOK_URL"
+          ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o PasswordAuthentication=no \
+            -o StrictHostKeyChecking=yes \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            "bash -s -- $quoted_deploy_path $quoted_deploy_url $quoted_alert_url" <<'EOF'
             set -euo pipefail
-            LIVE_DIR="${{ secrets.DEPLOY_PATH }}"
-            STAGING_DIR="${{ secrets.DEPLOY_PATH }}.staging"
-            PREVIOUS_DIR="${{ secrets.DEPLOY_PATH }}.previous"
+            LIVE_DIR="$1"
+            DEPLOY_URL="$2"
+            ALERT_WEBHOOK_URL="$3"
+            STAGING_DIR="$LIVE_DIR.staging"
+            PREVIOUS_DIR="$LIVE_DIR.previous"
             HAD_PREVIOUS_RELEASE=0
+            export PATH="/opt/shopsite-node/bin:$PATH"
+
+            case "$(node --version)" in
+              v24.*) ;;
+              *) echo "Deployment requires Node.js 24" >&2; exit 1 ;;
+            esac
 
             cd "$STAGING_DIR"
             npm ci --omit=dev
@@ -93,7 +169,10 @@ jobs:
             esac
 
             if [ -f "$DATABASE_FILE" ]; then
-              node "$STAGING_DIR/scripts/backup-sqlite.js" --database="$DATABASE_FILE" --out-dir="$BACKUP_PATH"
+              sudo -u recytech /opt/shopsite-node/bin/node \
+                "$STAGING_DIR/scripts/backup-sqlite.js" \
+                --database="$DATABASE_FILE" \
+                --out-dir="$BACKUP_PATH"
             fi
 
             if [ -f "$LIVE_DIR/package.json" ]; then
@@ -125,8 +204,8 @@ jobs:
               exit 1
             fi
 
-            if ! SHOP_PUBLIC_URL="${{ secrets.DEPLOY_URL }}" \
-              ALERT_WEBHOOK_URL="${{ secrets.ALERT_WEBHOOK_URL }}" \
+            if ! SHOP_PUBLIC_URL="$DEPLOY_URL" \
+              ALERT_WEBHOOK_URL="$ALERT_WEBHOOK_URL" \
               HEALTHCHECK_ATTEMPTS=10 \
               HEALTHCHECK_RETRY_DELAY_MS=2000 \
               npm run health:check; then

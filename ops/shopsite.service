@@ -1,0 +1,43 @@
+[Unit]
+Description=RecyTech Shop
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=recytech
+Group=shopsite
+WorkingDirectory=/home/recytech/apps/shopsite
+EnvironmentFile=/home/recytech/apps/shopsite/.env
+Environment=NODE_ENV=production
+ExecStart=/opt/shopsite-node/bin/node /home/recytech/apps/shopsite/server.js
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30s
+KillSignal=SIGTERM
+UMask=0027
+
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHome=read-only
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectSystem=strict
+ReadWritePaths=/home/recytech/apps/shopsite/storage
+ReadWritePaths=/home/recytech/apps/shopsite/public/uploads
+RemoveIPC=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictSUIDSGID=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+LockPersonality=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target
