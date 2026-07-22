@@ -1,6 +1,15 @@
 @font-face {
     font-family: "Raleway-SemiBold";
     src: url("/static/fonts/Raleway-SemiBold.ttf");
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "Arimo";
+    src: url("/static/fonts/Arimo-VariableFont_wght.ttf") format("truetype");
+    font-style: normal;
+    font-weight: 400 700;
+    font-display: swap;
 }
 
 :root {
@@ -21,7 +30,8 @@
     --radius-lg: 22px;
     --radius-md: 16px;
     --radius-sm: 12px;
-    --font-price: "Inter", "Segoe UI", sans-serif;
+    --font-price: "Arimo", "Segoe UI", sans-serif;
+    --font-price-weight: 700;
 }
 
 * {
@@ -37,7 +47,7 @@ body {
     min-height: 100vh;
     display: flex;
     flex-direction: column;
-    font-family: "Inter", "Segoe UI", sans-serif;
+    font-family: "Raleway-SemiBold", sans-serif;
     color: var(--text);
     background:
         radial-gradient(circle at top left, rgba(232, 223, 202, 0.75), transparent 30rem),

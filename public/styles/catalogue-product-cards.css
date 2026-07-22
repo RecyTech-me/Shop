@@ -215,7 +215,7 @@
 .catalogue-price {
     font-size: 1.35rem;
     font-family: var(--font-price);
-    font-weight: 700;
+    font-weight: var(--font-price-weight);
     letter-spacing: -0.01em;
     font-variant-numeric: lining-nums;
     text-align: left;

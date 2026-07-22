@@ -180,7 +180,7 @@
     margin: -0.15rem 0 0;
     font-size: 2rem;
     font-family: var(--font-price);
-    font-weight: 700;
+    font-weight: var(--font-price-weight);
     letter-spacing: -0.015em;
     font-variant-numeric: lining-nums;
 }
@@ -303,6 +303,7 @@
 .review-summary strong {
     color: var(--text);
     font-family: var(--font-price);
+    font-weight: var(--font-price-weight);
     font-size: 1.45rem;
 }
 
