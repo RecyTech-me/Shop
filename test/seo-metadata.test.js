@@ -20,6 +20,7 @@ test("SEO metadata fills defaults from settings and absolute asset URLs", () => 
     assert.equal(seo.canonicalUrl, "https://shop.recytech.me/");
     assert.equal(seo.imageUrl, "https://shop.recytech.me/static/images/recytech-logo.svg");
     assert.equal(seo.ogType, "website");
+    assert.equal(seo.robots, "index,follow");
     assert.equal(seo.siteName, "RecyTech");
     assert.deepEqual(seo.structuredDataItems, []);
 });
@@ -52,4 +53,14 @@ test("SEO metadata does not append the store name twice", () => {
     });
 
     assert.equal(seo.title, "Panier | RecyTech");
+});
+
+test("SEO metadata preserves an explicit robots directive", () => {
+    const seo = buildSeoMetadata({
+        title: "Panier",
+        settings,
+        robots: "noindex,nofollow",
+    });
+
+    assert.equal(seo.robots, "noindex,nofollow");
 });

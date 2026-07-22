@@ -74,6 +74,27 @@ a {
     text-decoration: none;
 }
 
+.skip-link {
+    position: fixed;
+    top: 0.75rem;
+    left: 0.75rem;
+    z-index: 1000;
+    padding: 0.7rem 1rem;
+    border-radius: var(--radius-sm);
+    color: #fff;
+    background: var(--surface-dark);
+    transform: translateY(-200%);
+}
+
+.skip-link:focus {
+    transform: translateY(0);
+}
+
+:where(a, button, input, select, textarea, summary):focus-visible {
+    outline: 3px solid var(--status-info);
+    outline-offset: 3px;
+}
+
 button,
 input,
 textarea {

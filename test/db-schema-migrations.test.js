@@ -131,6 +131,7 @@ test("schema migrations add and backfill product price ranges on old databases",
     const idempotencyMigration = db.prepare("SELECT id FROM schema_migrations WHERE id = ?").get("2026-07-21-order-idempotency");
     const authVersionMigration = db.prepare("SELECT id FROM schema_migrations WHERE id = ?").get("2026-07-21-admin-auth-version");
     const providerReferenceMigration = db.prepare("SELECT id FROM schema_migrations WHERE id = ?").get("2026-07-21-unique-provider-references");
+    const catalogConsistencyMigration = db.prepare("SELECT id FROM schema_migrations WHERE id = ?").get("2026-07-22-catalog-consistency");
     const categories = db.prepare(`
         SELECT category, position
         FROM product_categories
@@ -154,10 +155,105 @@ test("schema migrations add and backfill product price ranges on old databases",
     assert.ok(idempotencyMigration);
     assert.ok(authVersionMigration);
     assert.ok(providerReferenceMigration);
+    assert.ok(catalogConsistencyMigration);
     assert.deepEqual(categories, [
         { category: "Ordinateurs", position: 0 },
         { category: "Promos", position: 1 },
     ]);
+});
+
+test("catalog consistency migration repairs inherited prices and public product wording", (t) => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "recytech-catalog-migration-"));
+    const databasePath = path.join(directory, "shop.db");
+    const env = {
+        NODE_ENV: "test",
+        ADMIN_PASSWORD: "test-admin-password",
+    };
+    t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+
+    const seededDb = initializeDatabase(databasePath, env);
+    const timestamp = "2026-07-01T00:00:00.000Z";
+    const insertProduct = seededDb.prepare(`
+        INSERT INTO products (
+            slug, name, short_description, description, option_groups_json,
+            info_rows_json, valid_configurations_json, price_cents,
+            starting_price_cents, maximum_price_cents, inventory, published,
+            created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?)
+    `);
+    insertProduct.run(
+        "epson-eb-99ou",
+        "Epson EB-99OU",
+        "Projecteur en parfait état",
+        "Epson EB-99OU en parfait état",
+        "[]",
+        JSON.stringify([{ label: "État", value: "Parfait état" }]),
+        "[]",
+        20000,
+        20000,
+        20000,
+        timestamp,
+        timestamp
+    );
+    insertProduct.run(
+        "dell-latitude-5580",
+        "Dell Latitude 5580",
+        "HDD ou SDD 256 Go",
+        "Batterie excellente ou mauvaise",
+        JSON.stringify([{ name: "Batterie", values: ["Excellente", "Mauvaise"] }]),
+        JSON.stringify([{ label: "Stockage", value: "HDD ou SDD 256 Go" }]),
+        JSON.stringify([{
+            selected_options: [{ name: "Batterie", value: "Excellente" }],
+            quantity: 1,
+            price_cents: null,
+        }]),
+        15000,
+        0,
+        0,
+        timestamp,
+        timestamp
+    );
+    seededDb.prepare("UPDATE settings SET value = ? WHERE key = 'hero_text'")
+        .run("Transformer les vieux PC en nouvelles opportunités.");
+    seededDb.prepare("UPDATE settings SET value = ? WHERE key = 'tagline'")
+        .run("Ordinateurs reconditionnés, Linux préinstallé, impact local.");
+    seededDb.prepare("UPDATE settings SET value = ? WHERE key = 'hero_points'").run([
+        "Linux préinstallé sur les ordinateurs",
+        "Paiement bitcoin accepté",
+        "Prix imbattables",
+    ].join("\n"));
+    seededDb.prepare("DELETE FROM schema_migrations WHERE id = ?")
+        .run("2026-07-22-catalog-consistency");
+    seededDb.close();
+
+    const db = initializeDatabase(databasePath, env);
+    t.after(() => db.close());
+    const projector = db.prepare(`
+        SELECT slug, name, short_description, description, info_rows_json
+        FROM products WHERE slug = 'epson-eb-990u'
+    `).get();
+    const laptop = db.prepare(`
+        SELECT short_description, description, option_groups_json,
+               info_rows_json, valid_configurations_json,
+               starting_price_cents, maximum_price_cents
+        FROM products WHERE slug = 'dell-latitude-5580'
+    `).get();
+    const settings = Object.fromEntries(db.prepare(`
+        SELECT key, value FROM settings WHERE key IN ('tagline', 'hero_text', 'hero_points')
+    `).all().map(({ key, value }) => [key, value]));
+
+    assert.equal(projector.name, "Epson EB-990U");
+    assert.doesNotMatch(JSON.stringify(projector), /99OU|parfait état/i);
+    assert.match(laptop.short_description, /SSD/);
+    assert.doesNotMatch(JSON.stringify(laptop), /SDD|Excellente|Mauvaise/);
+    assert.deepEqual(
+        [laptop.starting_price_cents, laptop.maximum_price_cents],
+        [15000, 15000]
+    );
+    assert.equal(settings.hero_text, "Des appareils remis en état, et Linux préinstallé sur les ordinateurs compatibles, à prix accessibles.");
+    assert.equal(settings.tagline, "Matériel informatique remis en état, avec garantie et stock affiché.");
+    assert.match(settings.hero_points, /selon les options proposées à la commande/i);
+    assert.doesNotMatch(settings.hero_points, /imbattables|bitcoin accepté/i);
 });
 
 test("production admin bootstrap rejects placeholder passwords", (t) => {

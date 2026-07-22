@@ -159,21 +159,6 @@ Before applying migrations in production, back up `storage/shop.db` or the datab
 
 Product categories are stored in both the legacy product columns (`category`, `categories_json`) and the normalized `product_categories` query table. Repository writes keep them synchronized so existing product rendering stays compatible while catalogue filters and admin category counts can use indexed relational rows.
 
-## WordPress/WooCommerce import
-
-The exporter requires PHP CLI with the WordPress runtime available, including the database extensions used by the installed WordPress site. Run it on or against a trusted WordPress installation; it validates the configured table prefix and disables PHP object instantiation while reading serialized metadata.
-
-Run the importer with an explicit protected report path whenever administrator records are included:
-
-```sh
-node scripts/import-wordpress-shop.js \
-  --wp-root /path/to/wordpress \
-  --sqlite /path/to/shop.db \
-  --report /secure/path/import-report.json
-```
-
-The import is transactional and idempotent for matched products/orders. Numeric export fields are validated before commit. A matching product with an active stock reservation is left unchanged by rolling back the import; retry after the pending reservation resolves. The report is first written with mode `0600` inside the transaction and then promoted atomically, so an unwritable credential report rolls back the import instead of losing generated administrator passwords. Command output redacts those credentials. Store or destroy the report using the same policy as other credentials.
-
 ## SQLite backup and restore
 
 Back up the live database with SQLite's online backup command so WAL state is included safely:
