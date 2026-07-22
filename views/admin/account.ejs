@@ -28,13 +28,13 @@
 
             <label>
                 Nouveau mot de passe
-                <input type="password" name="password" autocomplete="new-password">
-                <small>Laissez vide pour conserver le mot de passe actuel.</small>
+                <input type="password" name="password" minlength="12" maxlength="128" autocomplete="new-password">
+                <small>Laissez vide pour conserver le mot de passe actuel. Minimum 12 caractères.</small>
             </label>
 
             <label>
                 Confirmer le nouveau mot de passe
-                <input type="password" name="password_confirm" autocomplete="new-password">
+                <input type="password" name="password_confirm" minlength="12" maxlength="128" autocomplete="new-password">
             </label>
 
             <div class="full-span form-actions">

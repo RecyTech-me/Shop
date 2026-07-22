@@ -93,7 +93,7 @@ function maybeUnserializeValue($value)
         return $trimmed;
     }
 
-    $unserialized = @unserialize($trimmed);
+    $unserialized = @unserialize($trimmed, ["allowed_classes" => false]);
     if ($unserialized !== false || $trimmed === "b:0;") {
         return $unserialized;
     }
@@ -225,6 +225,10 @@ $tablePrefix = readWpTablePrefix($config);
 
 if (!$dbName || !$dbUser) {
     fail("Unable to parse WordPress database credentials from wp-config.php");
+}
+
+if (!preg_match('/^[A-Za-z0-9_]+$/', $tablePrefix)) {
+    fail("WordPress table prefix contains unsupported characters");
 }
 
 $db = @new mysqli($dbHost, $dbUser, $dbPassword ?? "", $dbName);

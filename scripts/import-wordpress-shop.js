@@ -4,10 +4,14 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const { execFileSync } = require("child_process");
-require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 
 const { initializeDatabase, listAdminProducts, listAdmins } = require("../lib/db");
 const { hashPassword } = require("../lib/auth");
+const {
+    getProductPriceRangeCents,
+    hasActiveProductReservation,
+    syncProductCategories,
+} = require("../lib/repositories/products");
 
 function parseArgs(argv) {
     const args = {
@@ -42,11 +46,6 @@ function parseArgs(argv) {
     return args;
 }
 
-function fail(message) {
-    console.error(message);
-    process.exit(1);
-}
-
 function normalizeText(value) {
     return String(value || "").trim();
 }
@@ -62,48 +61,54 @@ function slugify(value) {
 }
 
 function normalizeMatchKey(value) {
-    return slugify(value).replace(/-/g, "");
+    const normalized = normalizeText(value);
+    return normalized ? slugify(normalized).replace(/-/g, "") : "";
 }
 
 function nowIso() {
     return new Date().toISOString();
 }
 
-function formatOptionGroups(groups) {
-    return (groups || [])
-        .map((group) => `${group.name}: ${(group.values || []).join(" | ")}`)
-        .join("\n");
-}
-
-function formatInfoRows(rows) {
-    return (rows || [])
-        .map((row) => `${row.label}: ${row.value}`)
-        .join("\n");
-}
-
-function formatValidConfigurations(configurations) {
-    return (configurations || [])
-        .map((configuration) => {
-            const selections = Array.isArray(configuration)
-                ? configuration
-                : Array.isArray(configuration?.selections)
-                    ? configuration.selections
-                    : [];
-            const priceCents = Number.isInteger(configuration?.price_cents)
-                ? configuration.price_cents
-                : null;
-            const selectionText = selections.map((selection) => `${selection.name}=${selection.value}`).join(" ; ");
-
-            return priceCents === null
-                ? selectionText
-                : `${selectionText} => ${(priceCents / 100).toFixed(2)}`;
-        })
-        .filter(Boolean)
-        .join("\n");
-}
-
 function uniqueStrings(values) {
     return [...new Set(values.filter(Boolean))];
+}
+
+function parseImportedInteger(value, { defaultValue = 0, minimum = 0, label }) {
+    const normalized = String(value ?? "").trim();
+    if (!normalized) {
+        return defaultValue;
+    }
+
+    const parsed = /^\d+$/.test(normalized) ? Number(normalized) : Number.NaN;
+    if (!Number.isSafeInteger(parsed) || parsed < minimum) {
+        throw new Error(`${label} invalide dans l'export WooCommerce.`);
+    }
+
+    return parsed;
+}
+
+function parseImportedMoneyToCents(value, label) {
+    const normalized = String(value ?? "").trim().replace(",", ".");
+    if (!normalized) {
+        return 0;
+    }
+
+    if (!/^\d+(?:\.\d+)?$/.test(normalized)) {
+        throw new Error(`${label} invalide dans l'export WooCommerce.`);
+    }
+
+    const amountCents = Math.round(Number(normalized) * 100);
+    if (!Number.isSafeInteger(amountCents) || amountCents < 0) {
+        throw new Error(`${label} invalide dans l'export WooCommerce.`);
+    }
+
+    return amountCents;
+}
+
+function parseImportedSourceId(value) {
+    const normalized = String(value ?? "").trim();
+    const parsed = /^\d+$/.test(normalized) ? Number(normalized) : Number.NaN;
+    return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
 function makeUniqueSlug(db, desiredSlug, productId = null) {
@@ -162,17 +167,23 @@ function buildProductPayload(sourceProduct) {
                     ? configuration.selections
                     : [];
             const rawPriceCents = !Array.isArray(configuration) ? configuration?.price_cents : null;
-            const priceCents = Number.parseInt(rawPriceCents, 10);
+            const priceCents = rawPriceCents === null || rawPriceCents === undefined || rawPriceCents === ""
+                ? null
+                : parseImportedInteger(rawPriceCents, {
+                    label: "Prix de configuration",
+                });
 
             return {
                 selections: selections.map((selection) => ({
                     name: normalizeText(selection.name),
                     value: normalizeText(selection.value),
                 })),
-                price_cents: Number.isInteger(priceCents) && priceCents >= 0 ? priceCents : null,
+                price_cents: priceCents,
             };
         })
         .filter((configuration) => configuration.selections.length === optionGroups.length);
+
+    const priceCents = parseImportedMoneyToCents(sourceProduct.price_chf, "Prix du produit");
 
     return {
         name: normalizeText(sourceProduct.name),
@@ -186,9 +197,15 @@ function buildProductPayload(sourceProduct) {
         option_groups_json: JSON.stringify(optionGroups),
         info_rows_json: JSON.stringify(infoRows),
         valid_configurations_json: JSON.stringify(validConfigurations),
-        price_cents: Math.max(0, Math.round(Number(sourceProduct.price_chf || 0) * 100)),
+        price_cents: priceCents,
+        ...getProductPriceRangeCents({
+            price_cents: priceCents,
+            valid_configurations: validConfigurations,
+        }),
         currency: "CHF",
-        inventory: Math.max(0, Number.parseInt(sourceProduct.inventory || "0", 10) || 0),
+        inventory: parseImportedInteger(sourceProduct.inventory, {
+            label: "Stock du produit",
+        }),
         featured: sourceProduct.featured ? 1 : 0,
         published: sourceProduct.published ? 1 : 0,
         created_at: normalizeText(sourceProduct.created_at) || nowIso(),
@@ -198,11 +215,12 @@ function buildProductPayload(sourceProduct) {
 }
 
 function buildProductMatcher(existingProducts) {
-    const byId = new Map(existingProducts.map((product) => [product.id, product]));
+    const eligibleProducts = existingProducts.filter((product) => !product.is_pack && product.product_kind !== "pack");
+    const byId = new Map(eligibleProducts.map((product) => [product.id, product]));
     const bySlug = new Map();
     const byName = new Map();
 
-    for (const product of existingProducts) {
+    for (const product of eligibleProducts) {
         const slugKey = normalizeMatchKey(product.slug);
         const nameKey = normalizeMatchKey(product.name);
 
@@ -243,16 +261,26 @@ function buildProductMatcher(existingProducts) {
 
 function mapImportedOrderItems(items, productIdMap) {
     return (Array.isArray(items) ? items : []).map((item) => {
-        const mappedProductId = productIdMap.get(Number(item.source_product_id)) || null;
+        const sourceProductId = parseImportedSourceId(item.source_product_id);
+        const sourceVariationId = parseImportedSourceId(item.source_variation_id);
+        const mappedProductId = sourceProductId === null ? null : productIdMap.get(sourceProductId) || null;
 
         return {
             product_id: mappedProductId,
-            source_product_id: Number(item.source_product_id) || null,
-            source_variation_id: Number(item.source_variation_id) || null,
+            source_product_id: sourceProductId,
+            source_variation_id: sourceVariationId,
             name: normalizeText(item.name),
-            quantity: Math.max(1, Number.parseInt(item.quantity || "1", 10) || 1),
-            unit_price_cents: Math.max(0, Number.parseInt(item.unit_price_cents || "0", 10) || 0),
-            line_total_cents: Math.max(0, Number.parseInt(item.line_total_cents || "0", 10) || 0),
+            quantity: parseImportedInteger(item.quantity, {
+                defaultValue: 1,
+                minimum: 1,
+                label: "Quantité de ligne de commande",
+            }),
+            unit_price_cents: parseImportedInteger(item.unit_price_cents, {
+                label: "Prix unitaire de ligne de commande",
+            }),
+            line_total_cents: parseImportedInteger(item.line_total_cents, {
+                label: "Total de ligne de commande",
+            }),
             selected_options: Array.isArray(item.selected_options)
                 ? item.selected_options
                     .map((selection) => ({
@@ -269,30 +297,32 @@ function ensureDirectory(targetPath) {
     fs.mkdirSync(path.dirname(targetPath), { recursive: true });
 }
 
-function main() {
-    const args = parseArgs(process.argv.slice(2));
-    if (!args.wpRoot || !args.sqlite) {
-        fail("Usage: node scripts/import-wordpress-shop.js --wp-root /path/to/wordpress --sqlite /path/to/shop.db [--report /path/to/report.json]");
+function validateExportedShop(exported) {
+    if (!exported || typeof exported !== "object" || Array.isArray(exported)) {
+        throw new Error("WooCommerce exporter returned an invalid JSON object.");
     }
 
-    const projectRoot = path.resolve(__dirname, "..");
-    const exporterPath = path.join(__dirname, "export-woocommerce-data.php");
-    const exporterOutput = execFileSync("php", [exporterPath, args.wpRoot], {
-        cwd: projectRoot,
-        encoding: "utf8",
-        maxBuffer: 20 * 1024 * 1024,
-    });
+    for (const field of ["products", "orders", "admins"]) {
+        if (exported[field] !== undefined && !Array.isArray(exported[field])) {
+            throw new Error(`WooCommerce exporter field ${field} must be an array.`);
+        }
+    }
 
-    const exported = JSON.parse(exporterOutput);
-    const db = initializeDatabase(path.resolve(args.sqlite), process.env);
+    return exported;
+}
 
+function importExportedShop(db, exported, options = {}) {
+    validateExportedShop(exported);
+    const timestamp = options.now || nowIso;
+    const randomBytes = options.randomBytes || crypto.randomBytes;
+    const passwordHasher = options.hashPassword || hashPassword;
     const stats = {
         source: exported.source,
         products: { created: 0, updated: 0, skipped: 0 },
         orders: { created: 0, skipped: 0 },
         admins: { created: 0, skipped: 0 },
         imported_admin_credentials: [],
-        run_at: nowIso(),
+        run_at: timestamp(),
     };
 
     const existingProducts = listAdminProducts(db);
@@ -313,6 +343,8 @@ function main() {
             info_rows_json = @info_rows_json,
             valid_configurations_json = @valid_configurations_json,
             price_cents = @price_cents,
+            starting_price_cents = @starting_price_cents,
+            maximum_price_cents = @maximum_price_cents,
             currency = @currency,
             inventory = @inventory,
             featured = @featured,
@@ -325,13 +357,13 @@ function main() {
         INSERT INTO products (
             slug, name, category, categories_json, short_description, description, image_url,
             image_gallery_json, option_groups_json, info_rows_json, valid_configurations_json,
-            price_cents, currency, inventory, featured, published,
+            price_cents, starting_price_cents, maximum_price_cents, currency, inventory, featured, published,
             created_at, updated_at
         )
         VALUES (
             @slug, @name, @category, @categories_json, @short_description, @description, @image_url,
             @image_gallery_json, @option_groups_json, @info_rows_json, @valid_configurations_json,
-            @price_cents, @currency, @inventory, @featured, @published,
+            @price_cents, @starting_price_cents, @maximum_price_cents, @currency, @inventory, @featured, @published,
             @created_at, @updated_at
         )
     `);
@@ -365,14 +397,22 @@ function main() {
             const existing = matcher.find(sourceProduct);
             const nextSlug = makeUniqueSlug(db, payload.slug || payload.name, existing?.id || null);
             if (existing) {
+                if (hasActiveProductReservation(db, existing.id)) {
+                    throw new Error(`Le produit ${existing.name} a une réservation active et ne peut pas être mis à jour par l'import.`);
+                }
+
                 upsertProduct.run({
                     ...payload,
                     id: existing.id,
                     slug: nextSlug,
-                    updated_at: payload.updated_at || nowIso(),
+                    updated_at: payload.updated_at || timestamp(),
                 });
+                syncProductCategories(db, existing.id, JSON.parse(payload.categories_json));
 
-                productIdMap.set(Number(sourceProduct.source_product_id), existing.id);
+                const sourceProductId = parseImportedSourceId(sourceProduct.source_product_id);
+                if (sourceProductId !== null) {
+                    productIdMap.set(sourceProductId, existing.id);
+                }
                 matcher.remember({ ...existing, slug: nextSlug, name: payload.name });
                 stats.products.updated += 1;
                 continue;
@@ -381,11 +421,15 @@ function main() {
             const result = insertProduct.run({
                 ...payload,
                 slug: nextSlug,
-                created_at: payload.created_at || nowIso(),
-                updated_at: payload.updated_at || nowIso(),
+                created_at: payload.created_at || timestamp(),
+                updated_at: payload.updated_at || timestamp(),
             });
+            syncProductCategories(db, result.lastInsertRowid, JSON.parse(payload.categories_json));
 
-            productIdMap.set(Number(sourceProduct.source_product_id), result.lastInsertRowid);
+            const sourceProductId = parseImportedSourceId(sourceProduct.source_product_id);
+            if (sourceProductId !== null) {
+                productIdMap.set(sourceProductId, result.lastInsertRowid);
+            }
             matcher.remember({ id: result.lastInsertRowid, slug: nextSlug, name: payload.name });
             stats.products.created += 1;
         }
@@ -398,8 +442,8 @@ function main() {
                 continue;
             }
 
-            const temporaryPassword = crypto.randomBytes(9).toString("base64url");
-            insertAdmin.run(username, hashPassword(temporaryPassword), "admin", nowIso());
+            const temporaryPassword = randomBytes(9).toString("base64url");
+            insertAdmin.run(username, passwordHasher(temporaryPassword), "admin", timestamp());
             existingAdmins.add(username);
             stats.admins.created += 1;
             stats.imported_admin_credentials.push({
@@ -428,7 +472,7 @@ function main() {
                     {
                         kind: "update",
                         actor: "Import WooCommerce",
-                        created_at: nowIso(),
+                        created_at: timestamp(),
                         note: `Commande importée depuis WooCommerce #${order.source_order_id}`,
                     },
                 ],
@@ -441,27 +485,150 @@ function main() {
                 status: normalizeText(order.status) || "pending",
                 customer_name: normalizeText(order.customer_name) || "Client WooCommerce",
                 customer_email: normalizeText(order.customer_email),
-                amount_cents: Math.max(0, Number.parseInt(order.amount_cents || "0", 10) || 0),
+                amount_cents: parseImportedInteger(order.amount_cents, {
+                    label: "Montant de commande",
+                }),
                 currency: normalizeText(order.currency) || "CHF",
                 items_json: JSON.stringify(mapImportedOrderItems(order.items, productIdMap)),
                 metadata_json: JSON.stringify(metadata),
-                created_at: normalizeText(order.created_at) || nowIso(),
-                updated_at: normalizeText(order.updated_at) || normalizeText(order.created_at) || nowIso(),
+                created_at: normalizeText(order.created_at) || timestamp(),
+                updated_at: normalizeText(order.updated_at) || normalizeText(order.created_at) || timestamp(),
             });
 
             stats.orders.created += 1;
         }
+
+        options.beforeCommit?.(stats);
     });
 
     runImport();
 
-    if (args.report) {
-        const reportPath = path.resolve(args.report);
-        ensureDirectory(reportPath);
-        fs.writeFileSync(reportPath, JSON.stringify(stats, null, 2));
-    }
-
-    process.stdout.write(`${JSON.stringify(stats, null, 2)}\n`);
+    return stats;
 }
 
-main();
+function parseExporterOutput(exporterOutput) {
+    try {
+        return validateExportedShop(JSON.parse(exporterOutput));
+    } catch (error) {
+        if (error instanceof SyntaxError) {
+            throw new Error(`WooCommerce exporter returned invalid JSON: ${error.message}`, { cause: error });
+        }
+        throw error;
+    }
+}
+
+function redactImportStats(stats) {
+    const { imported_admin_credentials: credentials = [], ...publicStats } = stats;
+    return {
+        ...publicStats,
+        imported_admin_credentials_count: credentials.length,
+    };
+}
+
+function runImporter(options = {}) {
+    const argv = options.argv || process.argv.slice(2);
+    const env = options.env || process.env;
+    const executeExporter = options.execFileSync || execFileSync;
+    const openDatabase = options.initializeDatabase || initializeDatabase;
+    const args = parseArgs(argv);
+    if (!args.wpRoot || !args.sqlite) {
+        throw new Error("Usage: node scripts/import-wordpress-shop.js --wp-root /path/to/wordpress --sqlite /path/to/shop.db [--report /path/to/report.json]");
+    }
+
+    const projectRoot = path.resolve(__dirname, "..");
+    const exporterPath = path.join(__dirname, "export-woocommerce-data.php");
+    const exporterOutput = executeExporter("php", [exporterPath, args.wpRoot], {
+        cwd: projectRoot,
+        encoding: "utf8",
+        maxBuffer: 20 * 1024 * 1024,
+    });
+    const exported = parseExporterOutput(exporterOutput);
+    if ((exported.admins || []).length && !args.report) {
+        throw new Error("--report is required when importing administrators so temporary passwords are stored securely.");
+    }
+    const reportPath = args.report ? path.resolve(args.report) : "";
+    const reportTempPath = reportPath
+        ? path.join(
+            path.dirname(reportPath),
+            `.${path.basename(reportPath)}.${process.pid}-${crypto.randomBytes(8).toString("hex")}.tmp`
+        )
+        : "";
+    if (reportPath) {
+        ensureDirectory(reportPath);
+    }
+    const db = openDatabase(path.resolve(args.sqlite), env);
+    let importCommitted = false;
+
+    try {
+        const stats = importExportedShop(db, exported, {
+            ...(options.importOptions || {}),
+            beforeCommit(currentStats) {
+                options.importOptions?.beforeCommit?.(currentStats);
+                if (!reportTempPath) {
+                    return;
+                }
+
+                fs.writeFileSync(reportTempPath, JSON.stringify(currentStats, null, 2), {
+                    encoding: "utf8",
+                    mode: 0o600,
+                });
+                fs.chmodSync(reportTempPath, 0o600);
+            },
+        });
+        importCommitted = true;
+
+        if (reportTempPath) {
+            try {
+                fs.renameSync(reportTempPath, reportPath);
+            } catch (error) {
+                throw new Error(
+                    `Import committed, but the credential report could not be promoted. Recover it from ${reportTempPath}: ${error.message}`,
+                    { cause: error }
+                );
+            }
+        }
+
+        return stats;
+    } catch (error) {
+        if (!importCommitted && reportTempPath) {
+            fs.rmSync(reportTempPath, { force: true });
+        }
+        throw error;
+    } finally {
+        db.close?.();
+    }
+}
+
+function main() {
+    require("dotenv").config({ path: path.join(__dirname, "..", ".env"), quiet: true });
+
+    const stats = runImporter();
+    process.stdout.write(`${JSON.stringify(redactImportStats(stats), null, 2)}\n`);
+}
+
+if (require.main === module) {
+    try {
+        main();
+    } catch (error) {
+        console.error(error.message);
+        process.exitCode = 1;
+    }
+}
+
+module.exports = {
+    buildProductMatcher,
+    buildProductPayload,
+    importExportedShop,
+    makeUniqueSlug,
+    mapImportedOrderItems,
+    normalizeMatchKey,
+    parseArgs,
+    parseExporterOutput,
+    parseImportedInteger,
+    parseImportedMoneyToCents,
+    parseImportedSourceId,
+    redactImportStats,
+    runImporter,
+    slugify,
+    validateExportedShop,
+};

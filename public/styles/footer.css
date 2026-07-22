@@ -1,0 +1,139 @@
+.site-footer {
+    padding: 0;
+    margin-top: auto;
+}
+
+.footer-panel {
+    padding: 0;
+    background: linear-gradient(180deg, rgba(36, 76, 56, 0.95), rgba(48, 92, 69, 0.95));
+    color: #f4efe5;
+}
+
+.footer-grid {
+    display: grid;
+    grid-template-columns: 1.2fr 1.15fr 1fr;
+    gap: 2rem;
+    padding: 2rem 2.2rem 0;
+}
+
+.footer-column h3 {
+    margin: 0 0 1.4rem;
+    display: inline-block;
+    padding-bottom: 0.35rem;
+    border-bottom: 3px solid rgba(244, 239, 229, 0.85);
+    font-family: "Raleway-SemiBold", sans-serif;
+    font-size: 1.1rem;
+}
+
+.footer-brand p,
+.footer-contact-item,
+.footer-bottom p {
+    color: rgba(244, 239, 229, 0.78);
+}
+
+.footer-brand p {
+    margin: 0;
+    max-width: 28rem;
+    line-height: 1.5;
+}
+
+.footer-social-links {
+    display: flex;
+    gap: 0.9rem;
+    margin-top: 1.6rem;
+}
+
+.footer-social-links a {
+    width: 3rem;
+    height: 3rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    background: rgba(244, 239, 229, 0.16);
+    color: #f4efe5;
+    transition: background-color 180ms ease, transform 180ms ease;
+}
+
+.footer-social-links a:hover {
+    background: rgba(244, 239, 229, 0.24);
+    transform: translateY(-1px);
+}
+
+.footer-social-icon {
+    width: 1.2rem;
+    height: 1.2rem;
+    fill: currentColor;
+}
+
+.footer-links {
+    display: grid;
+    gap: 1rem;
+}
+
+.footer-links a {
+    color: #f4efe5;
+    font-size: 1.03rem;
+    transition: opacity 180ms ease;
+}
+
+.footer-links a:hover {
+    opacity: 0.8;
+}
+
+.footer-contact-list {
+    display: grid;
+    gap: 1rem;
+}
+
+.footer-contact-item {
+    margin: 0;
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    line-height: 1.5;
+}
+
+.footer-icon {
+    width: 1.15rem;
+    height: 1.15rem;
+    flex: 0 0 auto;
+    margin-top: 0.15rem;
+    fill: currentColor;
+}
+
+.footer-bottom {
+    margin-top: 2rem;
+    padding-top: 1.5rem;
+    padding-bottom: 1.4rem;
+    border-top: 1px solid rgba(244, 239, 229, 0.14);
+    text-align: center;
+}
+
+.footer-bottom p {
+    margin: 0;
+}
+
+.legal-stack {
+    display: grid;
+    gap: 1rem;
+}
+
+.legal-section h2 {
+    margin: 0 0 0.75rem;
+    font-family: "Raleway-SemiBold", sans-serif;
+}
+
+.legal-section p {
+    margin: 0.55rem 0 0;
+}
+
+.legal-list {
+    margin: 0.9rem 0 0;
+    padding-left: 1.2rem;
+    color: var(--text-soft);
+}
+
+.legal-list li + li {
+    margin-top: 0.45rem;
+}

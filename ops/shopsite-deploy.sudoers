@@ -1,0 +1,6 @@
+shopdeploy ALL=(root) NOPASSWD: /usr/bin/systemctl restart shopsite
+shopdeploy ALL=(root) NOPASSWD: /usr/bin/systemctl stop shopsite
+shopdeploy ALL=(root) NOPASSWD: /usr/bin/systemctl restart shopsite-dev
+shopdeploy ALL=(root) NOPASSWD: /usr/bin/systemctl stop shopsite-dev
+shopdeploy ALL=(recytech) NOPASSWD: /opt/shopsite-node/bin/node /home/recytech/apps/shopsite.staging/scripts/backup-sqlite.js *
+shopdeploy ALL=(recytech) NOPASSWD: /opt/shopsite-node/bin/node /home/recytech/apps/shopsite-dev.staging/scripts/backup-sqlite.js *

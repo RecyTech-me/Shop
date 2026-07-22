@@ -1,0 +1,284 @@
+@media (max-width: 820px) {
+    .admin-page .section-actions-top {
+        margin-top: 0.75rem;
+    }
+
+    .admin-section-heading {
+        align-items: start;
+        flex-direction: column;
+    }
+
+    .admin-section-heading > .button {
+        width: 100%;
+    }
+
+    .admin-form-grid,
+    .manual-order-option-grid,
+    .admin-order-summary-grid,
+    .admin-order-filters {
+        grid-template-columns: 1fr;
+    }
+
+    .admin-actions,
+    .admin-order-filters .form-actions,
+    .section-actions-top {
+        width: 100%;
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .admin-actions > *,
+    .admin-actions form,
+    .admin-actions .button,
+    .admin-order-filters .form-actions > *,
+    .admin-order-filters .form-actions .button,
+    .section-actions-top > *,
+    .section-actions-top form,
+    .section-actions-top .button {
+        width: 100%;
+    }
+
+    .admin-order-filters .form-actions {
+        height: auto;
+    }
+
+    .table-wrap-admin {
+        overflow: visible;
+    }
+
+    .admin-table,
+    .admin-table tbody,
+    .admin-table tr,
+    .admin-table td {
+        display: block;
+        width: 100%;
+    }
+
+    .admin-table thead {
+        display: none;
+    }
+
+    .admin-table tbody {
+        display: grid;
+        gap: 0.95rem;
+    }
+
+    .admin-table tr {
+        display: grid;
+        gap: 0.7rem;
+        padding: 0.9rem;
+        border: 1px solid rgba(36, 76, 56, 0.12);
+        border-radius: var(--radius-lg);
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(251, 246, 238, 0.95));
+        box-shadow: 0 12px 28px rgba(25, 44, 35, 0.06);
+    }
+
+    .admin-table td {
+        min-width: 0;
+        padding: 0;
+        border: 0;
+        text-align: left;
+        white-space: normal;
+    }
+
+    .admin-table td::before {
+        content: attr(data-label);
+        display: block;
+        margin-bottom: 0.2rem;
+        font-size: 0.74rem;
+        line-height: 1.2;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--text-soft);
+    }
+
+    .admin-table td > * {
+        min-width: 0;
+    }
+
+    .admin-table td.order-actions-cell {
+        margin-top: 0.15rem;
+        padding-top: 0.75rem;
+        border-top: 1px solid rgba(36, 76, 56, 0.1);
+    }
+
+    .admin-table td.order-actions-cell .row-actions {
+        justify-content: flex-start;
+        gap: 0.75rem 1rem;
+    }
+
+    .row-actions {
+        flex-wrap: wrap;
+    }
+
+    .order-actions-cell {
+        text-align: left;
+        white-space: normal;
+    }
+
+    .admin-order-item {
+        flex-direction: column;
+        gap: 0.55rem;
+    }
+
+    .admin-order-item > strong {
+        align-self: flex-start;
+    }
+
+    .header-shell {
+        min-height: 74px;
+        gap: 0.75rem;
+        align-items: center;
+        padding-block: 0;
+        position: relative;
+        z-index: 2;
+    }
+
+    .brand {
+        min-width: 0;
+        gap: 0.7rem;
+        min-height: 74px;
+        display: flex;
+        align-items: center;
+    }
+
+    .brand span {
+        font-size: 1.05rem;
+        line-height: 1.15;
+    }
+
+    .site-menu-toggle {
+        display: inline-flex;
+        position: relative;
+        flex: 0 0 auto;
+        align-self: center;
+    }
+
+    .site-nav {
+        position: absolute;
+        top: 100%;
+        left: calc(50% - 50vw);
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.55rem;
+        width: 100vw;
+        max-height: 0;
+        overflow: hidden;
+        padding-top: 0;
+        padding-right: 0.9rem;
+        padding-bottom: 0;
+        padding-left: 0.9rem;
+        margin-top: 0;
+        border: 0;
+        border-radius: 0;
+        background: rgba(249, 245, 236, 0.98);
+        -webkit-backdrop-filter: blur(18px);
+        backdrop-filter: blur(18px);
+        box-shadow: 0 18px 38px rgba(25, 44, 35, 0.12);
+        z-index: 30;
+        transform: translateY(-0.65rem);
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+        transition:
+            opacity 180ms ease,
+            transform 220ms ease,
+            max-height 220ms ease,
+            padding-top 220ms ease,
+            padding-bottom 220ms ease,
+            visibility 0s linear 220ms;
+        flex-wrap: nowrap;
+    }
+
+    .site-header.menu-open .site-nav {
+        max-height: 18rem;
+        padding-top: 0.8rem;
+        padding-bottom: 0.9rem;
+        transform: translateY(0);
+        opacity: 1;
+        visibility: visible;
+        pointer-events: auto;
+        transition-delay: 0s;
+    }
+
+    .site-nav a {
+        width: 100%;
+        padding: 0.9rem 1rem;
+        border: 1px solid rgba(36, 76, 56, 0.08);
+        border-radius: 18px;
+        background: rgba(255, 253, 248, 0.92);
+    }
+
+    .site-nav a.active,
+    .site-nav a:hover {
+        background: rgba(36, 76, 56, 0.1);
+    }
+
+    .admin-bar-shell {
+        position: relative;
+        align-items: center;
+        gap: 1rem;
+    }
+
+    .admin-bar-topline {
+        width: 100%;
+    }
+
+    .admin-bar-toggle {
+        display: inline-flex;
+    }
+
+    .admin-bar-actions {
+        position: absolute;
+        top: 100%;
+        left: calc(50% - 50vw);
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.5rem;
+        width: 100vw;
+        max-height: 0;
+        overflow: hidden;
+        padding-top: 0;
+        padding-right: 0.75rem;
+        padding-bottom: 0;
+        padding-left: 0.75rem;
+        border: 0;
+        border-radius: 0;
+        background: linear-gradient(180deg, rgba(36, 76, 56, 0.98), rgba(48, 92, 69, 0.98));
+        box-shadow: 0 18px 38px rgba(16, 30, 23, 0.24);
+        z-index: 35;
+        transform: translateY(-0.65rem);
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+        transition:
+            opacity 180ms ease,
+            transform 220ms ease,
+            max-height 220ms ease,
+            padding-top 220ms ease,
+            padding-bottom 220ms ease,
+            visibility 0s linear 220ms;
+    }
+
+    .admin-bar.admin-menu-open .admin-bar-actions {
+        max-height: 28rem;
+        padding-top: 0.75rem;
+        padding-bottom: 0.85rem;
+        transform: translateY(0);
+        opacity: 1;
+        visibility: visible;
+        pointer-events: auto;
+        transition-delay: 0s;
+    }
+
+    .admin-bar-actions a,
+    .admin-bar-actions button {
+        width: 100%;
+        justify-content: center;
+        white-space: normal;
+    }
+
+    .admin-bar-actions form {
+        width: 100%;
+    }
+}

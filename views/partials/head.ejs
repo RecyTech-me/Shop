@@ -3,10 +3,28 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="<%= settings.tagline %>">
+    <meta name="description" content="<%= seo.description %>">
     <meta name="csrf-token" content="<%= csrfToken || '' %>">
-    <title><%= title %> | <%= settings.store_name %></title>
-    <link rel="icon" href="/static/images/recytech-logo.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="/static/styles/main.css">
+    <% if (seo.canonicalUrl) { %>
+        <link rel="canonical" href="<%= seo.canonicalUrl %>">
+    <% } %>
+    <meta property="og:title" content="<%= seo.title %>">
+    <meta property="og:description" content="<%= seo.description %>">
+    <meta property="og:type" content="<%= seo.ogType %>">
+    <% if (seo.canonicalUrl) { %>
+        <meta property="og:url" content="<%= seo.canonicalUrl %>">
+    <% } %>
+    <meta property="og:image" content="<%= seo.imageUrl %>">
+    <meta property="og:site_name" content="<%= seo.siteName %>">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="<%= seo.title %>">
+    <meta name="twitter:description" content="<%= seo.description %>">
+    <meta name="twitter:image" content="<%= seo.imageUrl %>">
+    <title><%= seo.title %></title>
+    <link rel="icon" href="<%= staticAsset('/static/images/recytech-logo.svg') %>" type="image/svg+xml">
+    <link rel="stylesheet" href="<%= staticAsset('/static/styles/main.css') %>">
+    <% seo.structuredDataItems.forEach((item) => { %>
+        <script nonce="<%= cspNonce %>" type="application/ld+json"><%- JSON.stringify(item).replace(/</g, "\\u003c") %></script>
+    <% }) %>
 </head>
 <body>

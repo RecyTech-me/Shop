@@ -1,0 +1,51 @@
+.button {
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.9rem 1.25rem;
+    border-radius: 999px;
+    background: var(--surface-dark);
+    color: #fff;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: transform 180ms ease, background-color 180ms ease, color 180ms ease;
+}
+
+.button:hover {
+    transform: translateY(-1px);
+}
+
+.button:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.button-secondary {
+    background: transparent;
+    color: var(--text);
+    border-color: rgba(36, 76, 56, 0.18);
+}
+
+.button-ghost {
+    background: rgba(36, 76, 56, 0.08);
+    color: var(--text);
+}
+
+.button-small {
+    padding: 0.65rem 0.95rem;
+}
+
+.button-block {
+    width: 100%;
+}
+
+.empty-state {
+    padding: 2rem;
+    text-align: center;
+}
+
+.empty-state.compact {
+    padding: 1.2rem;
+}

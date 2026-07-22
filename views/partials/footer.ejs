@@ -8,17 +8,17 @@
                     <div class="footer-social-links">
                         <a href="https://www.instagram.com/recytech.me" target="_blank" rel="noopener noreferrer" aria-label="Instagram">
                             <svg class="footer-social-icon" aria-hidden="true">
-                                <use href="/static/images/icons.svg#icon-instagram"></use>
+                                <use href="<%= staticAsset('/static/images/icons.svg#icon-instagram') %>"></use>
                             </svg>
                         </a>
                         <a href="https://github.com/RecyLife/Website" target="_blank" rel="noopener noreferrer" aria-label="GitHub">
                             <svg class="footer-social-icon" aria-hidden="true">
-                                <use href="/static/images/icons.svg#icon-github"></use>
+                                <use href="<%= staticAsset('/static/images/icons.svg#icon-github') %>"></use>
                             </svg>
                         </a>
                         <a href="https://recytech.me/documents/index.html" aria-label="Documents">
                             <svg class="footer-social-icon" aria-hidden="true">
-                                <use href="/static/images/icons.svg#icon-file-alt"></use>
+                                <use href="<%= staticAsset('/static/images/icons.svg#icon-file-alt') %>"></use>
                             </svg>
                         </a>
                     </div>
@@ -37,13 +37,13 @@
                     <div class="footer-contact-list">
                         <p class="footer-contact-item">
                             <svg class="footer-icon" aria-hidden="true">
-                                <use href="/static/images/icons.svg#icon-map-marker-alt"></use>
+                                <use href="<%= staticAsset('/static/images/icons.svg#icon-map-marker-alt') %>"></use>
                             </svg>
                             <span><%= settings.support_address %></span>
                         </p>
                         <p class="footer-contact-item">
                             <svg class="footer-icon" aria-hidden="true">
-                                <use href="/static/images/icons.svg#icon-envelope"></use>
+                                <use href="<%= staticAsset('/static/images/icons.svg#icon-envelope') %>"></use>
                             </svg>
                             <span><%= settings.support_email %></span>
                         </p>
@@ -68,6 +68,6 @@
         </div>
     </div>
 </div>
-<script src="/static/scripts/main.js" defer></script>
+<script nonce="<%= cspNonce %>" type="module" src="<%= staticAsset('/static/scripts/main.js') %>"></script>
 </body>
 </html>
