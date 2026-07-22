@@ -12,6 +12,8 @@ Before deployment:
 - The checksum-verified Gitleaks history scan passed, and any `.gitleaksignore` entry still refers only to a reviewed test fixture.
 - `SHOP_PUBLIC_URL` or `BASE_URL` is the public HTTPS canonical production origin.
 - `DEPLOY_KNOWN_HOSTS` matches the production server key obtained through a trusted channel.
+- `dev` resolves only to `shopsite-dev`/`dev.shop.recytech.me`, and `main` resolves only to `shopsite`/`shop.recytech.me`.
+- Development and production still use separate environment files, databases, uploads, staging directories, and rollback snapshots.
 - Migration notes were reviewed.
 - SQLite backup completed.
 - SQLite backup integrity check passed.
