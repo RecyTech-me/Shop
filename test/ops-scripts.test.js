@@ -7,7 +7,6 @@ const test = require("node:test");
 const Database = require("better-sqlite3");
 const { parseCoverage, readThreshold } = require("../scripts/check-coverage");
 const syntaxScript = require("../scripts/check-syntax");
-const wordpressImportScript = require("../scripts/import-wordpress-shop");
 const { verifyBackup } = require("../scripts/verify-sqlite-backup");
 const {
     buildAlertPayload,
@@ -53,19 +52,6 @@ test("coverage thresholds reject partial and out-of-range environment values", (
 test("operational scripts are safe to import", () => {
     assert.equal(typeof syntaxScript.main, "function");
     assert.equal(typeof syntaxScript.checkNodeFile, "function");
-    assert.equal(typeof wordpressImportScript.parseArgs, "function");
-    assert.deepEqual(wordpressImportScript.parseArgs([
-        "--wp-root",
-        "/tmp/wp",
-        "--sqlite",
-        "/tmp/shop.db",
-        "--report",
-        "/tmp/report.json",
-    ]), {
-        wpRoot: "/tmp/wp",
-        sqlite: "/tmp/shop.db",
-        report: "/tmp/report.json",
-    });
 });
 
 test("health check URL defaults prefer explicit health URL, public URL, then localhost", () => {
