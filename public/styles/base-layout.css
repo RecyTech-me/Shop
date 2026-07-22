@@ -3,6 +3,14 @@
     src: url("/static/fonts/Raleway-SemiBold.ttf");
 }
 
+@font-face {
+    font-family: "Arimo";
+    src: url("/static/fonts/Arimo-VariableFont_wght.ttf") format("truetype");
+    font-style: normal;
+    font-weight: 400 700;
+    font-display: swap;
+}
+
 :root {
     --bg: #f7f2e7;
     --surface: #fffdf8;
@@ -21,7 +29,7 @@
     --radius-lg: 22px;
     --radius-md: 16px;
     --radius-sm: 12px;
-    --font-price: "Inter", "Segoe UI", sans-serif;
+    --font-price: "Arimo", "Segoe UI", sans-serif;
 }
 
 * {

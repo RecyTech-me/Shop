@@ -180,6 +180,9 @@ test("admin workflows cover login, settings, product creation, review moderation
     page = await client.follow(result);
     assert.equal(page.response.status, 200);
     assert.match(page.text, /Tableau de bord/);
+    const adminQuickMenu = page.text.match(/<div class="admin-bar-actions"[\s\S]*?<\/div>/)?.[0] || "";
+    assert.match(adminQuickMenu, /href="\/admin\/orders">Commandes<\/a>/);
+    assert.doesNotMatch(adminQuickMenu, /href="\/admin\/account">Mon compte<\/a>/);
 
     page = await client.request("/admin/admins/new");
     assert.equal(page.response.status, 200);
