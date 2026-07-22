@@ -122,7 +122,9 @@ Health monitoring:
 
 ## Deployment notes
 
-The GitHub deploy workflow runs `npm run verify` and `npm run coverage:check` before upload. It uploads into a staging directory, installs production dependencies there, creates and verifies a SQLite backup, then promotes the staged files while preserving `.env`, `storage/`, and `public/uploads/`. It snapshots the preceding application release and restores that code automatically if restart or health validation fails. Database migrations are additive and are not rolled back automatically. Deployments are serialized and are not cancelled mid-flight.
+The GitHub deploy workflow runs `npm run verify` and `npm run coverage:check` before upload. A `dev` push deploys only to `/home/recytech/apps/shopsite-dev`, `shopsite-dev.service`, and `https://dev.shop.recytech.me`; a `main` push deploys only to `/home/recytech/apps/shopsite`, `shopsite.service`, and `https://shop.recytech.me`. The two targets use separate environment files, SQLite databases, uploads, staging directories, rollback snapshots, services, and ports.
+
+Each deployment uploads into its target-specific staging directory, installs production dependencies there, creates and verifies a SQLite backup, then promotes the staged files while preserving `.env`, `storage/`, and `public/uploads/`. It snapshots the preceding application release and restores that code automatically if restart or health validation fails. Database migrations are additive and are not rolled back automatically. Deployments are serialized per branch and are not cancelled mid-flight.
 
 Configure `DEPLOY_KNOWN_HOSTS` with the trusted SSH host-key line obtained through a verified channel (for a non-default port, use the `[host]:port` known-hosts form). The workflow deliberately does not trust a key discovered with `ssh-keyscan` during deployment.
 
@@ -131,11 +133,9 @@ The deployment workflow requires these GitHub Actions secrets:
 - `DEPLOY_SSH_KEY`: unencrypted private key for the restricted deployment account.
 - `DEPLOY_KNOWN_HOSTS`: pinned SSH host-key line verified through an existing trusted connection.
 - `DEPLOY_HOST`, `DEPLOY_PORT`, and `DEPLOY_USER`: SSH endpoint. `DEPLOY_PORT` may be omitted to use port 22.
-- `DEPLOY_PATH`: absolute path to the live application directory.
-- `DEPLOY_URL`: canonical public HTTPS origin used for the post-restart `/healthz` check.
 - `ALERT_WEBHOOK_URL`: optional incident webhook for a failed health check.
 
-The remote host must provide Node.js 24 at `/opt/shopsite-node/bin`, and the deployment account must be able to write the live, staging, and previous-release directories. Keep its sudo access limited to restarting or stopping `shopsite`; it does not require general root access. The workflow validates the key format, pinned host key, endpoint values, non-interactive SSH access, and destination permissions before uploading files.
+Branch-specific paths, URLs, and service names are fixed in the workflow and validated again on the remote host to prevent cross-environment deployment. The remote host must provide Node.js 24 at `/opt/shopsite-node/bin`, and the deployment account must be able to write each live, staging, and previous-release directory. Keep its sudo access limited to restarting or stopping `shopsite` and `shopsite-dev`, plus their fixed backup entrypoints; it does not require general root access. The workflow validates the key format, pinned host key, target mapping, non-interactive SSH access, and destination permissions before uploading files.
 
 The app sets security headers, CSRF protection for mutating routes, upload type/size validation, response compression, request IDs, mtime-versioned static asset URLs, immutable cache headers for versioned bundled assets, and a Content Security Policy that allows the current local assets and Stripe.js.
 

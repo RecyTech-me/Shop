@@ -3,11 +3,12 @@ name: Deploy
 on:
   push:
     branches:
+      - dev
       - main
   workflow_dispatch:
 
 concurrency:
-  group: deploy-production
+  group: deploy-${{ github.ref_name }}
   cancel-in-progress: false
 
 permissions:
@@ -20,11 +21,13 @@ jobs:
     env:
       DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
       DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
-      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+      DEPLOY_PATH: ${{ github.ref_name == 'main' && '/home/recytech/apps/shopsite' || '/home/recytech/apps/shopsite-dev' }}
       DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
+      DEPLOY_SERVICE: ${{ github.ref_name == 'main' && 'shopsite' || 'shopsite-dev' }}
       DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-      DEPLOY_URL: ${{ secrets.DEPLOY_URL }}
+      DEPLOY_URL: ${{ github.ref_name == 'main' && 'https://shop.recytech.me' || 'https://dev.shop.recytech.me' }}
       DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_BRANCH: ${{ github.ref_name }}
       ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
 
     steps:
@@ -51,6 +54,7 @@ jobs:
           test -n "$DEPLOY_KNOWN_HOSTS"
           test -n "$DEPLOY_PATH"
           test -n "$DEPLOY_PORT"
+          test -n "$DEPLOY_SERVICE"
           test -n "$DEPLOY_SSH_KEY"
           test -n "$DEPLOY_URL"
           test -n "$DEPLOY_USER"
@@ -75,6 +79,11 @@ jobs:
             echo "DEPLOY_PORT is outside the valid range" >&2
             exit 1
           fi
+          case "$DEPLOY_BRANCH:$DEPLOY_PATH:$DEPLOY_URL:$DEPLOY_SERVICE" in
+            "dev:/home/recytech/apps/shopsite-dev:https://dev.shop.recytech.me:shopsite-dev") ;;
+            "main:/home/recytech/apps/shopsite:https://shop.recytech.me:shopsite") ;;
+            *) echo "Unsupported deployment target" >&2; exit 1 ;;
+          esac
 
           umask 077
           mkdir -p ~/.ssh
@@ -126,21 +135,29 @@ jobs:
           printf -v quoted_deploy_path '%q' "$DEPLOY_PATH"
           printf -v quoted_deploy_url '%q' "$DEPLOY_URL"
           printf -v quoted_alert_url '%q' "$ALERT_WEBHOOK_URL"
+          printf -v quoted_deploy_service '%q' "$DEPLOY_SERVICE"
           ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" \
             -o BatchMode=yes \
             -o IdentitiesOnly=yes \
             -o PasswordAuthentication=no \
             -o StrictHostKeyChecking=yes \
             "$DEPLOY_USER@$DEPLOY_HOST" \
-            "bash -s -- $quoted_deploy_path $quoted_deploy_url $quoted_alert_url" <<'EOF'
+            "bash -s -- $quoted_deploy_path $quoted_deploy_url $quoted_alert_url $quoted_deploy_service" <<'EOF'
             set -euo pipefail
             LIVE_DIR="$1"
             DEPLOY_URL="$2"
             ALERT_WEBHOOK_URL="$3"
+            DEPLOY_SERVICE="$4"
             STAGING_DIR="$LIVE_DIR.staging"
             PREVIOUS_DIR="$LIVE_DIR.previous"
             HAD_PREVIOUS_RELEASE=0
             export PATH="/opt/shopsite-node/bin:$PATH"
+
+            case "$DEPLOY_SERVICE:$LIVE_DIR" in
+              "shopsite:/home/recytech/apps/shopsite") ;;
+              "shopsite-dev:/home/recytech/apps/shopsite-dev") ;;
+              *) echo "Unsupported remote deployment target" >&2; exit 1 ;;
+            esac
 
             case "$(node --version)" in
               v24.*) ;;
@@ -150,7 +167,9 @@ jobs:
             cd "$STAGING_DIR"
             npm ci --omit=dev
 
-            mkdir -p "$LIVE_DIR/storage" "$LIVE_DIR/public/uploads/products" "$LIVE_DIR/public/uploads/settings"
+            test -d "$LIVE_DIR/storage"
+            test -d "$LIVE_DIR/public/uploads/products"
+            test -d "$LIVE_DIR/public/uploads/settings"
             if [ -f "$LIVE_DIR/.env" ]; then
               DATABASE_PATH="$(cd "$STAGING_DIR" && DOTENV_CONFIG_PATH="$LIVE_DIR/.env" node -r dotenv/config -e "process.stdout.write(process.env.DATABASE_PATH || 'storage/shop.db')")"
               BACKUP_DIR="$(cd "$STAGING_DIR" && DOTENV_CONFIG_PATH="$LIVE_DIR/.env" node -r dotenv/config -e "process.stdout.write(process.env.BACKUP_DIR || 'storage/backups')")"
@@ -192,14 +211,14 @@ jobs:
               "$STAGING_DIR/" "$LIVE_DIR/"
 
             cd "$LIVE_DIR"
-            if ! sudo systemctl restart shopsite; then
+            if ! sudo systemctl restart "$DEPLOY_SERVICE"; then
               if [ "$HAD_PREVIOUS_RELEASE" -eq 1 ]; then
                 rsync -a --delete --delay-updates --delete-delay \
                   --exclude '.env' \
                   --exclude 'storage/' \
                   --exclude 'public/uploads/' \
                   "$PREVIOUS_DIR/" "$LIVE_DIR/"
-                sudo systemctl restart shopsite
+                sudo systemctl restart "$DEPLOY_SERVICE"
               fi
               exit 1
             fi
@@ -215,9 +234,9 @@ jobs:
                   --exclude 'storage/' \
                   --exclude 'public/uploads/' \
                   "$PREVIOUS_DIR/" "$LIVE_DIR/"
-                sudo systemctl restart shopsite
+                sudo systemctl restart "$DEPLOY_SERVICE"
               else
-                sudo systemctl stop shopsite || true
+                sudo systemctl stop "$DEPLOY_SERVICE" || true
               fi
               exit 1
             fi
