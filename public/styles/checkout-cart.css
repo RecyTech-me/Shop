@@ -49,6 +49,7 @@
     display: block;
     margin-top: 0.75rem;
     font-family: var(--font-price);
+    font-weight: var(--font-price-weight);
     font-size: 1.45rem;
 }
 
