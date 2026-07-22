@@ -4,6 +4,7 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const { createApp } = require("../app");
+const { createProduct } = require("../lib/db");
 
 function listen(t) {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "recytech-render-smoke-"));
@@ -19,6 +20,15 @@ function listen(t) {
             SESSION_SECRET: "render-smoke-session-secret",
             ORDER_VIEW_TOKEN_SECRET: "render-smoke-order-view-secret",
         },
+    });
+    createProduct(app.locals.runtime.db, {
+        name: "Epson EB-990U",
+        category: "Vidéoprojecteurs",
+        short_description: "Vidéoprojecteur testé",
+        description: "Vidéoprojecteur testé et fonctionnel.",
+        price_chf: "200",
+        inventory: "1",
+        published: true,
     });
     const server = app.listen(0, "127.0.0.1");
     t.after(() => new Promise((resolve) => {
@@ -37,8 +47,8 @@ function listen(t) {
     });
 }
 
-async function fetchText(baseUrl, path) {
-    const response = await fetch(`${baseUrl}${path}`);
+async function fetchText(baseUrl, path, options) {
+    const response = await fetch(`${baseUrl}${path}`, options);
     const text = await response.text();
 
     return { response, text };
@@ -77,11 +87,41 @@ test("critical pages render with SEO metadata and static CSS assets", async (t) 
         const nonce = csp.match(/'nonce-([^']+)'/)?.[1];
         assert.ok(nonce, "Expected CSP to include a script nonce");
         assertHtmlPage(text, page.title);
+        assert.match(text, /<a class="skip-link" href="#main-content">/);
+        assert.match(text, /<main id="main-content" tabindex="-1"/);
+        const expectedRobots = page.status >= 400 || ["/cart", "/admin/login"].includes(page.path)
+            ? "noindex,nofollow"
+            : "index,follow";
+        assert.match(text, new RegExp(`<meta name="robots" content="${expectedRobots}">`));
         assert.match(text, new RegExp(`<script nonce="${escapeRegExp(nonce)}"`));
         assert.match(text, new RegExp(`<link rel="canonical" href="${baseUrl}${page.path === "/" ? "/" : page.path}">`));
     }
 
     const home = await fetchText(baseUrl, "/");
+    assert.match(home.text, /https:\/\/github\.com\/RecyTech-me/);
+    assert.match(home.text, /https:\/\/www\.linkedin\.com\/company\/recytech-shop/);
+    assert.match(home.text, /href="mailto:[^"]+"/);
+
+    const oldProductUrl = await fetchText(baseUrl, "/products/epson-eb-99ou", { redirect: "manual" });
+    assert.equal(oldProductUrl.response.status, 301);
+    assert.equal(oldProductUrl.response.headers.get("location"), "/products/epson-eb-990u");
+
+    const canonicalProduct = await fetchText(baseUrl, "/products/epson-eb-990u");
+    assert.equal(canonicalProduct.response.status, 200);
+    assert.match(canonicalProduct.text, new RegExp(`<link rel="canonical" href="${baseUrl}/products/epson-eb-990u">`));
+
+    const robots = await fetchText(baseUrl, "/robots.txt");
+    assert.equal(robots.response.status, 200);
+    assert.match(robots.response.headers.get("content-type") || "", /^text\/plain/);
+    assert.match(robots.text, /Disallow: \/admin/);
+    assert.match(robots.text, new RegExp(`Sitemap: ${escapeRegExp(baseUrl)}/sitemap\\.xml`));
+
+    const sitemap = await fetchText(baseUrl, "/sitemap.xml");
+    assert.equal(sitemap.response.status, 200);
+    assert.match(sitemap.response.headers.get("content-type") || "", /application\/xml/);
+    assert.match(sitemap.text, new RegExp(`<loc>${escapeRegExp(baseUrl)}/products/epson-eb-990u</loc>`));
+    assert.doesNotMatch(sitemap.text, /admin|cart|checkout|epson-eb-99ou/);
+
     const stylesheetMatch = home.text.match(/<link rel="stylesheet" href="([^"]+)">/);
     assert.ok(stylesheetMatch, "Expected a versioned stylesheet URL");
     assert.match(stylesheetMatch[1], /^\/static\/styles\/main\.css\?v=[a-z0-9]+$/);

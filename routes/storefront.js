@@ -3,6 +3,18 @@ const logger = require("../lib/logger");
 const { getPublicErrorResponse } = require("../lib/http/public-errors");
 
 const REVIEW_SUBMISSION_WINDOW_MS = 60 * 1000;
+const PRODUCT_SLUG_REDIRECTS = new Map([
+    ["epson-eb-99ou", "epson-eb-990u"],
+]);
+
+function escapeXml(value) {
+    return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&apos;");
+}
 
 function registerStorefrontRoutes(deps) {
     const {
@@ -125,7 +137,49 @@ function registerStorefrontRoutes(deps) {
         });
     });
 
+    app.get("/robots.txt", (req, res) => {
+        const sitemapUrl = res.locals.absoluteUrl("/sitemap.xml");
+        res.type("text/plain").send([
+            "User-agent: *",
+            "Allow: /",
+            "Disallow: /admin",
+            "Disallow: /cart",
+            "Disallow: /checkout",
+            "Disallow: /success",
+            "Disallow: /cancel",
+            `Sitemap: ${sitemapUrl}`,
+            "",
+        ].join("\n"));
+    });
+
+    app.get("/sitemap.xml", (req, res) => {
+        const publicPaths = [
+            "/",
+            "/politique-confidentialite",
+            "/conditions-generales-de-vente",
+            "/remboursements-retours",
+            ...listPublishedProducts(db, { sort: "name_asc", limit: 240 })
+                .map((product) => `/products/${encodeURIComponent(product.slug)}`),
+        ];
+        const urls = publicPaths.map((publicPath) => (
+            `  <url><loc>${escapeXml(res.locals.absoluteUrl(publicPath))}</loc></url>`
+        ));
+
+        res.type("application/xml").send([
+            '<?xml version="1.0" encoding="UTF-8"?>',
+            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+            ...urls,
+            "</urlset>",
+            "",
+        ].join("\n"));
+    });
+
     app.get("/products/:slug", (req, res) => {
+        const canonicalSlug = PRODUCT_SLUG_REDIRECTS.get(req.params.slug);
+        if (canonicalSlug) {
+            return res.redirect(301, `/products/${canonicalSlug}`);
+        }
+
         const product = getProductBySlug(db, req.params.slug);
         if (!product || !product.published) {
             return res.status(404).render("not-found", { title: "Produit introuvable" });
