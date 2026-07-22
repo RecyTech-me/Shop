@@ -122,10 +122,10 @@ jobs:
           rsync -az --delete --no-owner --no-group \
             --exclude '.git/' \
             --exclude '.github/' \
-            --exclude '.env' \
+            --exclude '/.env' \
             --exclude 'node_modules/' \
-            --exclude 'storage/' \
-            --exclude 'public/uploads/' \
+            --exclude '/storage/' \
+            --exclude '/public/uploads/' \
             -e "ssh -i $HOME/.ssh/deploy_key -p $DEPLOY_PORT -o BatchMode=yes -o IdentitiesOnly=yes -o PasswordAuthentication=no -o StrictHostKeyChecking=yes" \
             ./ "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH.staging/"
 
@@ -150,6 +150,7 @@ jobs:
             DEPLOY_SERVICE="$4"
             STAGING_DIR="$LIVE_DIR.staging"
             PREVIOUS_DIR="$LIVE_DIR.previous"
+            RELEASE_MARKER="$LIVE_DIR/.release-complete"
             HAD_PREVIOUS_RELEASE=0
             RSYNC_DEPLOY_OPTIONS=(
               -a
@@ -160,9 +161,10 @@ jobs:
               --no-group
               --no-perms
               --omit-dir-times
-              --exclude=.env
-              --exclude=storage/
-              --exclude=public/uploads/
+              --exclude=/.env
+              --exclude=/.release-complete
+              --exclude=/storage/
+              --exclude=/public/uploads/
             )
             export PATH="/opt/shopsite-node/bin:$PATH"
 
@@ -176,6 +178,17 @@ jobs:
               v24.*) ;;
               *) echo "Deployment requires Node.js 24" >&2; exit 1 ;;
             esac
+
+            restore_previous_release() {
+              if [ "$HAD_PREVIOUS_RELEASE" -eq 1 ]; then
+                rsync "${RSYNC_DEPLOY_OPTIONS[@]}" "$PREVIOUS_DIR/" "$LIVE_DIR/"
+                touch "$RELEASE_MARKER"
+                sudo systemctl restart "$DEPLOY_SERVICE"
+              else
+                rm -f "$RELEASE_MARKER"
+                sudo systemctl stop "$DEPLOY_SERVICE" || true
+              fi
+            }
 
             cd "$STAGING_DIR"
             npm ci --omit=dev
@@ -207,20 +220,21 @@ jobs:
                 --out-dir="$BACKUP_PATH"
             fi
 
-            if [ -f "$LIVE_DIR/package.json" ]; then
+            if [ -f "$RELEASE_MARKER" ]; then
               mkdir -p "$PREVIOUS_DIR"
               rsync "${RSYNC_DEPLOY_OPTIONS[@]}" "$LIVE_DIR/" "$PREVIOUS_DIR/"
               HAD_PREVIOUS_RELEASE=1
             fi
 
-            rsync "${RSYNC_DEPLOY_OPTIONS[@]}" "$STAGING_DIR/" "$LIVE_DIR/"
+            if ! rsync "${RSYNC_DEPLOY_OPTIONS[@]}" "$STAGING_DIR/" "$LIVE_DIR/"; then
+              restore_previous_release
+              exit 1
+            fi
+            rm -f "$RELEASE_MARKER"
 
             cd "$LIVE_DIR"
             if ! sudo systemctl restart "$DEPLOY_SERVICE"; then
-              if [ "$HAD_PREVIOUS_RELEASE" -eq 1 ]; then
-                rsync "${RSYNC_DEPLOY_OPTIONS[@]}" "$PREVIOUS_DIR/" "$LIVE_DIR/"
-                sudo systemctl restart "$DEPLOY_SERVICE"
-              fi
+              restore_previous_release
               exit 1
             fi
 
@@ -229,12 +243,8 @@ jobs:
               HEALTHCHECK_ATTEMPTS=10 \
               HEALTHCHECK_RETRY_DELAY_MS=2000 \
               npm run health:check; then
-              if [ "$HAD_PREVIOUS_RELEASE" -eq 1 ]; then
-                rsync "${RSYNC_DEPLOY_OPTIONS[@]}" "$PREVIOUS_DIR/" "$LIVE_DIR/"
-                sudo systemctl restart "$DEPLOY_SERVICE"
-              else
-                sudo systemctl stop "$DEPLOY_SERVICE" || true
-              fi
+              restore_previous_release
               exit 1
             fi
+            touch "$RELEASE_MARKER"
           EOF
