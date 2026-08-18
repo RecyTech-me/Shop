@@ -1,0 +1,260 @@
+<%- include("../partials/head", { title }) %>
+<%- include("../partials/header") %>
+<%- include("../partials/flash") %>
+
+<%
+    const comparisonText = (value) => {
+        if (value === null) return "Nouveau";
+        if (value === 0) return "Stable";
+        return `${value > 0 ? "+" : ""}${value.toLocaleString("fr-CH", { maximumFractionDigits: 1 })} %`;
+    };
+    const comparisonClass = (value) => value === null || value > 0
+        ? "is-positive"
+        : (value < 0 ? "is-negative" : "is-neutral");
+    const periodOptions = [
+        { value: "7d", label: "7 derniers jours" },
+        { value: "30d", label: "30 derniers jours" },
+        { value: "90d", label: "90 derniers jours" },
+        { value: "365d", label: "12 derniers mois" },
+        { value: "custom", label: "Dates personnalisées" },
+    ];
+    const providerOptions = [
+        { value: "all", label: "Tous les paiements" },
+        { value: "stripe", label: "Carte bancaire (Stripe)" },
+        { value: "swissbitcoinpay", label: "Bitcoin" },
+        { value: "transfer", label: "Virement bancaire" },
+        { value: "cash", label: "Espèces" },
+        { value: "manual", label: "Commandes manuelles" },
+    ];
+    const chartWidth = 960;
+    const chartHeight = 250;
+    const chartTop = 16;
+    const chartBottom = 205;
+    const chartPlotHeight = chartBottom - chartTop;
+    const chartStep = chartWidth / Math.max(analytics.trend.buckets.length, 1);
+    const chartBarWidth = Math.max(Math.min(chartStep * 0.68, 34), 3);
+%>
+
+<main id="main-content" tabindex="-1" class="shell section-stack admin-page analytics-page">
+    <section class="section-heading admin-section-heading">
+        <div>
+            <p class="eyebrow">Administration</p>
+            <h1>Statistiques des ventes</h1>
+            <p class="muted">Une vue synthétique de l’activité enregistrée par la boutique.</p>
+        </div>
+        <div class="admin-actions">
+            <a href="/admin" class="button button-secondary">Tableau de bord</a>
+            <a href="/admin/orders" class="button button-secondary">Commandes</a>
+        </div>
+    </section>
+
+    <section class="section-block analytics-filter-panel" aria-labelledby="analytics-filter-title">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Périmètre</p>
+                <h2 id="analytics-filter-title">Filtres</h2>
+            </div>
+            <p class="analytics-period-label"><%= filters.label %></p>
+        </div>
+        <% if (filters.error) { %>
+            <div class="flash flash-error" role="alert"><%= filters.error %> La période de 30 jours a été appliquée.</div>
+        <% } %>
+        <form action="/admin/analytics" method="get" class="analytics-filter-form">
+            <label>
+                Période
+                <select name="period">
+                    <% periodOptions.forEach((option) => { %>
+                        <option value="<%= option.value %>" <%= filters.period === option.value ? "selected" : "" %>><%= option.label %></option>
+                    <% }) %>
+                </select>
+            </label>
+            <label>
+                Paiement
+                <select name="provider">
+                    <% providerOptions.forEach((option) => { %>
+                        <option value="<%= option.value %>" <%= filters.provider === option.value ? "selected" : "" %>><%= option.label %></option>
+                    <% }) %>
+                </select>
+            </label>
+            <label>
+                Du
+                <input type="date" name="from" value="<%= filters.from %>">
+            </label>
+            <label>
+                Au
+                <input type="date" name="to" value="<%= filters.to %>">
+            </label>
+            <button type="submit" class="button">Appliquer</button>
+        </form>
+        <p class="muted analytics-filter-help">Les dates sont utilisées lorsque « Dates personnalisées » est sélectionné. Une période personnalisée est limitée à un an.</p>
+    </section>
+
+    <section class="admin-stat-grid analytics-kpi-grid" aria-label="Indicateurs clés">
+        <article class="admin-stat-card analytics-kpi-card">
+            <span>Chiffre d’affaires net</span>
+            <strong><%= formatMoney(analytics.summary.netRevenueCents) %></strong>
+            <small class="analytics-comparison <%= comparisonClass(analytics.comparisons.revenue) %>"><%= comparisonText(analytics.comparisons.revenue) %> vs période précédente</small>
+        </article>
+        <article class="admin-stat-card analytics-kpi-card">
+            <span>Commandes payées</span>
+            <strong><%= analytics.summary.paidOrders %></strong>
+            <small class="analytics-comparison <%= comparisonClass(analytics.comparisons.orders) %>"><%= comparisonText(analytics.comparisons.orders) %> vs période précédente</small>
+        </article>
+        <article class="admin-stat-card analytics-kpi-card">
+            <span>Panier moyen</span>
+            <strong><%= formatMoney(analytics.summary.averageOrderCents) %></strong>
+            <small class="analytics-comparison <%= comparisonClass(analytics.comparisons.averageOrder) %>"><%= comparisonText(analytics.comparisons.averageOrder) %> vs période précédente</small>
+        </article>
+        <article class="admin-stat-card analytics-kpi-card">
+            <span>Articles vendus</span>
+            <strong><%= analytics.summary.itemsSold %></strong>
+            <small class="analytics-comparison <%= comparisonClass(analytics.comparisons.items) %>"><%= comparisonText(analytics.comparisons.items) %> vs période précédente</small>
+        </article>
+        <article class="admin-stat-card analytics-kpi-card">
+            <span>Remboursements</span>
+            <strong><%= formatMoney(analytics.summary.refundedCents) %></strong>
+            <small><%= analytics.summary.refundedOrders %> commande<%= analytics.summary.refundedOrders === 1 ? "" : "s" %></small>
+        </article>
+        <article class="admin-stat-card analytics-kpi-card">
+            <span>En attente</span>
+            <strong><%= analytics.summary.pendingOrders %></strong>
+            <small>paiement ou virement attendu</small>
+        </article>
+        <article class="admin-stat-card analytics-kpi-card">
+            <span>Remises accordées</span>
+            <strong><%= formatMoney(analytics.summary.discountsCents) %></strong>
+            <small><%= analytics.summary.promoOrders %> commande<%= analytics.summary.promoOrders === 1 ? "" : "s" %> avec code promo</small>
+        </article>
+        <article class="admin-stat-card analytics-kpi-card">
+            <span>Total des commandes</span>
+            <strong><%= analytics.summary.totalOrders %></strong>
+            <small><%= analytics.summary.cancelledOrders %> annulée<%= analytics.summary.cancelledOrders === 1 ? "" : "s" %> ou échouée<%= analytics.summary.cancelledOrders === 1 ? "" : "s" %></small>
+        </article>
+    </section>
+
+    <section class="section-block analytics-chart-wide" aria-labelledby="revenue-chart-title">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Évolution</p>
+                <h2 id="revenue-chart-title">Chiffre d’affaires encaissé</h2>
+            </div>
+            <span class="muted"><%= analytics.summary.paidOrders %> commande<%= analytics.summary.paidOrders === 1 ? "" : "s" %> payée<%= analytics.summary.paidOrders === 1 ? "" : "s" %></span>
+        </div>
+        <% if (!analytics.summary.paidOrders) { %>
+            <div class="empty-state compact"><p>Aucune vente payée sur cette période.</p></div>
+        <% } else { %>
+            <div class="analytics-chart-scroll">
+                <svg class="analytics-revenue-chart" viewBox="0 0 <%= chartWidth %> <%= chartHeight %>" role="img" aria-labelledby="revenue-svg-title revenue-svg-description">
+                    <title id="revenue-svg-title">Évolution du chiffre d’affaires</title>
+                    <desc id="revenue-svg-description">Graphique en barres du chiffre d’affaires encaissé par <%= analytics.trend.bucketType === "day" ? "jour" : (analytics.trend.bucketType === "week" ? "semaine" : "mois") %>.</desc>
+                    <line x1="0" y1="<%= chartBottom %>" x2="<%= chartWidth %>" y2="<%= chartBottom %>" class="analytics-chart-axis"></line>
+                    <% analytics.trend.buckets.forEach((bucket, index) => { %>
+                        <% const height = (bucket.revenueCents / analytics.trend.maxRevenueCents) * chartPlotHeight; %>
+                        <% const x = (index * chartStep) + ((chartStep - chartBarWidth) / 2); %>
+                        <rect x="<%= x %>" y="<%= chartBottom - height %>" width="<%= chartBarWidth %>" height="<%= Math.max(height, bucket.revenueCents ? 2 : 0) %>" rx="3" class="analytics-chart-bar">
+                            <title><%= bucket.label %> : <%= formatMoney(bucket.revenueCents) %> · <%= bucket.orders %> commande<%= bucket.orders === 1 ? "" : "s" %></title>
+                        </rect>
+                        <% if (bucket.showLabel) { %>
+                            <text x="<%= (index * chartStep) + (chartStep / 2) %>" y="232" text-anchor="middle" class="analytics-chart-label"><%= bucket.label %></text>
+                        <% } %>
+                    <% }) %>
+                </svg>
+            </div>
+            <details class="analytics-data-details">
+                <summary>Voir les données du graphique</summary>
+                <div class="table-wrap">
+                    <table class="admin-table analytics-data-table">
+                        <thead><tr><th>Période</th><th>Commandes</th><th>Chiffre d’affaires</th></tr></thead>
+                        <tbody>
+                            <% analytics.trend.buckets.forEach((bucket) => { %>
+                                <tr><td data-label="Période"><%= bucket.label %></td><td data-label="Commandes"><%= bucket.orders %></td><td data-label="Chiffre d’affaires"><%= formatMoney(bucket.revenueCents) %></td></tr>
+                            <% }) %>
+                        </tbody>
+                    </table>
+                </div>
+            </details>
+        <% } %>
+    </section>
+
+    <div class="analytics-panel-grid">
+        <section class="section-block" aria-labelledby="provider-title">
+            <div class="section-heading"><div><p class="eyebrow">Encaissement</p><h2 id="provider-title">Moyens de paiement</h2></div></div>
+            <% if (!analytics.providers.length) { %>
+                <div class="empty-state compact"><p>Aucun paiement sur la période.</p></div>
+            <% } else { %>
+                <div class="analytics-distribution-list">
+                    <% analytics.providers.forEach((provider) => { %>
+                        <div class="analytics-distribution-row">
+                            <div><strong><%= getOrderProviderLabel(provider.key) %></strong><span><%= provider.orders %> commande<%= provider.orders === 1 ? "" : "s" %></span></div>
+                            <strong><%= formatMoney(provider.revenueCents) %></strong>
+                            <progress value="<%= provider.revenueCents %>" max="<%= Math.max(analytics.summary.netRevenueCents, 1) %>"><%= provider.revenueCents %></progress>
+                        </div>
+                    <% }) %>
+                </div>
+            <% } %>
+        </section>
+
+        <section class="section-block" aria-labelledby="status-title">
+            <div class="section-heading"><div><p class="eyebrow">Exploitation</p><h2 id="status-title">Statuts des commandes</h2></div></div>
+            <% if (!analytics.statuses.length) { %>
+                <div class="empty-state compact"><p>Aucune commande sur la période.</p></div>
+            <% } else { %>
+                <div class="analytics-distribution-list">
+                    <% analytics.statuses.forEach((status) => { %>
+                        <div class="analytics-distribution-row">
+                            <div><strong><%= getOrderStatusLabel(status.key) %></strong><span><%= status.orders %> commande<%= status.orders === 1 ? "" : "s" %></span></div>
+                            <progress value="<%= status.orders %>" max="<%= Math.max(analytics.summary.totalOrders, 1) %>"><%= status.orders %></progress>
+                        </div>
+                    <% }) %>
+                </div>
+            <% } %>
+        </section>
+
+        <section class="section-block" aria-labelledby="delivery-title">
+            <div class="section-heading"><div><p class="eyebrow">Logistique</p><h2 id="delivery-title">Modes de remise</h2></div></div>
+            <% if (!analytics.deliveryMethods.length) { %>
+                <div class="empty-state compact"><p>Aucune donnée de livraison sur la période.</p></div>
+            <% } else { %>
+                <div class="analytics-distribution-list">
+                    <% analytics.deliveryMethods.forEach((method) => { %>
+                        <div class="analytics-distribution-row analytics-distribution-compact">
+                            <div><strong><%= method.label %></strong><span><%= method.orders %> commande<%= method.orders === 1 ? "" : "s" %></span></div>
+                            <progress value="<%= method.orders %>" max="<%= Math.max(analytics.summary.paidOrders, 1) %>"><%= method.orders %></progress>
+                        </div>
+                    <% }) %>
+                </div>
+            <% } %>
+        </section>
+
+        <section class="section-block analytics-top-products" aria-labelledby="products-title">
+            <div class="section-heading"><div><p class="eyebrow">Catalogue</p><h2 id="products-title">Meilleures ventes</h2></div></div>
+            <% if (!analytics.topProducts.length) { %>
+                <div class="empty-state compact"><p>Aucun produit vendu sur la période.</p></div>
+            <% } else { %>
+                <div class="table-wrap">
+                    <table class="admin-table">
+                        <thead><tr><th>Produit</th><th>Unités</th><th>Ventes produits</th></tr></thead>
+                        <tbody>
+                            <% analytics.topProducts.forEach((product) => { %>
+                                <tr>
+                                    <td data-label="Produit"><strong><%= product.name %></strong></td>
+                                    <td data-label="Unités"><%= product.quantity %></td>
+                                    <td data-label="Ventes produits"><%= formatMoney(product.revenueCents) %></td>
+                                </tr>
+                            <% }) %>
+                        </tbody>
+                    </table>
+                </div>
+                <p class="muted analytics-note">Les ventes produits sont calculées avant remises et frais de livraison.</p>
+            <% } %>
+        </section>
+    </div>
+
+    <aside class="analytics-method-note">
+        <strong>Lecture des chiffres</strong>
+        <p>Les commandes sont rattachées à leur date de création, dans le fuseau Europe/Zurich. Le chiffre d’affaires net comprend les montants encaissés des commandes actuellement payées. Les remboursements correspondent aux commandes actuellement marquées comme remboursées.</p>
+        <p class="muted">Période précédente comparée : <%= filters.previousLabel %>.</p>
+    </aside>
+</main>
+
+<%- include("../partials/footer") %>
