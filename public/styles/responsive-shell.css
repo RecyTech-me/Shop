@@ -180,6 +180,70 @@
         grid-template-columns: 1fr;
     }
 
+    .product-layout {
+        gap: 0.8rem;
+    }
+
+    .product-detail {
+        display: contents;
+    }
+
+    .product-detail > * {
+        order: 5;
+    }
+
+    .product-detail > .eyebrow {
+        order: 1;
+    }
+
+    .product-detail > h1 {
+        order: 2;
+    }
+
+    .product-detail > .price-large,
+    .product-detail > .product-admin-actions {
+        order: 3;
+    }
+
+    .product-gallery {
+        order: 4;
+        min-width: 0;
+        margin: 0.2rem 0 0.4rem;
+    }
+
+    .product-visual-large {
+        min-height: 0;
+        aspect-ratio: 4 / 3;
+    }
+
+    .product-gallery-thumbs {
+        display: flex;
+        gap: 0.55rem;
+        overflow-x: auto;
+        padding: 0.1rem 0.1rem 0.35rem;
+        scroll-snap-type: x proximity;
+        scrollbar-width: thin;
+    }
+
+    .product-gallery-thumb {
+        flex: 0 0 4rem;
+        border-radius: var(--radius-sm);
+        scroll-snap-align: start;
+    }
+
+    .product-gallery-arrow {
+        width: 2.75rem;
+        height: 2.75rem;
+    }
+
+    .product-gallery-arrow-prev {
+        left: 0.65rem;
+    }
+
+    .product-gallery-arrow-next {
+        right: 0.65rem;
+    }
+
     .catalogue-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
         max-width: calc((2 * 240px) + (3 * 1.35rem));
