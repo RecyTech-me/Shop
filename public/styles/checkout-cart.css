@@ -53,6 +53,11 @@
     font-size: 1.45rem;
 }
 
+.cart-delivery-note {
+    margin: 0.75rem 0 0;
+    font-size: 0.9rem;
+}
+
 .cart-inline-form {
     min-width: 0;
     display: grid;

@@ -113,6 +113,10 @@
     backdrop-filter: blur(14px);
 }
 
+.catalogue-filter-more:not([open]) .catalogue-filter-panel {
+    display: none;
+}
+
 .catalogue-filter-panel label {
     min-width: 0;
 }

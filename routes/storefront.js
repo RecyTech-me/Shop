@@ -20,6 +20,7 @@ function registerStorefrontRoutes(deps) {
     const {
         app,
         db,
+        formatters,
         http,
         rateLimiters = {},
         text,
@@ -30,6 +31,7 @@ function registerStorefrontRoutes(deps) {
         products,
         reviews,
     } = deps;
+    const { SHIPPING_OPTIONS } = formatters;
     const { render, setFlash, saveSessionAndRedirect, getSafeRedirectTarget } = http;
     const {
         getReviewSubmissionRateLimitState = () => ({ blockedUntil: 0 }),
@@ -271,6 +273,7 @@ function registerStorefrontRoutes(deps) {
     app.get("/cart", (req, res) => {
         render(res, "cart", {
             title: "Panier",
+            shippingOptions: SHIPPING_OPTIONS,
         });
     });
 

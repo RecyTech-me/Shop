@@ -17,6 +17,12 @@ function registerRoutes(overrides = {}) {
             },
         },
         db: {},
+        formatters: {
+            SHIPPING_OPTIONS: {
+                ship: { key: "ship", label: "La Poste", priceCents: 1150 },
+                pickup: { key: "pickup", label: "Retrait", priceCents: 0 },
+            },
+        },
         http: {
             render: () => {},
             setFlash: (req, type, message) => {
