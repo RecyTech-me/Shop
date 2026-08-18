@@ -71,8 +71,14 @@ test("checkout browser UI updates payment availability and totals", async (t) =>
     await page.goto(`${baseUrl}/products/${product.slug}`);
     await page.getByRole("button", { name: "Ajouter au panier" }).click();
     await page.goto(`${baseUrl}/cart`);
+    const cartSummary = page.locator(".summary-card");
+    assert.match(await textContent(cartSummary), /Retrait à Boudry Gratuit/);
+    assert.match(await textContent(cartSummary), /Livraison La Poste \(tarif fixe\) 11[.,]50/);
     await page.getByRole("link", { name: "Passer au paiement" }).click();
     await page.waitForURL("**/checkout");
+
+    assert.match(await textContent(page.locator('label.delivery-card:has(input[value="ship"])')), /tarif fixe.*11[.,]50/);
+    assert.match(await textContent(page.locator('label.delivery-card:has(input[value="pickup"])')), /Boudry.*Gratuit/);
 
     const total = page.locator("#checkout-order-total");
     assert.match(await textContent(total), /111/);

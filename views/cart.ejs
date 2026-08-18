@@ -91,10 +91,16 @@
                         <span>Sous-total</span>
                         <strong><%= formatMoney(cart.subtotalCents) %></strong>
                     </div>
+                    <hr>
                     <div class="summary-row">
-                        <span>Livraison</span>
-                        <strong>Au paiement</strong>
+                        <span>Retrait à Boudry</span>
+                        <strong>Gratuit</strong>
                     </div>
+                    <div class="summary-row">
+                        <span>Livraison La Poste (tarif fixe)</span>
+                        <strong><%= formatMoney(shippingOptions.ship.priceCents) %></strong>
+                    </div>
+                    <p class="cart-delivery-note">Mode de remise à choisir à l'étape suivante.</p>
                     <a href="/checkout" class="button button-block">Passer au paiement</a>
                 </aside>
             </div>
