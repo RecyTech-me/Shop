@@ -4,36 +4,27 @@
 
 <main id="main-content" tabindex="-1" class="shell section-stack">
     <section class="product-layout">
-        <div class="product-gallery" data-product-gallery>
+        <div class="product-gallery" data-product-gallery data-gallery-product-name="<%= product.name %>">
             <div class="product-visual product-visual-large product-gallery-main">
                 <% if (product.gallery_images.length) { %>
-                    <% const galleryLoopImages = product.gallery_images.length > 1
-                        ? [product.gallery_images[product.gallery_images.length - 1], ...product.gallery_images, product.gallery_images[0]]
-                        : product.gallery_images; %>
-                    <div class="product-gallery-viewport">
+                    <div class="product-gallery-viewport" data-gallery-viewport>
                         <div
-                            class="product-gallery-track is-no-transition <%= product.gallery_images.length > 1 ? 'is-looped' : '' %>"
+                            class="product-gallery-track is-no-transition"
                             data-product-gallery-track
                         >
-                            <% galleryLoopImages.forEach((imageUrl, loopIndex) => { %>
-                                <% const logicalIndex = product.gallery_images.length > 1
-                                    ? (loopIndex === 0
-                                        ? product.gallery_images.length - 1
-                                        : loopIndex === galleryLoopImages.length - 1
-                                            ? 0
-                                            : loopIndex - 1)
-                                    : 0; %>
+                            <% product.gallery_images.forEach((imageUrl, index) => { %>
                                 <div
                                     class="product-gallery-slide"
                                     data-gallery-slide
-                                    data-gallery-logical-index="<%= logicalIndex %>"
-                                    aria-hidden="<%= logicalIndex === 0 ? 'false' : 'true' %>"
+                                    data-gallery-id="<%= index %>"
+                                    aria-hidden="<%= index === 0 ? 'false' : 'true' %>"
                                 >
                                     <img
                                         src="<%= imageUrl %>"
                                         alt="<%= product.name %>"
                                         class="product-gallery-main-image"
                                         referrerpolicy="no-referrer"
+                                        draggable="false"
                                     >
                                 </div>
                             <% }) %>
@@ -61,23 +52,33 @@
                             </svg>
                         </button>
                     <% } %>
-                <% } else { %>
-                    <span>RecyTech</span>
                 <% } %>
+
+                <div
+                    class="product-gallery-fallback"
+                    data-gallery-fallback
+                    role="img"
+                    aria-label="Image indisponible pour <%= product.name %>"
+                    <%= product.gallery_images.length ? "hidden" : "" %>
+                >
+                    <span class="product-gallery-fallback-mark" aria-hidden="true">R</span>
+                    <strong>Image indisponible</strong>
+                    <span>RecyTech</span>
+                </div>
             </div>
 
             <% if (product.gallery_images.length > 1) { %>
-                <div class="product-gallery-thumbs">
+                <div class="product-gallery-thumbs" data-gallery-thumbs>
                     <% product.gallery_images.forEach((imageUrl, index) => { %>
                         <button
                             type="button"
                             class="product-gallery-thumb <%= index === 0 ? 'is-active' : '' %>"
-                            data-gallery-index="<%= index %>"
+                            data-gallery-id="<%= index %>"
                             data-gallery-image="<%= imageUrl %>"
                             data-gallery-alt="<%= product.name %>"
                             aria-label="Voir l'image <%= index + 1 %> de <%= product.name %>"
                         >
-                            <img src="<%= imageUrl %>" alt="" loading="lazy" referrerpolicy="no-referrer">
+                            <img src="<%= imageUrl %>" alt="" loading="lazy" referrerpolicy="no-referrer" draggable="false">
                         </button>
                     <% }) %>
                 </div>
