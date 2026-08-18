@@ -1,4 +1,5 @@
 const { parseInteger } = require("../../lib/input-utils");
+const { readSalesAnalyticsFilters } = require("../../lib/sales-analytics");
 
 function registerAdminDashboardRoutes(deps) {
     const {
@@ -13,7 +14,7 @@ function registerAdminDashboardRoutes(deps) {
     const { requireAdmin, render, setFlash, saveSessionAndRedirect } = http;
     const { listAdminProductRows } = products;
     const { listPendingSiteReviews, approveSiteReview, deleteSiteReview } = reviews;
-    const { getDashboardStats } = dashboard;
+    const { getDashboardStats, getSalesAnalytics } = dashboard;
     const { listRecentOrders } = orders;
 
     app.get("/admin", requireAdmin, (req, res) => {
@@ -23,6 +24,15 @@ function registerAdminDashboardRoutes(deps) {
             products: listAdminProductRows(db),
             recentOrders: listRecentOrders(db),
             pendingReviews: listPendingSiteReviews(db),
+        });
+    });
+
+    app.get("/admin/analytics", requireAdmin, (req, res) => {
+        const filters = readSalesAnalyticsFilters(req.query);
+        render(res, "admin/analytics", {
+            title: "Statistiques",
+            filters,
+            analytics: getSalesAnalytics(db, filters),
         });
     });
 
