@@ -18,7 +18,8 @@
     margin-top: 0.5rem;
     font-size: 1.7rem;
     line-height: 1.15;
-    font-family: "Raleway-SemiBold", sans-serif;
+    font-family: var(--font-price);
+    font-weight: var(--font-price-weight);
     overflow-wrap: anywhere;
 }
 

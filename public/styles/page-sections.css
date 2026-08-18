@@ -47,5 +47,5 @@
 .payment-card h2,
 .long-copy h2 {
     margin: 0;
-    font-family: "Raleway-SemiBold", sans-serif;
+    font-family: var(--font-heading);
 }

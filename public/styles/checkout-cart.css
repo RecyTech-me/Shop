@@ -104,6 +104,7 @@
     border: 1px solid rgba(36, 76, 56, 0.16);
     background: rgba(255, 255, 255, 0.82);
     color: var(--text);
-    font-family: "Raleway-SemiBold", sans-serif;
+    font-family: var(--font-heading);
+    font-weight: var(--font-weight-semibold);
     text-decoration: none;
 }

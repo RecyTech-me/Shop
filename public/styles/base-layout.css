@@ -1,6 +1,8 @@
 @font-face {
     font-family: "Raleway-SemiBold";
     src: url("/static/fonts/Raleway-SemiBold.ttf");
+    font-style: normal;
+    font-weight: 600;
     font-display: swap;
 }
 
@@ -30,8 +32,22 @@
     --radius-lg: 22px;
     --radius-md: 16px;
     --radius-sm: 12px;
-    --font-price: "Arimo", "Segoe UI", sans-serif;
-    --font-price-weight: 700;
+    --font-body: "Arimo", "Segoe UI", sans-serif;
+    --font-heading: "Raleway-SemiBold", "Arimo", "Segoe UI", sans-serif;
+    --font-price: var(--font-body);
+    --font-weight-regular: 400;
+    --font-weight-medium: 500;
+    --font-weight-semibold: 600;
+    --font-weight-bold: 700;
+    --font-price-weight: var(--font-weight-bold);
+    --text-xs: 0.78rem;
+    --text-sm: 0.875rem;
+    --text-base: 1rem;
+    --text-lg: 1.125rem;
+    --text-xl: 1.5rem;
+    --text-2xl: 2rem;
+    --line-height-tight: 1.15;
+    --line-height-body: 1.5;
 }
 
 * {
@@ -47,7 +63,10 @@ body {
     min-height: 100vh;
     display: flex;
     flex-direction: column;
-    font-family: "Raleway-SemiBold", sans-serif;
+    font-family: var(--font-body);
+    font-size: var(--text-base);
+    font-weight: var(--font-weight-regular);
+    line-height: var(--line-height-body);
     color: var(--text);
     background:
         radial-gradient(circle at top left, rgba(232, 223, 202, 0.75), transparent 30rem),
@@ -107,8 +126,20 @@ a {
 
 button,
 input,
+select,
 textarea {
     font: inherit;
+}
+
+:where(h1, h2, h3, h4, h5, h6),
+button,
+.button {
+    font-family: var(--font-heading);
+    font-weight: var(--font-weight-semibold);
+}
+
+:where(h1, h2, h3, h4, h5, h6) {
+    line-height: var(--line-height-tight);
 }
 
 button,
@@ -246,7 +277,8 @@ button,
     display: flex;
     align-items: center;
     gap: 0.85rem;
-    font-family: "Raleway-SemiBold", sans-serif;
+    font-family: var(--font-heading);
+    font-weight: var(--font-weight-semibold);
     font-size: 1.15rem;
     letter-spacing: 0.02em;
 }

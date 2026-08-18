@@ -75,7 +75,7 @@
 .product-thumb span,
 .product-visual span,
 .cart-thumb span {
-    font-family: "Raleway-SemiBold", sans-serif;
+    font-family: var(--font-heading);
     color: rgba(36, 76, 56, 0.7);
 }
 
@@ -102,7 +102,7 @@
     z-index: 1;
     max-width: 12ch;
     text-align: center;
-    font-family: "Raleway-SemiBold", sans-serif;
+    font-family: var(--font-heading);
     font-size: 1.1rem;
     color: rgba(36, 76, 56, 0.78);
 }
