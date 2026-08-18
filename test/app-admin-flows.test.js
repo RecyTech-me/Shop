@@ -182,7 +182,13 @@ test("admin workflows cover login, settings, product creation, review moderation
     assert.match(page.text, /Tableau de bord/);
     const adminQuickMenu = page.text.match(/<div class="admin-bar-actions"[\s\S]*?<\/div>/)?.[0] || "";
     assert.match(adminQuickMenu, /href="\/admin\/orders">Commandes<\/a>/);
+    assert.match(adminQuickMenu, /href="\/admin\/analytics">Statistiques<\/a>/);
     assert.doesNotMatch(adminQuickMenu, /href="\/admin\/account">Mon compte<\/a>/);
+
+    page = await client.request("/admin/analytics?period=7d");
+    assert.equal(page.response.status, 200);
+    assert.match(page.text, /Statistiques des ventes/);
+    assert.match(page.text, /Chiffre d’affaires net/);
 
     page = await client.request("/admin/admins/new");
     assert.equal(page.response.status, 200);
