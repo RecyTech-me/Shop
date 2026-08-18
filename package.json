@@ -21,7 +21,7 @@
     "verify": "npm run check && npm run lint && npm test && npm audit --omit=dev --audit-level=high"
   },
   "dependencies": {
-    "better-sqlite3": "^13.0.1",
+    "better-sqlite3": "^13.0.3",
     "compression": "^1.8.1",
     "dotenv": "^17.4.2",
     "ejs": "^6.0.1",
@@ -30,12 +30,12 @@
     "multer": "^2.2.0",
     "nodemailer": "^9.0.1",
     "sharp": "^0.35.2",
-    "stripe": "^22.3.0"
+    "stripe": "^22.5.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "eslint": "^10.6.0",
-    "globals": "^17.7.0",
-    "playwright": "^1.61.1"
+    "eslint": "^10.8.1",
+    "globals": "^17.11.0",
+    "playwright": "^1.62.1"
   }
 }
