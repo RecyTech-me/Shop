@@ -342,7 +342,7 @@
 .review-card h3,
 .review-form h3,
 .review-moderation-card h3 {
-    font-family: "Raleway-SemiBold", sans-serif;
+    font-family: var(--font-heading);
 }
 
 .review-card > * + * {

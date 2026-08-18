@@ -101,7 +101,8 @@
 
 .analytics-chart-label {
     fill: var(--text-soft);
-    font-family: "Raleway-SemiBold", sans-serif;
+    font-family: var(--font-body);
+    font-weight: var(--font-weight-regular);
     font-size: 12px;
 }
 
