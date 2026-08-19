@@ -209,7 +209,7 @@ export function createStripeCheckoutController({
             return;
         }
 
-        const submitButton = checkoutForm.querySelector('button[type="submit"]');
+        const submitButton = checkoutForm.querySelector("[data-checkout-submit]");
         submitButton?.setAttribute("disabled", "disabled");
         showMessage("");
 

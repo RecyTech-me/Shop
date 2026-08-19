@@ -12,7 +12,7 @@
             <a href="/admin" class="button button-secondary">Retour</a>
         </div>
 
-        <form action="/admin/settings" method="post" class="admin-form-grid" enctype="multipart/form-data">
+        <form action="/admin/settings" method="post" class="admin-form-grid">
             <%- include("../partials/csrf-field") %>
             <label>
                 Nom de la boutique
@@ -32,34 +32,6 @@
             <label class="full-span">
                 Tagline
                 <input type="text" name="tagline" value="<%= settings.tagline %>" required>
-            </label>
-
-            <label class="full-span">
-                Titre hero
-                <input type="text" name="hero_title" value="<%= settings.hero_title %>" required>
-            </label>
-
-            <label class="full-span">
-                Texte hero
-                <textarea name="hero_text" rows="4"><%= settings.hero_text %></textarea>
-            </label>
-
-            <label class="full-span">
-                Image hero
-                <input type="text" name="hero_image_url" value="<%= settings.hero_image_url %>" placeholder="/static/images/illustrations/hero-workshop.jpg">
-                <small>URL de l'image de fond affichée derrière le texte du hero.</small>
-            </label>
-
-            <label class="full-span">
-                Importer une image hero
-                <input type="file" name="hero_image_file" accept="image/*">
-                <small>Remplace l'URL ci-dessus si une image est sélectionnée.</small>
-            </label>
-
-            <label class="full-span">
-                Points hero
-                <textarea name="hero_points" rows="4"><%= settings.hero_points %></textarea>
-                <small>Une ligne par point affiché sous les boutons du hero.</small>
             </label>
 
             <div class="full-span settings-subsection">

@@ -176,7 +176,7 @@ test("Stripe controller mounts payment element, prepares order, and confirms wit
             stripePrepareUrl: "/stripe/prepare",
         },
         reportValidity: () => true,
-        querySelector: (selector) => selector === 'button[type="submit"]' ? submitButton : null,
+        querySelector: (selector) => selector === "[data-checkout-submit]" ? submitButton : null,
     });
     const stripeMessage = createElementStub({ hidden: true, dataset: {} });
     const controller = createStripeCheckoutController({
@@ -286,7 +286,7 @@ test("Stripe controller does not prepare an order when Stripe Elements submit fa
                 stripePrepareUrl: "/stripe/prepare",
             },
             reportValidity: () => true,
-            querySelector: (selector) => selector === 'button[type="submit"]' ? submitButton : null,
+            querySelector: (selector) => selector === "[data-checkout-submit]" ? submitButton : null,
         }),
         cardPaymentSection: createElementStub({ hidden: false }),
         stripeMount: createElementStub(),

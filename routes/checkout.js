@@ -23,6 +23,7 @@ function registerCheckoutRoutes(deps) {
         abandonCheckoutAttempt,
         getCheckoutPricing,
         getCheckoutForm,
+        buildCheckoutDraft,
         getOrCreateCheckoutAttemptId,
         getCompletedCheckoutOrderId,
         requireCheckoutAttemptId,
@@ -79,6 +80,7 @@ function registerCheckoutRoutes(deps) {
     app.post("/checkout", async (req, res) => {
         try {
             const checkoutAttemptId = requireCheckoutAttemptId(req, req.body.checkout_attempt_id);
+            setCheckoutForm(req, buildCheckoutDraft(req.body, getCheckoutForm(req)));
             const checkoutDetails = validateCheckout(req);
             setCheckoutForm(req, checkoutDetails.form);
 
@@ -204,7 +206,15 @@ function registerCheckoutRoutes(deps) {
                     error: error.message,
                 });
             }
-            setFlash(req, "error", publicError.message);
+            const fieldErrors = error?.fieldErrors && typeof error.fieldErrors === "object"
+                ? error.fieldErrors
+                : null;
+            setFlash(
+                req,
+                "error",
+                fieldErrors ? "Veuillez corriger les champs indiqués." : publicError.message,
+                fieldErrors ? { fieldErrors } : undefined
+            );
             return saveSessionAndRedirect(req, res, "/checkout");
         }
     });

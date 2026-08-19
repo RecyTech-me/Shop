@@ -13,11 +13,8 @@ function registerAdminCatalogRoutes(deps) {
     const { requireAdmin, render, getViewHelpers, setFlash, saveSessionAndRedirect } = http;
     const { normalizeText } = text;
     const {
-        settingsUploadUrl,
         withProductUploads,
-        withSettingsUpload,
         cleanupProductUploads,
-        cleanupSettingsUpload,
         productInputWithUploads,
         buildProductFormState,
     } = uploads;
@@ -163,21 +160,17 @@ function registerAdminCatalogRoutes(deps) {
         });
     });
 
-    app.post("/admin/settings", requireAdmin, withSettingsUpload, (req, res) => {
+    app.post("/admin/settings", requireAdmin, (req, res) => {
         const currentSettings = getSettings(db);
         const nextSmtpPassword = String(req.body.smtp_password || "").trim();
         try {
             saveSettings(db, {
                 store_name: String(req.body.store_name || "").trim(),
                 tagline: String(req.body.tagline || "").trim(),
-                hero_title: String(req.body.hero_title || "").trim(),
-                hero_text: String(req.body.hero_text || "").trim(),
-                hero_image_url: settingsUploadUrl(req.file) || String(req.body.hero_image_url || "").trim(),
-                hero_points: String(req.body.hero_points || "")
-                    .split(/\r?\n/)
-                    .map((point) => point.trim())
-                    .filter(Boolean)
-                    .join("\n"),
+                hero_title: currentSettings.hero_title,
+                hero_text: currentSettings.hero_text,
+                hero_image_url: currentSettings.hero_image_url,
+                hero_points: currentSettings.hero_points,
                 support_email: String(req.body.support_email || "").trim(),
                 support_address: String(req.body.support_address || "").trim(),
                 bank_account_holder: String(req.body.bank_account_holder || "").trim(),
@@ -195,7 +188,6 @@ function registerAdminCatalogRoutes(deps) {
                 order_notification_email: String(req.body.order_notification_email || "").trim(),
             });
         } catch (error) {
-            cleanupSettingsUpload(req);
             setFlash(req, "error", `Enregistrement impossible : ${error.message}`);
             return saveSessionAndRedirect(req, res, "/admin/settings");
         }

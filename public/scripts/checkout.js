@@ -30,6 +30,10 @@ export function initCheckout() {
     const checkoutForm = document.querySelector(".checkout-form");
     const stripeMount = document.getElementById("stripe-payment-element");
     const stripeMessage = document.getElementById("stripe-payment-message");
+    const checkoutSummary = document.querySelector("[data-checkout-summary]");
+    const checkoutErrorSummary = document.querySelector("[data-checkout-error-summary]");
+    const checkoutSubmit = document.querySelector("[data-checkout-submit]");
+    const checkoutPaymentHelp = document.querySelector("[data-checkout-payment-help]");
     let localCheckoutSubmitting = false;
     let nativeSubmissionReady = false;
     const getCheckoutDraftPayload = () => buildCheckoutDraftPayload(checkoutForm);
@@ -44,6 +48,21 @@ export function initCheckout() {
         beforeSubmit: draftSaver.flush,
         afterSubmitFailure: draftSaver.resume,
     });
+
+    if (checkoutSummary) {
+        const mobileSummaryQuery = window.matchMedia("(max-width: 720px)");
+        const syncSummaryForViewport = () => {
+            checkoutSummary.open = !mobileSummaryQuery.matches;
+        };
+
+        checkoutSummary.querySelector("summary")?.addEventListener("click", (event) => {
+            if (!mobileSummaryQuery.matches) {
+                event.preventDefault();
+            }
+        });
+        mobileSummaryQuery.addEventListener?.("change", syncSummaryForViewport);
+        syncSummaryForViewport();
+    }
 
     function getSelectedPaymentMethod() {
         return document.querySelector('input[name="payment_method"]:checked')?.value || "card";
@@ -74,6 +93,21 @@ export function initCheckout() {
         return selectFirstEnabledPaymentMethod(allowedMethods);
     }
 
+    function syncPaymentAction(selectedPayment) {
+        const label = checkoutSubmit?.dataset[`label${selectedPayment[0].toUpperCase()}${selectedPayment.slice(1)}`];
+        const help = checkoutPaymentHelp?.dataset[`help${selectedPayment[0].toUpperCase()}${selectedPayment.slice(1)}`];
+
+        if (checkoutSubmit && label) {
+            checkoutSubmit.textContent = label;
+        }
+        if (checkoutPaymentHelp && help) {
+            const helpText = checkoutPaymentHelp.querySelector("p");
+            if (helpText) {
+                helpText.textContent = help;
+            }
+        }
+    }
+
     function syncCheckoutSections() {
         const selectedDelivery = document.querySelector('input[name="delivery_method"]:checked')?.value || "pickup";
 
@@ -98,8 +132,15 @@ export function initCheckout() {
 
         const shouldShowBilling = selectedDelivery === "pickup" || Boolean(billingSameInput && !billingSameInput.checked);
         toggleSection(billingSection, shouldShowBilling);
+        shippingSection?.querySelectorAll("[data-conditionally-required]").forEach((field) => {
+            field.required = selectedDelivery === "ship";
+        });
+        billingSection?.querySelectorAll("[data-conditionally-required]").forEach((field) => {
+            field.required = shouldShowBilling;
+        });
         const selectedPayment = ensureValidPaymentMethod(selectedDelivery);
         toggleSection(cardPaymentSection, selectedPayment === "card");
+        syncPaymentAction(selectedPayment);
 
         if (shippingPrice && orderTotal) {
             const summary = calculateCheckoutSummary({
@@ -231,6 +272,10 @@ export function initCheckout() {
     }
 
     syncCheckoutSections();
+
+    if (checkoutErrorSummary) {
+        checkoutErrorSummary.focus();
+    }
 
     if (getSelectedPaymentMethod() === "card") {
         stripeCheckout.mountPaymentElement().catch((error) => {

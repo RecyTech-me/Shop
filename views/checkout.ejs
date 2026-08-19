@@ -1,17 +1,57 @@
 <%- include("partials/head", { title }) %>
 <%- include("partials/header") %>
 <%- include("partials/flash") %>
+<%
+    const checkoutFieldErrors = flash?.fieldErrors || {};
+    const checkoutFieldLabels = {
+        customer_email: "Adresse e-mail",
+        customer_first_name: "Prénom",
+        customer_last_name: "Nom",
+        delivery_method: "Mode de livraison",
+        shipping_address1: "Adresse de livraison",
+        shipping_postal_code: "Code postal de livraison",
+        shipping_city: "Ville de livraison",
+        billing_first_name: "Prénom de facturation",
+        billing_last_name: "Nom de facturation",
+        billing_address1: "Adresse de facturation",
+        billing_postal_code: "Code postal de facturation",
+        billing_city: "Ville de facturation",
+        payment_method: "Mode de paiement",
+    };
+    const checkoutFieldErrorEntries = Object.entries(checkoutFieldErrors);
+    const checkoutPaymentActions = {
+        card: {
+            label: "Commander et payer par carte",
+            help: "Le paiement sera confirmé immédiatement dans le formulaire sécurisé Stripe.",
+        },
+        transfer: {
+            label: "Confirmer avec obligation de paiement",
+            help: "La commande sera enregistrée immédiatement. Vous recevrez ensuite les coordonnées bancaires pour effectuer le virement.",
+        },
+        bitcoin: {
+            label: "Commander et payer en bitcoin",
+            help: "La commande sera enregistrée, puis vous serez redirigé vers la page de paiement Bitcoin sécurisée.",
+        },
+        cash: {
+            label: "Confirmer avec obligation de paiement",
+            help: "La commande sera enregistrée immédiatement. Le paiement en espèces sera dû lors du retrait à Boudry.",
+        },
+    };
+    const selectedPaymentAction = checkoutPaymentActions[checkoutForm.payment_method] || checkoutPaymentActions.transfer;
+    const checkoutErrorAttributes = (fieldName) => checkoutFieldErrors[fieldName]
+        ? `aria-invalid="true" aria-describedby="checkout-error-${fieldName}"`
+        : "";
+%>
 
-<main id="main-content" tabindex="-1" class="shell section-stack">
+<main id="main-content" tabindex="-1" class="shell section-stack checkout-page">
+    <header class="checkout-page-heading">
+        <p class="eyebrow">Paiement</p>
+        <h1>Finaliser la commande</h1>
+        <p class="checkout-required-note"><span class="required-marker" aria-hidden="true">*</span> Champs obligatoires</p>
+    </header>
+
     <section class="checkout-layout">
         <div class="section-block">
-            <div class="section-heading">
-                <div>
-                    <p class="eyebrow">Paiement</p>
-                    <h1>Finaliser la commande</h1>
-                </div>
-            </div>
-
             <form
                 action="/checkout"
                 method="post"
@@ -22,29 +62,42 @@
             >
                 <%- include("partials/csrf-field") %>
                 <input type="hidden" name="checkout_attempt_id" value="<%= checkoutAttemptId %>">
+                <% if (checkoutFieldErrorEntries.length) { %>
+                    <div class="checkout-error-summary" role="alert" tabindex="-1" data-checkout-error-summary>
+                        <p><strong>Vérifiez les champs suivants :</strong></p>
+                        <ul>
+                            <% checkoutFieldErrorEntries.forEach(([fieldName, message]) => { %>
+                                <li><a href="#checkout-<%= fieldName %>"><%= checkoutFieldLabels[fieldName] || fieldName %> : <%= message %></a></li>
+                            <% }) %>
+                        </ul>
+                    </div>
+                <% } %>
                 <div class="checkout-group">
                     <h2>Coordonnées</h2>
                     <div class="checkout-grid checkout-grid-two">
                         <label class="checkout-grid-full">
-                            Adresse e-mail
-                            <input type="email" name="customer_email" value="<%= checkoutForm.customer_email %>" maxlength="254" required>
+                            <span class="field-label">Adresse e-mail <span class="required-marker" aria-hidden="true">*</span></span>
+                            <input id="checkout-customer_email" type="email" name="customer_email" value="<%= checkoutForm.customer_email %>" maxlength="254" autocomplete="email" required <%- checkoutErrorAttributes("customer_email") %>>
+                            <%- include("partials/checkout-field-error", { fieldName: "customer_email", fieldErrors: checkoutFieldErrors }) %>
                         </label>
                         <label>
-                            Prénom
-                            <input type="text" name="customer_first_name" value="<%= checkoutForm.customer_first_name %>" maxlength="100" required>
+                            <span class="field-label">Prénom <span class="required-marker" aria-hidden="true">*</span></span>
+                            <input id="checkout-customer_first_name" type="text" name="customer_first_name" value="<%= checkoutForm.customer_first_name %>" maxlength="100" autocomplete="given-name" required <%- checkoutErrorAttributes("customer_first_name") %>>
+                            <%- include("partials/checkout-field-error", { fieldName: "customer_first_name", fieldErrors: checkoutFieldErrors }) %>
                         </label>
                         <label>
-                            Nom
-                            <input type="text" name="customer_last_name" value="<%= checkoutForm.customer_last_name %>" maxlength="100" required>
+                            <span class="field-label">Nom <span class="required-marker" aria-hidden="true">*</span></span>
+                            <input id="checkout-customer_last_name" type="text" name="customer_last_name" value="<%= checkoutForm.customer_last_name %>" maxlength="100" autocomplete="family-name" required <%- checkoutErrorAttributes("customer_last_name") %>>
+                            <%- include("partials/checkout-field-error", { fieldName: "customer_last_name", fieldErrors: checkoutFieldErrors }) %>
                         </label>
                     </div>
                 </div>
 
                 <div class="checkout-group">
                     <h2>Livraison</h2>
-                    <div class="choice-grid choice-grid-two delivery-options">
+                    <div id="checkout-delivery_method" class="choice-grid choice-grid-two delivery-options" <%- checkoutErrorAttributes("delivery_method") %>>
                         <label class="choice-card choice-card-radio delivery-card">
-                            <input type="radio" name="delivery_method" value="ship" <%= checkoutForm.delivery_method === "ship" ? "checked" : "" %>>
+                            <input type="radio" name="delivery_method" value="ship" required <%= checkoutForm.delivery_method === "ship" ? "checked" : "" %>>
                             <span class="choice-surface">
                                 <span class="choice-icon" aria-hidden="true">
                                     <svg viewBox="0 0 36 36" role="presentation">
@@ -80,6 +133,7 @@
                             </span>
                         </label>
                     </div>
+                    <%- include("partials/checkout-field-error", { fieldName: "delivery_method", fieldErrors: checkoutFieldErrors }) %>
                 </div>
 
                 <div class="checkout-group checkout-section" data-checkout-section="pickup" <%= checkoutForm.delivery_method === "pickup" ? "" : "hidden" %>>
@@ -95,31 +149,34 @@
                     <h2>Adresse de livraison</h2>
                     <div class="checkout-grid checkout-grid-two">
                         <label class="checkout-grid-full">
-                            Pays/Région
-                            <input type="text" name="shipping_country" value="<%= checkoutForm.shipping_country %>" maxlength="100" required>
+                            <span class="field-label">Pays/Région <span class="required-marker" aria-hidden="true">*</span></span>
+                            <input type="text" name="shipping_country" value="<%= checkoutForm.shipping_country %>" maxlength="100" autocomplete="shipping country-name" data-conditionally-required <%= checkoutForm.delivery_method === "ship" ? "required" : "" %>>
                         </label>
                         <label class="checkout-grid-full">
-                            Adresse
-                            <input type="text" name="shipping_address1" value="<%= checkoutForm.shipping_address1 %>" maxlength="200">
+                            <span class="field-label">Adresse <span class="required-marker" aria-hidden="true">*</span></span>
+                            <input id="checkout-shipping_address1" type="text" name="shipping_address1" value="<%= checkoutForm.shipping_address1 %>" maxlength="200" autocomplete="shipping address-line1" data-conditionally-required <%= checkoutForm.delivery_method === "ship" ? "required" : "" %> <%- checkoutErrorAttributes("shipping_address1") %>>
+                            <%- include("partials/checkout-field-error", { fieldName: "shipping_address1", fieldErrors: checkoutFieldErrors }) %>
                         </label>
                         <label>
-                            Code postal
-                            <input type="text" name="shipping_postal_code" value="<%= checkoutForm.shipping_postal_code %>" maxlength="32">
+                            <span class="field-label">Code postal <span class="required-marker" aria-hidden="true">*</span></span>
+                            <input id="checkout-shipping_postal_code" type="text" name="shipping_postal_code" value="<%= checkoutForm.shipping_postal_code %>" maxlength="32" autocomplete="shipping postal-code" data-conditionally-required <%= checkoutForm.delivery_method === "ship" ? "required" : "" %> <%- checkoutErrorAttributes("shipping_postal_code") %>>
+                            <%- include("partials/checkout-field-error", { fieldName: "shipping_postal_code", fieldErrors: checkoutFieldErrors }) %>
                         </label>
                         <label>
-                            Ville
-                            <input type="text" name="shipping_city" value="<%= checkoutForm.shipping_city %>" maxlength="100">
+                            <span class="field-label">Ville <span class="required-marker" aria-hidden="true">*</span></span>
+                            <input id="checkout-shipping_city" type="text" name="shipping_city" value="<%= checkoutForm.shipping_city %>" maxlength="100" autocomplete="shipping address-level2" data-conditionally-required <%= checkoutForm.delivery_method === "ship" ? "required" : "" %> <%- checkoutErrorAttributes("shipping_city") %>>
+                            <%- include("partials/checkout-field-error", { fieldName: "shipping_city", fieldErrors: checkoutFieldErrors }) %>
                         </label>
                         <label>
-                            Canton
-                            <input type="text" name="shipping_region" value="<%= checkoutForm.shipping_region %>" maxlength="100">
+                            <span class="field-label">Canton <small>(optionnel)</small></span>
+                            <input type="text" name="shipping_region" value="<%= checkoutForm.shipping_region %>" maxlength="100" autocomplete="shipping address-level1">
                         </label>
                         <label>
                             <span class="field-label">
                                 Téléphone
                                 <small>(optionnel)</small>
                             </span>
-                            <input type="text" name="shipping_phone" value="<%= checkoutForm.shipping_phone %>" maxlength="40">
+                            <input type="tel" name="shipping_phone" value="<%= checkoutForm.shipping_phone %>" maxlength="40" autocomplete="shipping tel">
                         </label>
                     </div>
                 </div>
@@ -140,39 +197,44 @@
                         <h2>Adresse de facturation</h2>
                         <div class="checkout-grid checkout-grid-two">
                         <label class="checkout-grid-full">
-                            Pays/Région
-                            <input type="text" name="billing_country" value="<%= checkoutForm.billing_country %>" maxlength="100">
+                            <span class="field-label">Pays/Région <span class="required-marker" aria-hidden="true">*</span></span>
+                            <input type="text" name="billing_country" value="<%= checkoutForm.billing_country %>" maxlength="100" autocomplete="billing country-name" data-conditionally-required>
                         </label>
                         <label>
-                            Prénom
-                            <input type="text" name="billing_first_name" value="<%= checkoutForm.billing_first_name %>" maxlength="100">
+                            <span class="field-label">Prénom <span class="required-marker" aria-hidden="true">*</span></span>
+                            <input id="checkout-billing_first_name" type="text" name="billing_first_name" value="<%= checkoutForm.billing_first_name %>" maxlength="100" autocomplete="billing given-name" data-conditionally-required <%- checkoutErrorAttributes("billing_first_name") %>>
+                            <%- include("partials/checkout-field-error", { fieldName: "billing_first_name", fieldErrors: checkoutFieldErrors }) %>
                         </label>
                         <label>
-                            Nom
-                            <input type="text" name="billing_last_name" value="<%= checkoutForm.billing_last_name %>" maxlength="100">
+                            <span class="field-label">Nom <span class="required-marker" aria-hidden="true">*</span></span>
+                            <input id="checkout-billing_last_name" type="text" name="billing_last_name" value="<%= checkoutForm.billing_last_name %>" maxlength="100" autocomplete="billing family-name" data-conditionally-required <%- checkoutErrorAttributes("billing_last_name") %>>
+                            <%- include("partials/checkout-field-error", { fieldName: "billing_last_name", fieldErrors: checkoutFieldErrors }) %>
                         </label>
                         <label class="checkout-grid-full">
-                            Adresse
-                            <input type="text" name="billing_address1" value="<%= checkoutForm.billing_address1 %>" maxlength="200">
+                            <span class="field-label">Adresse <span class="required-marker" aria-hidden="true">*</span></span>
+                            <input id="checkout-billing_address1" type="text" name="billing_address1" value="<%= checkoutForm.billing_address1 %>" maxlength="200" autocomplete="billing address-line1" data-conditionally-required <%- checkoutErrorAttributes("billing_address1") %>>
+                            <%- include("partials/checkout-field-error", { fieldName: "billing_address1", fieldErrors: checkoutFieldErrors }) %>
                         </label>
                         <label>
-                            Code postal
-                            <input type="text" name="billing_postal_code" value="<%= checkoutForm.billing_postal_code %>" maxlength="32">
+                            <span class="field-label">Code postal <span class="required-marker" aria-hidden="true">*</span></span>
+                            <input id="checkout-billing_postal_code" type="text" name="billing_postal_code" value="<%= checkoutForm.billing_postal_code %>" maxlength="32" autocomplete="billing postal-code" data-conditionally-required <%- checkoutErrorAttributes("billing_postal_code") %>>
+                            <%- include("partials/checkout-field-error", { fieldName: "billing_postal_code", fieldErrors: checkoutFieldErrors }) %>
                         </label>
                         <label>
-                            Ville
-                            <input type="text" name="billing_city" value="<%= checkoutForm.billing_city %>" maxlength="100">
+                            <span class="field-label">Ville <span class="required-marker" aria-hidden="true">*</span></span>
+                            <input id="checkout-billing_city" type="text" name="billing_city" value="<%= checkoutForm.billing_city %>" maxlength="100" autocomplete="billing address-level2" data-conditionally-required <%- checkoutErrorAttributes("billing_city") %>>
+                            <%- include("partials/checkout-field-error", { fieldName: "billing_city", fieldErrors: checkoutFieldErrors }) %>
                         </label>
                         <label>
-                            Canton
-                            <input type="text" name="billing_region" value="<%= checkoutForm.billing_region %>" maxlength="100">
+                            <span class="field-label">Canton <small>(optionnel)</small></span>
+                            <input type="text" name="billing_region" value="<%= checkoutForm.billing_region %>" maxlength="100" autocomplete="billing address-level1">
                         </label>
                         <label>
                             <span class="field-label">
                                 Téléphone
                                 <small>(optionnel)</small>
                             </span>
-                            <input type="text" name="billing_phone" value="<%= checkoutForm.billing_phone %>" maxlength="40">
+                            <input type="tel" name="billing_phone" value="<%= checkoutForm.billing_phone %>" maxlength="40" autocomplete="billing tel">
                         </label>
                         </div>
                     </div>
@@ -180,7 +242,7 @@
 
                 <div class="checkout-group">
                     <h2>Options de paiement</h2>
-                    <div class="choice-stack">
+                    <div id="checkout-payment_method" class="choice-stack" <%- checkoutErrorAttributes("payment_method") %>>
                         <label class="choice-card choice-card-radio <%= paymentConfig.stripeEnabled ? '' : 'choice-card-disabled' %>">
                             <input type="radio" name="payment_method" value="card" <%= checkoutForm.payment_method === "card" ? "checked" : "" %> <%= paymentConfig.stripeEnabled ? "" : "disabled" %>>
                             <span class="choice-surface">
@@ -239,13 +301,14 @@
                             </span>
                         </label>
                     </div>
+                    <%- include("partials/checkout-field-error", { fieldName: "payment_method", fieldErrors: checkoutFieldErrors }) %>
                 </div>
 
                 <div class="checkout-group">
                     <h2>Code promo</h2>
                     <div class="promo-code-row">
                         <label class="checkout-grid-full">
-                            Code promo
+                            <span class="field-label">Code promo <small>(optionnel)</small></span>
                             <input type="text" name="promo_code" value="<%= checkoutForm.promo_code %>" maxlength="64" placeholder="Code promo" autocapitalize="characters" autocomplete="off">
                         </label>
                         <button
@@ -272,50 +335,76 @@
 
                 <div class="checkout-group">
                     <label>
-                        Ajouter une note à votre commande
+                        <span class="field-label">Ajouter une note à votre commande <small>(optionnel)</small></span>
                         <textarea name="order_note" rows="4" maxlength="2000"><%= checkoutForm.order_note %></textarea>
                     </label>
                 </div>
 
+                <div class="checkout-payment-consequence" aria-live="polite" data-checkout-payment-help
+                    data-help-card="<%= checkoutPaymentActions.card.help %>"
+                    data-help-transfer="<%= checkoutPaymentActions.transfer.help %>"
+                    data-help-bitcoin="<%= checkoutPaymentActions.bitcoin.help %>"
+                    data-help-cash="<%= checkoutPaymentActions.cash.help %>"
+                >
+                    <strong>En confirmant cette commande</strong>
+                    <p><%= selectedPaymentAction.help %></p>
+                </div>
+
                 <div class="checkout-actions">
                     <a href="/cart" class="button button-secondary">Retour au panier</a>
-                    <button type="submit" class="button">Commander</button>
+                    <button type="submit" class="button" data-checkout-submit
+                        data-label-card="<%= checkoutPaymentActions.card.label %>"
+                        data-label-transfer="<%= checkoutPaymentActions.transfer.label %>"
+                        data-label-bitcoin="<%= checkoutPaymentActions.bitcoin.label %>"
+                        data-label-cash="<%= checkoutPaymentActions.cash.label %>"
+                    ><%= selectedPaymentAction.label %></button>
                 </div>
             </form>
         </div>
 
-        <aside class="summary-card">
-            <h2>Commande</h2>
-            <% cart.items.forEach((item) => { %>
+        <details class="summary-card checkout-summary" data-checkout-summary open>
+            <summary class="checkout-summary-toggle">
+                <span class="checkout-summary-heading">
+                    <small>Résumé</small>
+                    <strong>Commande</strong>
+                </span>
+                <span class="checkout-summary-total">
+                    <small>Total</small>
+                    <strong
+                        id="checkout-order-total"
+                        data-subtotal="<%= cart.subtotalCents %>"
+                        data-payment-discount-rate="0.1"
+                        data-promo-discount="<%= pricing.promoDiscountCents %>"
+                        data-promo-label="<%= pricing.promoDiscountLabel %>"
+                        aria-live="polite"
+                    ><%= formatMoney(orderTotalCents) %></strong>
+                </span>
+                <svg class="checkout-summary-chevron" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="m7 10 5 5 5-5"></path>
+                </svg>
+            </summary>
+            <div class="checkout-summary-content">
+                <% cart.items.forEach((item) => { %>
+                    <div class="summary-row">
+                        <span><%= item.name %> x <%= item.quantity %></span>
+                        <strong><%= formatMoney(item.line_total_cents) %></strong>
+                    </div>
+                <% }) %>
+                <hr>
                 <div class="summary-row">
-                    <span><%= item.name %> x <%= item.quantity %></span>
-                    <strong><%= formatMoney(item.line_total_cents) %></strong>
+                    <span>Livraison</span>
+                    <strong id="checkout-shipping-price" data-price-pickup="<%= shippingOptions.pickup.priceCents %>" data-price-ship="<%= shippingOptions.ship.priceCents %>"><%= formatMoney(shippingCostCents) %></strong>
                 </div>
-            <% }) %>
-            <hr>
-            <div class="summary-row">
-                <span>Livraison</span>
-                <strong id="checkout-shipping-price" data-price-pickup="<%= shippingOptions.pickup.priceCents %>" data-price-ship="<%= shippingOptions.ship.priceCents %>"><%= formatMoney(shippingCostCents) %></strong>
+                <div class="summary-row" id="checkout-promo-row" <%= pricing.promoDiscountCents > 0 ? "" : "hidden" %>>
+                    <span id="checkout-promo-label"><%= pricing.promoDiscountLabel %></span>
+                    <strong id="checkout-promo-amount">-<%= formatMoney(pricing.promoDiscountCents) %></strong>
+                </div>
+                <div class="summary-row" id="checkout-payment-discount-row" <%= pricing.paymentDiscountCents > 0 ? "" : "hidden" %>>
+                    <span id="checkout-payment-discount-label"><%= pricing.paymentDiscountLabel %></span>
+                    <strong id="checkout-payment-discount-amount">-<%= formatMoney(pricing.paymentDiscountCents) %></strong>
+                </div>
             </div>
-            <div class="summary-row" id="checkout-promo-row" <%= pricing.promoDiscountCents > 0 ? "" : "hidden" %>>
-                <span id="checkout-promo-label"><%= pricing.promoDiscountLabel %></span>
-                <strong id="checkout-promo-amount">-<%= formatMoney(pricing.promoDiscountCents) %></strong>
-            </div>
-            <div class="summary-row" id="checkout-payment-discount-row" <%= pricing.paymentDiscountCents > 0 ? "" : "hidden" %>>
-                <span id="checkout-payment-discount-label"><%= pricing.paymentDiscountLabel %></span>
-                <strong id="checkout-payment-discount-amount">-<%= formatMoney(pricing.paymentDiscountCents) %></strong>
-            </div>
-            <div class="summary-row">
-                <span>Total</span>
-                <strong
-                    id="checkout-order-total"
-                    data-subtotal="<%= cart.subtotalCents %>"
-                    data-payment-discount-rate="0.1"
-                    data-promo-discount="<%= pricing.promoDiscountCents %>"
-                    data-promo-label="<%= pricing.promoDiscountLabel %>"
-                ><%= formatMoney(orderTotalCents) %></strong>
-            </div>
-        </aside>
+        </details>
     </section>
 </main>
 

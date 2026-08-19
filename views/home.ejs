@@ -2,38 +2,12 @@
 <%- include("partials/header") %>
 <%- include("partials/flash") %>
 
-<section class="hero">
-    <div class="shell hero-grid">
-        <% const heroImageUrl = staticAsset(settings.hero_image_url || "/static/images/illustrations/hero-workshop.jpg"); %>
-        <div class="hero-copy">
-            <img class="hero-copy-image" src="<%= heroImageUrl %>" alt="" loading="eager" referrerpolicy="no-referrer">
-            <h1><%= settings.hero_title %></h1>
-            <p class="hero-text"><%= settings.hero_text %></p>
-            <div class="hero-actions">
-                <a href="#catalogue" class="button">Voir les produits</a>
-                <a href="/cart" class="button button-secondary">Voir le panier</a>
-            </div>
-            <% const heroPoints = String(settings.hero_points || "")
-                .split(/\r?\n/)
-                .map((point) => point.trim())
-                .filter(Boolean); %>
-            <% if (heroPoints.length) { %>
-                <ul class="hero-points">
-                    <% heroPoints.forEach((point) => { %>
-                        <li><%= point %></li>
-                    <% }) %>
-                </ul>
-            <% } %>
-        </div>
-    </div>
-</section>
-
 <main id="main-content" tabindex="-1" class="shell section-stack">
     <section class="section-block" id="catalogue">
         <div class="section-heading catalogue-heading">
             <div>
                 <p class="eyebrow">Catalogue</p>
-                <h2>Matériel disponible</h2>
+                <h1>Matériel disponible</h1>
             </div>
             <form action="/#catalogue" method="get" class="catalogue-filters" aria-label="Filtrer le catalogue">
                 <label class="catalogue-filter-compact">

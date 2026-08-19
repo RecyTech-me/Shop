@@ -98,6 +98,8 @@ test("critical pages render with SEO metadata and static CSS assets", async (t) 
     }
 
     const home = await fetchText(baseUrl, "/");
+    assert.doesNotMatch(home.text, /class="hero"/);
+    assert.match(home.text, /<h1>Matériel disponible<\/h1>/);
     assert.match(home.text, /https:\/\/github\.com\/RecyTech-me/);
     assert.match(home.text, /https:\/\/www\.linkedin\.com\/company\/recytech-shop/);
     assert.match(home.text, /href="mailto:[^"]+"/);
