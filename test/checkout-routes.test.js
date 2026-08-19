@@ -97,9 +97,11 @@ function registerRoutes(overrides = {}) {
                 calls.push(["render", view, options]);
                 res.render(view, options);
             },
-            setFlash: (req, type, message) => {
-                calls.push(["flash", type, message]);
-                req.flashes.push({ type, message });
+            setFlash: (req, type, message, options) => {
+                calls.push(options === undefined
+                    ? ["flash", type, message]
+                    : ["flash", type, message, options]);
+                req.flashes.push({ type, message, ...options });
             },
             saveSessionAndRedirect: (req, res, target) => {
                 calls.push(["redirect", target]);
@@ -118,6 +120,7 @@ function registerRoutes(overrides = {}) {
             },
             getCheckoutPricing: () => ({ totalCents: 2000 }),
             getCheckoutForm: () => ({ delivery_method: "pickup", payment_method: "transfer", promo_code: "" }),
+            buildCheckoutDraft: (values, currentForm) => ({ ...currentForm, ...values }),
             getPromoCodeOutcome: () => ({ error: "", code: "" }),
             getOrCreateCheckoutAttemptId: () => "a".repeat(32),
             getCompletedCheckoutOrderId: () => null,
@@ -231,6 +234,32 @@ test("checkout page redirects an empty cart", () => {
 
     assert.equal(res.redirectedTo, "/cart");
     assert.deepEqual(calls[0], ["flash", "error", "Votre panier est vide."]);
+});
+
+test("checkout validation failures expose field errors after preserving the form", async () => {
+    const fieldErrors = {
+        shipping_address1: "L’adresse de livraison est obligatoire.",
+        shipping_city: "La ville est obligatoire.",
+    };
+    const { calls, handler } = registerRoutes({
+        forms: {
+            validateCheckout: () => {
+                const error = new Error(fieldErrors.shipping_address1);
+                error.fieldErrors = fieldErrors;
+                throw error;
+            },
+        },
+    });
+    const req = createRequest({ body: { shipping_city: "" } });
+    const res = createResponse();
+
+    await handler("POST", "/checkout")(req, res);
+
+    assert.equal(res.redirectedTo, "/checkout");
+    assert.ok(calls.some((call) => call[0] === "setCheckoutForm"));
+    assert.ok(calls.some((call) => call[0] === "flash"
+        && call[2] === "Veuillez corriger les champs indiqués."
+        && call[3]?.fieldErrors === fieldErrors));
 });
 
 test("checkout card POST uses the in-page Stripe fallback message", async () => {

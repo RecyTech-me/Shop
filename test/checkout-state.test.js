@@ -137,6 +137,30 @@ test("checkout validation enforces delivery/payment constraints and billing copy
     assert.equal(checkout.shippingOption.key, "ship");
 });
 
+test("checkout validation maps every missing address value to its field", () => {
+    const helpers = createHelpers();
+
+    assert.throws(
+        () => helpers.validateCheckoutInput({
+            customer_email: "client@example.test",
+            customer_first_name: "Ada",
+            customer_last_name: "Lovelace",
+            delivery_method: "ship",
+            billing_same_as_shipping: "1",
+            payment_method: "transfer",
+        }),
+        (error) => {
+            assert.equal(error.name, "CheckoutValidationError");
+            assert.deepEqual(error.fieldErrors, {
+                shipping_address1: "L’adresse de livraison est obligatoire.",
+                shipping_postal_code: "Le code postal est obligatoire.",
+                shipping_city: "La ville est obligatoire.",
+            });
+            return true;
+        }
+    );
+});
+
 test("checkout drafts bound persisted session field sizes", () => {
     const helpers = createHelpers();
     const draft = helpers.buildCheckoutDraft({

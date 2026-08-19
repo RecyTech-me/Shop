@@ -64,7 +64,7 @@ test("checkout browser UI updates payment availability and totals", async (t) =>
 
     t.after(() => browser.close());
 
-    const page = await browser.newPage();
+    const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
     const browserErrors = [];
     page.on("pageerror", (error) => browserErrors.push(error.message));
 
@@ -77,23 +77,59 @@ test("checkout browser UI updates payment availability and totals", async (t) =>
     await page.getByRole("link", { name: "Passer au paiement" }).click();
     await page.waitForURL("**/checkout");
 
+    const checkoutHeading = await page.locator(".checkout-page-heading").boundingBox();
+    const checkoutSummary = page.locator("[data-checkout-summary]");
+    const checkoutSummaryBox = await checkoutSummary.boundingBox();
+    const checkoutFormBox = await page.locator(".checkout-form").boundingBox();
+    assert.equal(await checkoutSummary.getAttribute("open"), null);
+    assert.ok(checkoutHeading.y < checkoutSummaryBox.y);
+    assert.ok(checkoutSummaryBox.y < checkoutFormBox.y);
+    assert.equal(await page.locator("#checkout-order-total").isVisible(), true);
+    await checkoutSummary.locator("summary").click();
+    assert.notEqual(await checkoutSummary.getAttribute("open"), null);
+
     assert.match(await textContent(page.locator('label.delivery-card:has(input[value="ship"])')), /tarif fixe.*11[.,]50/);
     assert.match(await textContent(page.locator('label.delivery-card:has(input[value="pickup"])')), /Boudry.*Gratuit/);
+    assert.equal(await page.locator('input[name="shipping_address1"]').getAttribute("required"), "");
+    assert.equal(await page.locator('input[name="billing_address1"]').getAttribute("required"), null);
 
     const total = page.locator("#checkout-order-total");
+    const checkoutSubmit = page.locator("[data-checkout-submit]");
+    const paymentHelp = page.locator("[data-checkout-payment-help]");
     assert.match(await textContent(total), /111/);
+    assert.equal(await textContent(checkoutSubmit), "Confirmer avec obligation de paiement");
+    assert.match(await textContent(paymentHelp), /coordonnées bancaires.*virement/);
+    assert.equal(await checkoutSubmit.getAttribute("data-label-card"), "Commander et payer par carte");
+    assert.equal(await checkoutSubmit.getAttribute("data-label-bitcoin"), "Commander et payer en bitcoin");
 
     await page.locator('input[name="delivery_method"][value="pickup"]').check({ force: true });
+    assert.equal(await page.locator('input[name="shipping_address1"]').getAttribute("required"), null);
+    assert.equal(await page.locator('input[name="billing_address1"]').getAttribute("required"), "");
     await page.locator('input[name="payment_method"][value="cash"]').check({ force: true });
     assert.equal(await page.locator('input[name="payment_method"][value="cash"]').isChecked(), true);
     assert.match(await textContent(total), /90/);
     assert.equal(await page.locator("#checkout-payment-discount-row").isHidden(), false);
+    assert.equal(await textContent(checkoutSubmit), "Confirmer avec obligation de paiement");
+    assert.match(await textContent(paymentHelp), /espèces.*retrait à Boudry/);
 
     await page.locator('input[name="delivery_method"][value="ship"]').check({ force: true });
     assert.equal(await page.locator('input[name="payment_method"][value="cash"]').isDisabled(), true);
     assert.equal(await page.locator('input[name="payment_method"][value="transfer"]').isChecked(), true);
     assert.match(await textContent(page.locator("#checkout-shipping-price")), /11/);
     assert.match(await textContent(total), /111/);
+    assert.match(await textContent(paymentHelp), /coordonnées bancaires.*virement/);
+
+    await Promise.all([
+        page.waitForNavigation(),
+        page.locator(".checkout-form").evaluate((form) => form.submit()),
+    ]);
+    const errorSummary = page.locator("[data-checkout-error-summary]");
+    assert.equal(await errorSummary.isVisible(), true);
+    assert.equal(await errorSummary.evaluate((element) => element === element.ownerDocument.activeElement), true);
+    assert.match(await textContent(errorSummary), /Adresse de livraison.*Code postal de livraison.*Ville de livraison/);
+    assert.equal(await page.locator("#checkout-shipping_address1").getAttribute("aria-invalid"), "true");
+    assert.equal(await page.locator("#checkout-shipping_postal_code").getAttribute("aria-invalid"), "true");
+    assert.equal(await page.locator("#checkout-shipping_city").getAttribute("aria-invalid"), "true");
 
     assert.deepEqual(browserErrors, []);
 });
