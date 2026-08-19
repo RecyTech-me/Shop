@@ -16,12 +16,19 @@ export function initForms() {
         });
     }
 
-    document.querySelectorAll(".flash").forEach((flash) => {
-        window.setTimeout(() => {
+    document.querySelectorAll("[data-flash-dismiss]").forEach((dismissButton) => {
+        dismissButton.addEventListener("click", () => {
+            const flash = dismissButton.closest(".flash");
+            if (!flash) {
+                return;
+            }
+
             flash.classList.add("flash-hidden");
             window.setTimeout(() => {
                 flash.parentElement?.classList.add("flash-shell-hidden");
             }, 220);
-        }, 5000);
+        });
     });
+
+    document.querySelector("[data-flash-focus]")?.focus();
 }
