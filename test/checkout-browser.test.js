@@ -70,6 +70,12 @@ test("checkout browser UI updates payment availability and totals", async (t) =>
 
     await page.goto(`${baseUrl}/products/${product.slug}`);
     await page.getByRole("button", { name: "Ajouter au panier" }).click();
+    const successNotice = page.locator(".flash-success");
+    assert.equal(await successNotice.getAttribute("role"), "status");
+    assert.equal(await successNotice.getAttribute("aria-live"), "polite");
+    assert.equal(await successNotice.getByRole("link", { name: "Voir le panier" }).isVisible(), true);
+    await successNotice.getByRole("button", { name: "Fermer le message" }).click();
+    await successNotice.waitFor({ state: "hidden" });
     await page.goto(`${baseUrl}/cart`);
     const cartSummary = page.locator(".summary-card");
     assert.match(await textContent(cartSummary), /Retrait à Boudry Gratuit/);
@@ -124,8 +130,15 @@ test("checkout browser UI updates payment availability and totals", async (t) =>
         page.locator(".checkout-form").evaluate((form) => form.submit()),
     ]);
     const errorSummary = page.locator("[data-checkout-error-summary]");
+    const errorNotice = page.locator(".flash-error");
     assert.equal(await errorSummary.isVisible(), true);
     assert.equal(await errorSummary.evaluate((element) => element === element.ownerDocument.activeElement), true);
+    assert.equal(await errorNotice.getAttribute("role"), "alert");
+    assert.equal(await errorNotice.getAttribute("aria-live"), "assertive");
+    await page.waitForTimeout(5200);
+    assert.equal(await errorNotice.isVisible(), true);
+    await errorNotice.getByRole("button", { name: "Fermer le message" }).click();
+    await errorNotice.waitFor({ state: "hidden" });
     assert.match(await textContent(errorSummary), /Adresse de livraison.*Code postal de livraison.*Ville de livraison/);
     assert.equal(await page.locator("#checkout-shipping_address1").getAttribute("aria-invalid"), "true");
     assert.equal(await page.locator("#checkout-shipping_postal_code").getAttribute("aria-invalid"), "true");

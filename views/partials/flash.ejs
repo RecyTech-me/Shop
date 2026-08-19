@@ -1,10 +1,23 @@
 <% if (flash) { %>
     <div class="shell flash-shell">
-        <div class="flash flash-<%= flash.type %>">
-            <span><%= flash.message %></span>
-            <% if (flash.actionHref && flash.actionLabel) { %>
-                <a href="<%= flash.actionHref %>" class="flash-action"><%= flash.actionLabel %></a>
-            <% } %>
+        <div
+            class="flash flash-<%= flash.type %>"
+            role="<%= flash.type === 'error' ? 'alert' : 'status' %>"
+            aria-live="<%= flash.type === 'error' ? 'assertive' : 'polite' %>"
+            aria-atomic="true"
+            <%- flash.type === "error" ? 'tabindex="-1" data-flash-focus' : '' %>
+        >
+            <span class="flash-message"><%= flash.message %></span>
+            <span class="flash-actions">
+                <% if (flash.actionHref && flash.actionLabel) { %>
+                    <a href="<%= flash.actionHref %>" class="flash-action"><%= flash.actionLabel %></a>
+                <% } %>
+                <button type="button" class="flash-dismiss" data-flash-dismiss aria-label="Fermer le message">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="m6 6 12 12M18 6 6 18"></path>
+                    </svg>
+                </button>
+            </span>
         </div>
     </div>
 <% } %>
