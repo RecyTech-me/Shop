@@ -80,3 +80,64 @@ test("parsed products normalize configuration quantities and availability", () =
     assert.equal(getConfigurationAvailableQuantity(product, [{ name: "RAM", value: "16 GB" }]), 2);
     assert.equal(getConfigurationAvailableQuantity(product, [{ name: "RAM", value: "8 GB" }]), 0);
 });
+
+test("parsed products promote condition, defect, and battery facts", () => {
+    const product = parseProduct({
+        id: 2,
+        product_kind: "product",
+        name: "Latitude",
+        slug: "latitude",
+        category: "Ordinateurs",
+        categories_json: "[]",
+        price_cents: 30000,
+        currency: "CHF",
+        inventory: 1,
+        published: 1,
+        featured: 0,
+        image_gallery_json: "[]",
+        option_groups_json: "[]",
+        valid_configurations_json: "[]",
+        bundle_items_json: "[]",
+        info_rows_json: JSON.stringify([
+            { label: "État", value: "Bon" },
+            { label: "Défauts esthétiques", value: "Rayure légère sur le capot" },
+            { label: "Batterie", value: "85 %" },
+            { label: "Mémoire", value: "16 Go" },
+        ]),
+    });
+
+    assert.equal(product.condition_report.condition.value, "Bon");
+    assert.match(product.condition_report.condition.description, /Traces d’usage visibles/);
+    assert.equal(product.condition_report.condition.notes, "Rayure légère sur le capot");
+    assert.equal(product.condition_report.battery.value, "85 %");
+    assert.deepEqual(product.public_info_rows, [{ label: "Mémoire", value: "16 Go" }]);
+});
+
+test("parsed products expose configurable condition and battery choices", () => {
+    const product = parseProduct({
+        id: 3,
+        product_kind: "product",
+        name: "ThinkPad",
+        slug: "thinkpad-configurable",
+        category: "Ordinateurs",
+        categories_json: "[]",
+        price_cents: 40000,
+        currency: "CHF",
+        inventory: 2,
+        published: 1,
+        featured: 0,
+        image_gallery_json: "[]",
+        option_groups_json: JSON.stringify([
+            { name: "État esthétique", values: ["Parfait", "Bon"] },
+            { name: "Batterie", values: ["Excellente", "Bonne"] },
+        ]),
+        valid_configurations_json: "[]",
+        bundle_items_json: "[]",
+        info_rows_json: "[]",
+    });
+
+    assert.equal(product.condition_report.condition.value, "À choisir");
+    assert.equal(product.condition_report.condition.groupName, "État esthétique");
+    assert.match(product.condition_report.condition.descriptions.Bon, /Traces d’usage visibles/);
+    assert.equal(product.condition_report.battery.groupName, "Batterie");
+});

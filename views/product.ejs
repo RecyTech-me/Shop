@@ -100,6 +100,38 @@
                 data-currency="<%= product.currency %>"
                 data-has-configuration-pricing="<%= product.has_configuration_pricing ? 'true' : 'false' %>"
             ><%= formatProductPrice(product) %></p>
+            <section class="detail-panel product-condition-panel" aria-labelledby="product-condition-title">
+                <h2 id="product-condition-title">État et contrôle</h2>
+                <div class="product-condition-grid">
+                    <div class="product-condition-fact">
+                        <span>État esthétique</span>
+                        <strong
+                            data-product-condition-value
+                            data-option-group="<%= product.condition_report.condition.groupName %>"
+                            data-condition-descriptions="<%= JSON.stringify(product.condition_report.condition.descriptions) %>"
+                        ><%= product.condition_report.condition.value %></strong>
+                        <small data-product-condition-description><%= product.condition_report.condition.description %></small>
+                    </div>
+                    <div class="product-condition-fact">
+                        <span>Fonctionnement</span>
+                        <strong>Testé par RecyTech</strong>
+                        <small>Fonctionnement contrôlé avant la mise en vente.</small>
+                    </div>
+                    <% if (product.condition_report.battery) { %>
+                        <div class="product-condition-fact">
+                            <span>Batterie</span>
+                            <strong
+                                data-product-battery-value
+                                data-option-group="<%= product.condition_report.battery.groupName %>"
+                            ><%= product.condition_report.battery.value %></strong>
+                            <small>État ou capacité communiqué pour cette configuration.</small>
+                        </div>
+                    <% } %>
+                </div>
+                <% if (product.condition_report.condition.notes) { %>
+                    <p class="product-condition-notes"><strong>Défauts signalés :</strong> <%= product.condition_report.condition.notes %></p>
+                <% } %>
+            </section>
             <% if (currentAdmin) { %>
                 <div class="product-admin-actions">
                     <a href="/admin/products/<%= product.id %>/edit" class="button button-secondary button-small">Modifier le produit</a>
@@ -176,11 +208,11 @@
             <p class="product-description"><%= product.description || "Description à venir." %></p>
         </article>
 
-        <% if (product.info_rows.length) { %>
+        <% if (product.public_info_rows.length) { %>
             <article class="detail-panel product-info-panel">
                 <h2>Informations complémentaires</h2>
                 <div class="product-info-table">
-                    <% product.info_rows.forEach((row) => { %>
+                    <% product.public_info_rows.forEach((row) => { %>
                         <div class="product-info-row">
                             <strong><%= row.label %></strong>
                             <span><%= row.value %></span>

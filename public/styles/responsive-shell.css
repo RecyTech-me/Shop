@@ -217,7 +217,8 @@
     }
 
     .product-detail > .price-large,
-    .product-detail > .product-admin-actions {
+    .product-detail > .product-admin-actions,
+    .product-detail > .product-condition-panel {
         order: 3;
     }
 

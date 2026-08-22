@@ -14,11 +14,45 @@ export function initProductConfigurators() {
         const submitButton = form.querySelector("button[type=\"submit\"]");
         const productDetail = form.closest(".product-detail");
         const priceTarget = productDetail?.querySelector("[data-product-price]") || document.querySelector("[data-product-price]");
+        const conditionValueTarget = productDetail?.querySelector("[data-product-condition-value]");
+        const conditionDescriptionTarget = productDetail?.querySelector("[data-product-condition-description]");
+        const batteryValueTarget = productDetail?.querySelector("[data-product-battery-value]");
         const basePriceCents = Number.parseInt(form.dataset.basePriceCents || priceTarget?.dataset.basePriceCents || "0", 10) || 0;
         const startingPriceCents = Number.parseInt(form.dataset.startingPriceCents || priceTarget?.dataset.startingPriceCents || `${basePriceCents}`, 10) || basePriceCents;
         const currency = form.dataset.currency || priceTarget?.dataset.currency || "CHF";
         const hasConfigurationPricing = priceTarget?.dataset.hasConfigurationPricing === "true";
         const defaultMaxQuantity = Number.parseInt(quantityInput?.getAttribute("max") || "1", 10) || 1;
+
+        function parseConditionDescriptions() {
+            try {
+                const parsed = JSON.parse(conditionValueTarget?.dataset.conditionDescriptions || "{}");
+                return parsed && typeof parsed === "object" ? parsed : {};
+            } catch {
+                return {};
+            }
+        }
+
+        const conditionDescriptions = parseConditionDescriptions();
+
+        function syncConditionReport(selections = getCurrentSelections(selects)) {
+            const syncFact = (target, fallback) => {
+                if (!target?.dataset.optionGroup) {
+                    return "";
+                }
+
+                const selectedValue = selections.get(target.dataset.optionGroup) || "";
+                target.textContent = selectedValue || fallback;
+                return selectedValue;
+            };
+            const conditionValue = syncFact(conditionValueTarget, "À choisir");
+            syncFact(batteryValueTarget, "À choisir");
+
+            if (conditionDescriptionTarget && conditionValueTarget?.dataset.optionGroup) {
+                conditionDescriptionTarget.textContent = conditionValue
+                    ? conditionDescriptions[conditionValue] || "Évaluation esthétique renseignée par RecyTech ; consultez les photos pour le détail."
+                    : "Choisissez l’état esthétique disponible pour cette unité.";
+            }
+        }
 
         if (!selects.length) {
             return;
@@ -27,6 +61,10 @@ export function initProductConfigurators() {
         const validConfigurations = parseConfigurations(form.dataset.validConfigurations);
 
         if (!validConfigurations.length) {
+            selects.forEach((select) => {
+                select.addEventListener("change", () => syncConditionReport());
+            });
+            syncConditionReport();
             return;
         }
 
@@ -118,6 +156,7 @@ export function initProductConfigurators() {
             }
 
             syncProductPrice(finalSelections);
+            syncConditionReport(finalSelections);
             syncQuantityControls(completeConfiguration, hasPartialSelection && !hasAnyCompatibleConfiguration);
         }
 

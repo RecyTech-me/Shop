@@ -214,6 +214,60 @@
     margin: -0.1rem 0 0.25rem;
 }
 
+.product-condition-panel {
+    display: grid;
+    gap: 0.85rem;
+    border-color: rgba(36, 76, 56, 0.2);
+    background: rgba(255, 255, 255, 0.78);
+}
+
+.product-condition-panel h2,
+.product-condition-notes {
+    margin: 0;
+}
+
+.product-condition-panel h2 {
+    font-family: var(--font-heading);
+    font-size: 1.05rem;
+}
+
+.product-condition-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+    gap: 0.85rem;
+}
+
+.product-condition-fact {
+    display: grid;
+    align-content: start;
+    gap: 0.2rem;
+}
+
+.product-condition-fact > span,
+.product-condition-fact small {
+    color: var(--text-soft);
+}
+
+.product-condition-fact > span {
+    font-size: 0.78rem;
+    font-weight: var(--font-weight-semibold);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.product-condition-fact strong {
+    font-size: 1.05rem;
+}
+
+.product-condition-fact small {
+    line-height: 1.4;
+}
+
+.product-condition-notes {
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border);
+}
+
 .price-large {
     margin: -0.15rem 0 0;
     font-size: 2rem;

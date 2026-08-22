@@ -26,6 +26,7 @@ function listen(t) {
         category: "Vidéoprojecteurs",
         short_description: "Vidéoprojecteur testé",
         description: "Vidéoprojecteur testé et fonctionnel.",
+        info_rows: "État esthétique: Bon\nDéfauts esthétiques: Rayure légère sur le capot\nBatterie: 85 %\nRésolution: 1920 x 1200",
         price_chf: "200",
         inventory: "1",
         published: true,
@@ -111,6 +112,11 @@ test("critical pages render with SEO metadata and static CSS assets", async (t) 
     const canonicalProduct = await fetchText(baseUrl, "/products/epson-eb-990u");
     assert.equal(canonicalProduct.response.status, 200);
     assert.match(canonicalProduct.text, new RegExp(`<link rel="canonical" href="${baseUrl}/products/epson-eb-990u">`));
+    assert.match(canonicalProduct.text, /class="detail-panel product-condition-panel"/);
+    assert.match(canonicalProduct.text, /État esthétique[\s\S]*Bon/);
+    assert.match(canonicalProduct.text, /Défauts signalés[\s\S]*Rayure légère sur le capot/);
+    assert.match(canonicalProduct.text, /Batterie[\s\S]*85 %/);
+    assert.doesNotMatch(canonicalProduct.text, /<strong>État esthétique<\/strong>/);
 
     const robots = await fetchText(baseUrl, "/robots.txt");
     assert.equal(robots.response.status, 200);
