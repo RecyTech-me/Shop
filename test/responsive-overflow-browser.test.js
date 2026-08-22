@@ -85,6 +85,8 @@ test("storefront purchase routes do not overflow common mobile widths", async (t
         image_url: "/static/images/recytech-logo.svg",
         short_description: "Product used by the responsive overflow regression test.",
         description: "Responsive overflow fixture.",
+        option_groups: "État esthétique: Bon | Moyen\nBatterie: Bonne | Moyenne",
+        valid_configurations: "État esthétique=Bon ; Batterie=Bonne ; stock=3",
         published: "1",
     });
     const browser = await chromium.launch({ headless: true });
@@ -95,6 +97,12 @@ test("storefront purchase routes do not overflow common mobile widths", async (t
     t.after(() => browser.close());
 
     await page.goto(`${baseUrl}/products/${product.slug}`);
+    assert.equal(await page.locator("[data-product-condition-value]").textContent(), "À choisir");
+    await page.locator('select[data-option-group="État esthétique"]').selectOption("Bon");
+    assert.equal(await page.locator("[data-product-condition-value]").textContent(), "Bon");
+    assert.match(await page.locator("[data-product-condition-description]").textContent(), /Traces d’usage visibles/);
+    await page.locator('select[data-option-group="Batterie"]').selectOption("Bonne");
+    assert.equal(await page.locator("[data-product-battery-value]").textContent(), "Bonne");
     await page.getByRole("button", { name: "Ajouter au panier" }).click();
 
     for (const width of widths) {
