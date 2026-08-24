@@ -16,18 +16,34 @@
             <% if (contact.phone) { %>
                 <a href="tel:<%= contact.phone.replace(/\s+/g, '') %>" class="button button-secondary">Appeler le client</a>
             <% } %>
-            <form
-                action="/admin/orders/<%= order.id %>/delete"
-                method="post"
-                class="inline-danger-form"
-                data-confirm-form
-                data-confirm-title="Supprimer la commande"
-                data-confirm-message="Cette commande sera supprimée définitivement. Cette action est irréversible."
-                data-confirm-submit="Supprimer"
-            >
-                <%- include("../partials/csrf-field") %>
-                <button type="submit" class="button button-ghost">Supprimer la commande</button>
-            </form>
+            <% if (canDeleteOrder) { %>
+                <form
+                    action="/admin/orders/<%= order.id %>/delete"
+                    method="post"
+                    class="inline-danger-form"
+                    data-confirm-form
+                    data-confirm-title="Supprimer la commande"
+                    data-confirm-message="Cette commande sera supprimée définitivement. Cette action est irréversible."
+                    data-confirm-submit="Supprimer"
+                >
+                    <%- include("../partials/csrf-field") %>
+                    <button type="submit" class="button button-ghost">Supprimer la commande</button>
+                </form>
+            <% } else if (canDeleteTestOrder && currentAdmin?.role === "superadmin") { %>
+                <form
+                    action="/admin/orders/<%= order.id %>/delete-test"
+                    method="post"
+                    class="inline-danger-form"
+                    data-confirm-form
+                    data-confirm-title="Supprimer cette commande de test"
+                    data-confirm-message="Le stock, les variantes, les tags de service et l'utilisation éventuelle d'un code promo seront restaurés avant la suppression. Utilisez cette action uniquement pour une commande de test hors ligne."
+                    data-confirm-submit="Restaurer et supprimer"
+                >
+                    <%- include("../partials/csrf-field") %>
+                    <input type="hidden" name="order_number" value="<%= order.order_number %>">
+                    <button type="submit" class="button button-ghost">Supprimer la commande de test</button>
+                </form>
+            <% } %>
         </div>
     </section>
 

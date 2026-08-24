@@ -76,17 +76,21 @@
                                 <td class="order-actions-cell" data-label="Actions">
                                     <div class="row-actions">
                                         <a href="/admin/orders/<%= order.id %>">Gérer</a>
-                                        <form
-                                            action="/admin/orders/<%= order.id %>/delete"
-                                            method="post"
-                                            data-confirm-form
-                                            data-confirm-title="Supprimer la commande"
-                                            data-confirm-message="Cette commande sera supprimée définitivement. Cette action est irréversible."
-                                            data-confirm-submit="Supprimer"
-                                        >
-                                            <%- include("../partials/csrf-field") %>
-                                            <button type="submit">Supprimer</button>
-                                        </form>
+                                        <% if (order.can_delete) { %>
+                                            <form
+                                                action="/admin/orders/<%= order.id %>/delete"
+                                                method="post"
+                                                data-confirm-form
+                                                data-confirm-title="Supprimer la commande"
+                                                data-confirm-message="Cette commande sera supprimée définitivement. Cette action est irréversible."
+                                                data-confirm-submit="Supprimer"
+                                            >
+                                                <%- include("../partials/csrf-field") %>
+                                                <button type="submit">Supprimer</button>
+                                            </form>
+                                        <% } else if (order.can_delete_test && currentAdmin?.role === "superadmin") { %>
+                                            <a href="/admin/orders/<%= order.id %>" title="Vérifier puis supprimer cette commande de test">Supprimer le test</a>
+                                        <% } %>
                                     </div>
                                 </td>
                             </tr>
