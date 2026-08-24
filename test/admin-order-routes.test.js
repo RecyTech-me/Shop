@@ -87,6 +87,7 @@ function registerRoutes(overrides = {}) {
         db: {},
         http: {
             requireAdmin: (req, res, next) => next(),
+            requireSuperadmin: (req, res, next) => next(),
             render: (res, view, options) => {
                 calls.push(["render", view, options]);
                 res.render(view, options);
@@ -169,8 +170,15 @@ function registerRoutes(overrides = {}) {
                 calls.push(["countOrders", filters]);
                 return overrides.totalOrders ?? 1;
             },
+            canDeleteOrder: () => true,
+            canDeleteTestOrder: () => false,
             deleteOrder: (db, orderId) => {
                 calls.push(["deleteOrder", orderId]);
+                currentOrder = null;
+                return true;
+            },
+            deleteTestOrder: (db, orderId) => {
+                calls.push(["deleteTestOrder", orderId]);
                 currentOrder = null;
                 return true;
             },
@@ -205,7 +213,7 @@ function createRequest(options = {}) {
         query: {},
         body: {},
         params: {},
-        currentAdmin: { username: "admin" },
+        currentAdmin: { username: "admin", role: "superadmin" },
         flashes: [],
         ...options,
     };
@@ -337,4 +345,54 @@ test("admin order delete reports protected order history", async () => {
 
     assert.equal(res.redirectedTo, "/admin/orders");
     assert.ok(routes.calls.some((call) => call[0] === "flash" && call[1] === "error" && /conservée/.test(call[2])));
+});
+
+test("superadmin test-order deletion requires the matching order number", async () => {
+    const routes = registerRoutes();
+    const req = createRequest({
+        params: { id: "12" },
+        body: { order_number: "RCT-WRONG" },
+    });
+    const res = createResponse();
+
+    await routes.handler("POST", "/admin/orders/:id/delete-test")(req, res);
+
+    assert.equal(res.redirectedTo, "/admin/orders/12");
+    assert.ok(routes.calls.some((call) => call[0] === "flash" && call[1] === "error" && /confirmation/.test(call[2])));
+    assert.ok(!routes.calls.some((call) => call[0] === "deleteTestOrder"));
+});
+
+test("superadmin can purge a confirmed offline test order", async () => {
+    const routes = registerRoutes();
+    const req = createRequest({
+        params: { id: "12" },
+        body: { order_number: "RCT-ORDER" },
+    });
+    const res = createResponse();
+
+    await routes.handler("POST", "/admin/orders/:id/delete-test")(req, res);
+
+    assert.equal(res.redirectedTo, "/admin/orders");
+    assert.ok(routes.calls.some((call) => call[0] === "deleteTestOrder" && call[1] === 12));
+    assert.ok(routes.calls.some((call) => call[0] === "flash" && call[1] === "success" && /stock restauré/.test(call[2])));
+});
+
+test("test-order deletion failure keeps the operator on the order", async () => {
+    const routes = registerRoutes({
+        orders: {
+            deleteTestOrder: () => {
+                throw new Error("Suppression de test refusée.");
+            },
+        },
+    });
+    const req = createRequest({
+        params: { id: "12" },
+        body: { order_number: "RCT-ORDER" },
+    });
+    const res = createResponse();
+
+    await routes.handler("POST", "/admin/orders/:id/delete-test")(req, res);
+
+    assert.equal(res.redirectedTo, "/admin/orders/12");
+    assert.ok(routes.calls.some((call) => call[0] === "flash" && call[1] === "error" && /refusée/.test(call[2])));
 });

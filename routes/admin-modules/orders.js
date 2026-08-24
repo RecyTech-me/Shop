@@ -31,7 +31,7 @@ function registerAdminOrderRoutes(deps) {
         orders,
         mail,
     } = deps;
-    const { requireAdmin, render, setFlash, saveSessionAndRedirect } = http;
+    const { requireAdmin, requireSuperadmin, render, setFlash, saveSessionAndRedirect } = http;
     const { normalizeText, normalizeSingleLineText, parseInteger } = text;
     const { parseMoneyToCents, parseOptionalMoneyToCents, normalizeOrderDateTimeField } = money;
     const { readSelectedProductOptions } = forms;
@@ -62,7 +62,10 @@ function registerAdminOrderRoutes(deps) {
         reserveOrderInventory,
         listOrders,
         countOrders,
+        canDeleteOrder,
+        canDeleteTestOrder,
         deleteOrder,
+        deleteTestOrder,
     } = orders;
     const {
         buildOrderEmailDraft,
@@ -138,6 +141,8 @@ function registerAdminOrderRoutes(deps) {
             normalizeText,
             listOrders,
             countOrders,
+            canDeleteOrder,
+            canDeleteTestOrder,
         }));
     });
 
@@ -191,6 +196,8 @@ function registerAdminOrderRoutes(deps) {
             mailConfigured: isMailConfigured(settings),
             defaultEmailSubject: emailDraft.subject,
             defaultEmailMessage: emailDraft.message,
+            canDeleteOrder: canDeleteOrder(order),
+            canDeleteTestOrder: canDeleteTestOrder(order),
         });
     });
 
@@ -258,6 +265,29 @@ function registerAdminOrderRoutes(deps) {
         } catch (error) {
             setFlash(req, "error", error.message);
         }
+        return saveSessionAndRedirect(req, res, "/admin/orders");
+    });
+
+    app.post("/admin/orders/:id/delete-test", requireSuperadmin, (req, res) => {
+        const order = getOrderById(db, parseRouteInteger(req.params.id, Number.NaN));
+        if (!order) {
+            setFlash(req, "error", "Commande introuvable.");
+            return saveSessionAndRedirect(req, res, "/admin/orders");
+        }
+
+        if (normalizeText(req.body.order_number) !== order.order_number) {
+            setFlash(req, "error", "La confirmation ne correspond pas à cette commande.");
+            return saveSessionAndRedirect(req, res, `/admin/orders/${order.id}`);
+        }
+
+        try {
+            deleteTestOrder(db, order.id);
+            setFlash(req, "success", `La commande de test ${order.order_number} a été supprimée et son stock restauré.`);
+        } catch (error) {
+            setFlash(req, "error", error.message);
+            return saveSessionAndRedirect(req, res, `/admin/orders/${order.id}`);
+        }
+
         return saveSessionAndRedirect(req, res, "/admin/orders");
     });
 }

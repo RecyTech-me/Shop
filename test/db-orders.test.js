@@ -7,7 +7,9 @@ const {
     createOrder,
     createProduct,
     createPromoCode,
+    canDeleteTestOrder,
     deleteOrder,
+    deleteTestOrder,
     deletePromoCode,
     getDashboardStats,
     getOrderById,
@@ -434,6 +436,180 @@ test("orders with external payment or inventory history cannot be hard deleted",
     });
 
     assert.throws(() => deleteOrder(db, order.id), /historique de paiement ou de stock/);
+    assert.ok(getOrderById(db, order.id));
+});
+
+test("offline paid test orders restore inventory, configuration tags, and promo usage before deletion", (t) => {
+    const db = createTestDb(t);
+    const product = createProduct(db, {
+        product_kind: "product",
+        name: "Offline test laptop",
+        categories: "Ordinateurs",
+        price_chf: "250.00",
+        inventory: "2",
+        published: "1",
+        option_groups: "RAM: 16 GB",
+        valid_configurations: "RAM=16 GB ; stock=2 ; tags=TEST-1 | TEST-2 => 250.00",
+    });
+    const promoCode = createPromoCode(db, {
+        code: "TESTPROMO",
+        discount_type: "fixed",
+        discount_value: 1000,
+        active: true,
+        max_redemptions: 1,
+    });
+    const order = createOrder(db, {
+        provider: "cash",
+        customer_name: "Test Customer",
+        customer_email: "test@example.test",
+        amount_cents: 24000,
+        currency: "CHF",
+        status: "pending",
+        items: [{
+            product_id: product.id,
+            name: product.name,
+            quantity: 1,
+            unit_price_cents: 25000,
+            line_total_cents: 25000,
+            selected_options: [{ name: "RAM", value: "16 GB" }],
+            service_tags: [],
+        }],
+        metadata: {
+            promo: {
+                id: promoCode.id,
+                code: promoCode.code,
+                discount_cents: 1000,
+            },
+        },
+    });
+
+    const reservedOrder = reserveOrderInventory(db, order.id);
+    const paidOrder = markOrderPaid(db, reservedOrder.id);
+
+    assert.equal(getProductById(db, product.id).inventory, 1);
+    assert.equal(getPromoCodeById(db, promoCode.id).times_redeemed, 1);
+    assert.equal(canDeleteTestOrder(paidOrder), true);
+
+    assert.equal(deleteTestOrder(db, paidOrder.id), true);
+
+    const restoredProduct = getProductById(db, product.id);
+    assert.equal(getOrderById(db, paidOrder.id), null);
+    assert.equal(restoredProduct.inventory, 2);
+    assert.equal(restoredProduct.valid_configurations[0].quantity, 2);
+    assert.deepEqual(restoredProduct.valid_configurations[0].service_tags.sort(), ["TEST-1", "TEST-2"]);
+    assert.equal(getPromoCodeById(db, promoCode.id).times_redeemed, 0);
+});
+
+test("deleting an already released offline test order does not restore stock twice", (t) => {
+    const db = createTestDb(t);
+    const product = createProduct(db, {
+        product_kind: "product",
+        name: "Released test product",
+        categories: "Tests",
+        price_chf: "20.00",
+        inventory: "1",
+        published: "1",
+    });
+    const order = createOrder(db, {
+        provider: "transfer",
+        customer_name: "Released Test",
+        customer_email: "released@example.test",
+        amount_cents: 2000,
+        currency: "CHF",
+        status: "awaiting_transfer",
+        items: [{
+            product_id: product.id,
+            name: product.name,
+            quantity: 1,
+            unit_price_cents: 2000,
+            line_total_cents: 2000,
+            selected_options: [],
+            service_tags: [],
+        }],
+        metadata: {},
+    });
+
+    reserveOrderInventory(db, order.id);
+    const cancelledOrder = updateOrderStatus(db, order.id, "cancelled");
+    assert.equal(getProductById(db, product.id).inventory, 1);
+    assert.equal(canDeleteTestOrder(cancelledOrder), true);
+
+    deleteTestOrder(db, cancelledOrder.id);
+
+    assert.equal(getOrderById(db, cancelledOrder.id), null);
+    assert.equal(getProductById(db, product.id).inventory, 1);
+});
+
+test("provider-backed orders cannot use the test-order deletion path", (t) => {
+    const db = createTestDb(t);
+    const product = createProduct(db, {
+        product_kind: "product",
+        name: "Provider-backed product",
+        categories: "Tests",
+        price_chf: "20.00",
+        inventory: "1",
+        published: "1",
+    });
+    const order = createOrder(db, {
+        provider: "stripe",
+        provider_reference: "pi_real_payment",
+        customer_name: "Provider Customer",
+        customer_email: "provider@example.test",
+        amount_cents: 2000,
+        currency: "CHF",
+        status: "pending",
+        items: [{
+            product_id: product.id,
+            name: product.name,
+            quantity: 1,
+            unit_price_cents: 2000,
+            line_total_cents: 2000,
+            selected_options: [],
+            service_tags: [],
+        }],
+        metadata: {},
+    });
+
+    const reservedOrder = reserveOrderInventory(db, order.id);
+    assert.equal(canDeleteTestOrder(reservedOrder), false);
+    assert.throws(() => deleteTestOrder(db, reservedOrder.id), /hors ligne/);
+    assert.ok(getOrderById(db, reservedOrder.id));
+    assert.equal(getProductById(db, product.id).inventory, 0);
+});
+
+test("test-order deletion rolls back when a reserved product cannot be restored", (t) => {
+    const db = createTestDb(t);
+    const product = createProduct(db, {
+        product_kind: "product",
+        name: "Missing restore product",
+        categories: "Tests",
+        price_chf: "20.00",
+        inventory: "1",
+        published: "1",
+    });
+    const order = createOrder(db, {
+        provider: "manual",
+        customer_name: "Missing Product Test",
+        customer_email: "missing-product@example.test",
+        amount_cents: 2000,
+        currency: "CHF",
+        status: "pending",
+        items: [{
+            product_id: product.id,
+            name: product.name,
+            quantity: 1,
+            unit_price_cents: 2000,
+            line_total_cents: 2000,
+            selected_options: [],
+            service_tags: [],
+        }],
+        metadata: {},
+    });
+
+    reserveOrderInventory(db, order.id);
+    db.prepare("DELETE FROM products WHERE id = ?").run(product.id);
+
+    assert.throws(() => deleteTestOrder(db, order.id), /stock ne peut pas être restauré/);
     assert.ok(getOrderById(db, order.id));
 });
 
