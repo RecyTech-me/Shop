@@ -142,7 +142,6 @@ function registerAdminOrderRoutes(deps) {
             listOrders,
             countOrders,
             canDeleteOrder,
-            canDeleteTestOrder,
         }));
     });
 
