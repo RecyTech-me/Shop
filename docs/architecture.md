@@ -20,7 +20,7 @@ Pending checkout and manual orders reserve stock before payment finalization, in
 
 Products referenced by an active reservation cannot be deleted, including components referenced through a bundle. This keeps reserved order snapshots and their eventual inventory transition resolvable.
 
-Superadmins can purge an offline test order from its detail page. This path is deliberately unavailable for Stripe, Swiss Bitcoin Pay, provider-referenced, refunded, or legacy orders without reservation metadata. The purge restores an active reservation (global stock, configuration quantities, and service tags), reverses any reserved or redeemed promo-code usage, and deletes the order in one SQLite transaction. A previously released reservation is not restored twice. Ordinary paid orders remain immutable and provider-backed payment history cannot be purged through the administration UI.
+Superadmins can purge an offline test order from its detail page. This path is deliberately unavailable for Stripe, Swiss Bitcoin Pay, provider-referenced, refunded, or legacy orders without trustworthy inventory metadata. The purge restores an active reservation—or the direct stock consumption recorded by a paid manual order—including global stock, configuration quantities, and service tags. It also reverses any reserved or redeemed promo-code usage and deletes the order in one SQLite transaction. A previously released reservation is not restored twice. Ordinary paid orders remain immutable and provider-backed payment history cannot be purged through the administration UI.
 
 `lib/payment-reservation-cleanup-service.js` reconciles stale unpaid reservations. It checks the payment provider before taking action:
 

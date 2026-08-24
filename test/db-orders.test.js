@@ -500,6 +500,58 @@ test("offline paid test orders restore inventory, configuration tags, and promo 
     assert.equal(getPromoCodeById(db, promoCode.id).times_redeemed, 0);
 });
 
+test("directly paid manual test orders restore their consumed stock before deletion", (t) => {
+    const db = createTestDb(t);
+    const product = createProduct(db, {
+        product_kind: "product",
+        name: "Manual test mouse",
+        categories: "Périphériques",
+        price_chf: "7.50",
+        inventory: "3",
+        published: "1",
+        option_groups: "Modèle: TEST-MOUSE",
+        valid_configurations: "Modèle=TEST-MOUSE ; stock=3 ; tags=MOUSE-1 | MOUSE-2 | MOUSE-3 => 7.50",
+    });
+    const order = createOrder(db, {
+        provider: "manual",
+        customer_name: "Commande de test",
+        customer_email: "manual-test@example.test",
+        amount_cents: 750,
+        currency: "CHF",
+        status: "pending",
+        items: [{
+            product_id: product.id,
+            name: product.name,
+            quantity: 1,
+            unit_price_cents: 750,
+            line_total_cents: 750,
+            selected_options: [{ name: "Modèle", value: "TEST-MOUSE" }],
+            service_tags: [],
+        }],
+        metadata: {
+            manual: {
+                created_by_admin_id: 1,
+                created_by_admin_username: "admin",
+                payment_label: "Commande manuelle",
+            },
+        },
+    });
+
+    const paidOrder = markOrderPaid(db, order.id);
+    const readyOrder = updateOrderRecord(db, paidOrder.id, { status: "ready_for_pickup" });
+    assert.equal(readyOrder.metadata.inventory_reserved_at, undefined);
+    assert.equal(getProductById(db, product.id).inventory, 2);
+    assert.equal(canDeleteTestOrder(readyOrder), true);
+
+    deleteTestOrder(db, readyOrder.id);
+
+    const restoredProduct = getProductById(db, product.id);
+    assert.equal(getOrderById(db, readyOrder.id), null);
+    assert.equal(restoredProduct.inventory, 3);
+    assert.equal(restoredProduct.valid_configurations[0].quantity, 3);
+    assert.deepEqual(restoredProduct.valid_configurations[0].service_tags.sort(), ["MOUSE-1", "MOUSE-2", "MOUSE-3"]);
+});
+
 test("deleting an already released offline test order does not restore stock twice", (t) => {
     const db = createTestDb(t);
     const product = createProduct(db, {

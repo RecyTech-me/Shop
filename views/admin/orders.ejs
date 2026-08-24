@@ -88,8 +88,6 @@
                                                 <%- include("../partials/csrf-field") %>
                                                 <button type="submit">Supprimer</button>
                                             </form>
-                                        <% } else if (order.can_delete_test && currentAdmin?.role === "superadmin") { %>
-                                            <a href="/admin/orders/<%= order.id %>" title="Vérifier puis supprimer cette commande de test">Supprimer le test</a>
                                         <% } %>
                                     </div>
                                 </td>
