@@ -103,7 +103,12 @@ test("invoice PDF includes core order, customer, item, and payment text", () => 
     assert.match(text, /ThinkPad T480 reconditionné/);
     assert.match(text, /RAM: 16 GB/);
     assert.match(text, /1 299\.00 CHF/);
-    assert.match(text, /Payment details/);
+    assert.match(text, /Informations de paiement/);
+    assert.match(text, /Titulaire du compte/);
+    assert.match(text, /Montant : 1 299\.00 CHF/);
+    assert.match(text, /Communication : RT-2026-0007/);
+    assert.doesNotMatch(text, /Swiss QR-bill/);
+    assert.doesNotMatch(text, /placeholder/);
     assert.match(text, /Conditions générales de vente/);
 });
 
