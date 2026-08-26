@@ -4,6 +4,7 @@ const {
     buildOrderDocumentFilename,
     buildOrderDocumentPdf,
 } = require("../lib/order-documents");
+const { drawSvgLogo } = require("../lib/svg-logo-renderer");
 
 const sampleOrder = {
     id: 7,
@@ -94,12 +95,26 @@ test("order document PDFs render valid PDF bytes", () => {
     }
 });
 
+test("order documents render the supplied white logo variant", () => {
+    const commands = [];
+    drawSvgLogo({
+        add(command) {
+            commands.push(command);
+        },
+    }, 0, 0, 24, 24);
+    const renderedLogo = commands.join("\n");
+
+    assert.match(renderedLogo, /1\.0000 1\.0000 1\.0000 rg/);
+    assert.doesNotMatch(renderedLogo, /0\.8863 0\.8863 0\.8784 rg/);
+});
+
 test("shipping label is A6 and contains only the postal address and internal reference", () => {
     const pdf = renderPdf("shipping-label");
     const rawPdf = pdf.toString("latin1");
     const text = extractPdfText(pdf);
 
     assert.match(rawPdf, /\/MediaBox \[0 0 297\.64 419\.53\]/);
+    assert.match(rawPdf, /1\.50 1\.50 294\.64 416\.53 re S/);
     assert.match(text, /ÉTIQUETTE D'ADRESSE/);
     assert.match(text, /EXPÉDITEUR/);
     assert.match(text, /DESTINATAIRE/);
