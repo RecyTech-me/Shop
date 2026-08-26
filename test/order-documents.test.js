@@ -82,8 +82,8 @@ function extractPdfText(pdf) {
         .trim();
 }
 
-test("invoice and delivery slip PDFs render valid PDF bytes", () => {
-    for (const type of ["invoice", "delivery-slip"]) {
+test("order document PDFs render valid PDF bytes", () => {
+    for (const type of ["invoice", "delivery-slip", "shipping-label"]) {
         const pdf = renderPdf(type);
         const text = pdf.toString("latin1");
 
@@ -92,6 +92,25 @@ test("invoice and delivery slip PDFs render valid PDF bytes", () => {
         assert.match(text, /\/Type \/Page/);
         assert.ok(pdf.length > 1000);
     }
+});
+
+test("shipping label is A6 and contains only the postal address and internal reference", () => {
+    const pdf = renderPdf("shipping-label");
+    const rawPdf = pdf.toString("latin1");
+    const text = extractPdfText(pdf);
+
+    assert.match(rawPdf, /\/MediaBox \[0 0 297\.64 419\.53\]/);
+    assert.match(text, /ÉTIQUETTE D'ADRESSE/);
+    assert.match(text, /EXPÉDITEUR/);
+    assert.match(text, /DESTINATAIRE/);
+    assert.match(text, /Élodie Exemple/);
+    assert.match(text, /Rue du Test 1/);
+    assert.match(text, /2000 Neuchâtel/);
+    assert.match(text, /Commande : RT-2026-0007/);
+    assert.match(text, /À affranchir - aucun code-barres postal inclus/);
+    assert.doesNotMatch(text, /elodie@example\.test/);
+    assert.doesNotMatch(text, /\+41 32 000 00 00/);
+    assert.doesNotMatch(text, /1 299\.00 CHF/);
 });
 
 test("invoice PDF includes core order, customer, item, and payment text", () => {
@@ -127,4 +146,5 @@ test("delivery slip PDF includes fulfillment text without invoice totals", () =>
 test("document filenames are sanitized and type-specific", () => {
     assert.equal(buildOrderDocumentFilename(sampleOrder, "invoice"), "F-RT-2026-0007.pdf");
     assert.equal(buildOrderDocumentFilename(sampleOrder, "delivery-slip"), "BL-RT-2026-0007.pdf");
+    assert.equal(buildOrderDocumentFilename(sampleOrder, "shipping-label"), "ETIQUETTE-RT-2026-0007.pdf");
 });

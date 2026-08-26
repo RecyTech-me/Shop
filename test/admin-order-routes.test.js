@@ -257,6 +257,27 @@ test("admin order detail returns 404 for missing orders", async () => {
     assert.equal(res.rendered.view, "not-found");
 });
 
+test("admin shipping label route returns an A6 PDF", async () => {
+    const { handler } = registerRoutes({
+        orders: {
+            getOrderContactSnapshot: () => ({
+                shippingLines: ["Order Customer", "Rue du Test 1", "2000 Neuchâtel"],
+                billingLines: [],
+            }),
+        },
+    });
+    const req = createRequest({ params: { id: "12" } });
+    const res = createResponse();
+
+    await handler("GET", "/admin/orders/:id/shipping-label.pdf")(req, res);
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.headers["Content-Type"], "application/pdf");
+    assert.match(res.headers["Content-Disposition"], /ETIQUETTE-RCT-ORDER\.pdf/);
+    assert.ok(Buffer.isBuffer(res.sent));
+    assert.match(res.sent.toString("latin1"), /\/MediaBox \[0 0 297\.64 419\.53\]/);
+});
+
 test("admin order update rejects invalid statuses without mutation", async () => {
     const { calls, handler } = registerRoutes();
     const req = createRequest({

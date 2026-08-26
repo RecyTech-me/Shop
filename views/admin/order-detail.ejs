@@ -252,6 +252,9 @@
                 <div class="form-actions">
                     <a href="/admin/orders/<%= order.id %>/invoice.pdf" class="button button-secondary" target="_blank" rel="noopener">Facture</a>
                     <a href="/admin/orders/<%= order.id %>/delivery-slip.pdf" class="button button-secondary" target="_blank" rel="noopener">Bon de livraison</a>
+                    <% if (canPrintShippingLabel) { %>
+                        <a href="/admin/orders/<%= order.id %>/shipping-label.pdf" class="button button-secondary" target="_blank" rel="noopener">Étiquette adresse (A6)</a>
+                    <% } %>
                 </div>
             </article>
 

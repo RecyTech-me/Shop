@@ -174,6 +174,10 @@ function registerAdminOrderRoutes(deps) {
         return sendOrderDocumentPdf(req, res, "delivery-slip");
     });
 
+    app.get("/admin/orders/:id/shipping-label.pdf", requireAdmin, (req, res) => {
+        return sendOrderDocumentPdf(req, res, "shipping-label");
+    });
+
     app.get("/admin/orders/:id", requireAdmin, (req, res) => {
         const order = getOrderById(db, parseRouteInteger(req.params.id, Number.NaN));
         if (!order) {
@@ -197,6 +201,7 @@ function registerAdminOrderRoutes(deps) {
             defaultEmailMessage: emailDraft.message,
             canDeleteOrder: canDeleteOrder(order),
             canDeleteTestOrder: canDeleteTestOrder(order),
+            canPrintShippingLabel: Boolean(contact.shippingLines.length || contact.billingLines.length),
         });
     });
 
