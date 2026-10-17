@@ -66,6 +66,7 @@ test("mail service sends text and escaped HTML through nodemailer", async (t) =>
             secure: false,
             requireTLS: false,
             auth: { user: "smtp-user", pass: "smtp-pass" },
+            dnsTimeout: 10_000,
             connectionTimeout: 10_000,
             greetingTimeout: 10_000,
             socketTimeout: 30_000,
@@ -129,7 +130,7 @@ test("production SMTP requires STARTTLS when implicit TLS is disabled", async (t
     });
 });
 
-test("new order notifications no-op when mail is not configured", async (t) => {
+test("new order notifications report missing configuration", async (t) => {
     const originalCreateTransport = nodemailer.createTransport;
     const service = createService({
         settings: {
@@ -144,7 +145,7 @@ test("new order notifications no-op when mail is not configured", async (t) => {
         throw new Error("transport should not be created");
     };
 
-    await service.sendNewOrderNotification({
+    await assert.rejects(service.sendNewOrderNotification({
         id: 1,
         order_number: "RCT-NOMAIL",
         provider: "transfer",
@@ -156,7 +157,7 @@ test("new order notifications no-op when mail is not configured", async (t) => {
         items: [],
         metadata: {},
         created_at: "2026-06-28T12:00:00.000Z",
-    });
+    }), /Serveur SMTP manquant/);
 });
 
 test("new order notifications prefer the canonical shop URL", async (t) => {
@@ -203,4 +204,110 @@ test("new order notifications prefer the canonical shop URL", async (t) => {
     assert.equal(sentMessages.length, 1);
     assert.match(sentMessages[0].text, /https:\/\/shop\.example\.test\/admin\/orders\/42/);
     assert.doesNotMatch(sentMessages[0].text, /localhost/);
+});
+
+
+test("environment SMTP transport settings are used as a group despite database defaults", async (t) => {
+    const original = nodemailer.createTransport;
+    t.after(() => { nodemailer.createTransport = original; });
+    nodemailer.createTransport = (config) => {
+        assert.equal(config.port, 465);
+        assert.equal(config.secure, true);
+        assert.equal(config.auth.pass, " password with spaces ");
+        return { sendMail: async () => ({ accepted: ["client@example.test"] }) };
+    };
+    const service = createService({ env: {
+        SMTP_HOST: "smtp.example.test", SMTP_PORT: "465", SMTP_SECURE: "1",
+        SMTP_USERNAME: "user", SMTP_PASSWORD: " password with spaces ",
+        SMTP_FROM_EMAIL: "shop@example.test",
+    } });
+    await service.sendStoreEmail({ smtp_host: "", smtp_port: "587", smtp_secure: "0" }, {
+        to: "client@example.test", subject: "Test", text: "Test",
+    });
+});
+
+test("SMTP verification closes transport and sends no email", async (t) => {
+    const original = nodemailer.createTransport;
+    t.after(() => { nodemailer.createTransport = original; });
+    let closed = false;
+    nodemailer.createTransport = () => ({
+        verify: async () => { throw new Error("authentication failed"); },
+        close: () => { closed = true; },
+        sendMail: () => assert.fail("must not send"),
+    });
+    await assert.rejects(createService().verifyMailConnection({
+        smtp_host: "smtp.example.test", smtp_from_email: "shop@example.test",
+    }), /authentication failed/);
+    assert.equal(closed, true);
+});
+
+test("SMTP refusal is not reported as a successful send", async (t) => {
+    const original = nodemailer.createTransport;
+    t.after(() => { nodemailer.createTransport = original; });
+    nodemailer.createTransport = () => ({ sendMail: async () => ({ accepted: [], rejected: ["client@example.test"] }) });
+    await assert.rejects(createService().sendStoreEmail({
+        smtp_host: "smtp.example.test", smtp_from_email: "shop@example.test",
+    }, { to: "client@example.test", subject: "Test", text: "Test" }), { code: "EENVELOPE" });
+});
+
+test("customer confirmations describe payment state without exposing admin details", () => {
+    const service = createService({ settings: { bank_iban: "CH-TEST", bank_account_holder: "Shop" } });
+    const order = {
+        order_number: "RCT-CONFIRM", customer_name: "Alice", status: "pending", provider: "cash",
+        currency: "CHF", amount_cents: 9000,
+        items: [{ name: "PC", quantity: 1, unit_price_cents: 10000, line_total_cents: 10000 }],
+        metadata: { delivery: { label: "Retrait" }, additions: [{ label: "Réduction espèces", amount_cents: -1000 }], admin_notes: "PRIVATE" },
+    };
+    let message = service.buildCustomerConfirmation(order);
+    assert.match(message.text, /90.00 CHF/);
+    assert.match(message.text, /espèces se fera lors du retrait/);
+    assert.doesNotMatch(message.text, /Paiement reçu|PRIVATE|\/admin/);
+    message = service.buildCustomerConfirmation({ ...order, provider: "transfer" });
+    assert.match(message.text, /CH-TEST/);
+    assert.match(message.text, /Référence à indiquer : RCT-CONFIRM/);
+    message = service.buildCustomerConfirmation({ ...order, provider: "stripe" });
+    assert.match(message.text, /pas encore confirmé/);
+    message = service.buildCustomerConfirmation({ ...order, status: "paid" });
+    assert.match(message.text, /Paiement reçu/);
+    assert.doesNotMatch(message.text, /espèces se fera/);
+});
+
+
+test("delayed confirmations recognize payments after fulfillment advances", () => {
+    const service = createService();
+    for (const status of ["processing", "ready_for_pickup", "shipped", "completed"]) {
+        const message = service.buildCustomerConfirmation({
+            order_number: "RCT-DELAYED", customer_name: "Alice", status, provider: "transfer",
+            currency: "CHF", amount_cents: 1000, items: [], metadata: {},
+        });
+        assert.match(message.text, /Paiement reçu/, status);
+        assert.doesNotMatch(message.text, /en attente de votre virement/, status);
+    }
+});
+
+test("queued deliveries target team and customer separately with stable message identifiers", async (t) => {
+    const original = nodemailer.createTransport;
+    t.after(() => { nodemailer.createTransport = original; });
+    const messages = [];
+    nodemailer.createTransport = () => ({ sendMail: async (message) => {
+        messages.push(message);
+        return { accepted: [message.to] };
+    } });
+    const service = createService({ settings: {
+        smtp_host: "smtp.example.test", smtp_from_email: "shop@example.test",
+        order_notification_email: "team@example.test",
+    } });
+    const order = {
+        id: 12, order_number: "RCT-DELIVERY", customer_name: "Alice", customer_email: "client@example.test",
+        status: "pending", provider: "cash", currency: "CHF", amount_cents: 1000, items: [], metadata: {},
+    };
+    await service.sendOrderMail(order, "team");
+    await service.sendOrderMail(order, "customer");
+    await service.sendOrderMail(order, "customer");
+    assert.equal(messages[0].to, "team@example.test");
+    assert.equal(messages[1].to, "client@example.test");
+    assert.notEqual(messages[0].messageId, messages[1].messageId);
+    assert.equal(messages[1].messageId, messages[2].messageId);
+    assert.match(messages[1].subject, /Commande reçue/);
+    assert.doesNotMatch(messages[1].text, /Administration/);
 });

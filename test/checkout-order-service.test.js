@@ -167,6 +167,8 @@ test("local checkout orders reserve the final unit atomically", (t) => {
             service_tags: [],
         }],
     };
+    const { createMailOutbox } = require("../lib/mail-outbox");
+    const outbox = createMailOutbox({ db, sendOrderMail: async () => {}, getOrderById: (id) => database.getOrderById(db, id) });
     const service = createCheckoutOrderService({
         db,
         buildCart: () => structuredClone(cart),
@@ -182,6 +184,7 @@ test("local checkout orders reserve the final unit atomically", (t) => {
         }),
         createOrder: database.createOrder,
         reserveOrderInventory: database.reserveOrderInventory,
+        enqueueOrderMail: outbox.enqueueOrder,
     });
     const input = {
         req: {},
@@ -208,6 +211,8 @@ test("local checkout orders reserve the final unit atomically", (t) => {
     assert.equal(database.getProductById(db, product.id).inventory, 0);
     assert.throws(() => service.createCheckoutOrder(input), /Stock insuffisant/);
     assert.equal(database.countOrders(db), 1);
+    assert.equal(outbox.listForOrder(firstOrder.id).length, 2);
+    assert.equal(db.prepare("SELECT COUNT(*) AS n FROM mail_outbox").get().n, 2);
 });
 
 test("checkout idempotency reuses the original order and rejects changed payloads", (t) => {
@@ -337,4 +342,85 @@ test("checkout idempotency reuses its reserved final promo redemption", (t) => {
     assert.equal(replay.order.id, first.order.id);
     assert.equal(promoValidationCalls, 1);
     assert.equal(database.getPromoCodeById(db, promoCode.id).times_redeemed, 1);
+});
+
+function createQueuedCheckoutFixture(t, { failEnqueue = false } = {}) {
+    const { createMailOutbox } = require("../lib/mail-outbox");
+    const db = database.initializeDatabase(":memory:", {
+        NODE_ENV: "test",
+        ADMIN_PASSWORD: "test-admin-password",
+    });
+    t.after(() => db.close());
+    const product = database.createProduct(db, {
+        product_kind: "product",
+        name: "Transactional mail checkout",
+        categories: "Audit",
+        price_chf: "25.00",
+        inventory: "1",
+        published: "1",
+    });
+    const outbox = createMailOutbox({
+        db,
+        sendOrderMail: async () => {},
+        getOrderById: (id) => database.getOrderById(db, id),
+    });
+    const service = createCheckoutOrderService({
+        db,
+        buildCart: () => ({
+            subtotalCents: 2500,
+            items: [{
+                product_id: product.id,
+                name: product.name,
+                quantity: 1,
+                unit_price_cents: 2500,
+                line_total_cents: 2500,
+                selected_options: [],
+                service_tags: [],
+            }],
+        }),
+        requirePromoCodeOutcome: () => ({ code: "", discountCents: 0, label: "", promoCode: null }),
+        getCheckoutPricing: () => ({ totalCents: 2500, discountLines: [] }),
+        createOrder: database.createOrder,
+        getOrderByIdempotencyKey: database.getOrderByIdempotencyKey,
+        reserveOrderInventory: database.reserveOrderInventory,
+        enqueueOrderMail: (order) => {
+            assert.ok(order.metadata.inventory_reserved_at);
+            assert.equal(database.getProductById(db, product.id).inventory, 0);
+            outbox.enqueueOrder(order);
+            if (failEnqueue) throw new Error("Simulated outbox storage failure");
+        },
+    });
+    const input = {
+        req: {},
+        provider: "transfer",
+        idempotencyKey: "m".repeat(32),
+        customer: { name: "Mail Customer", email: "mail@example.test" },
+        checkoutDetails: {
+            form: { payment_method: "transfer", promo_code: "" },
+            shippingOption: { key: "pickup", label: "Retrait", priceCents: 0 },
+        },
+    };
+    return { db, product, outbox, service, input };
+}
+
+test("mail enqueue failure rolls back the order, inventory reservation, and queued mail together", (t) => {
+    const { db, product, service, input } = createQueuedCheckoutFixture(t, { failEnqueue: true });
+    assert.throws(() => service.createCheckoutOrder(input), /Simulated outbox storage failure/);
+    assert.equal(database.countOrders(db), 0);
+    assert.equal(db.prepare("SELECT COUNT(*) AS n FROM mail_outbox").get().n, 0);
+    assert.equal(database.getProductById(db, product.id).inventory, 1);
+    assert.equal(database.getOrderByIdempotencyKey(db, input.idempotencyKey), null);
+});
+
+test("a checkout retry keeps one reserved order and exactly two queued mails", (t) => {
+    const { db, product, outbox, service, input } = createQueuedCheckoutFixture(t);
+    const first = service.createCheckoutOrder(input);
+    const retry = service.createCheckoutOrder(input);
+    assert.equal(first.createdOrder, true);
+    assert.equal(retry.createdOrder, false);
+    assert.equal(retry.order.id, first.order.id);
+    assert.equal(database.countOrders(db), 1);
+    assert.equal(database.getProductById(db, product.id).inventory, 0);
+    assert.deepEqual(outbox.listForOrder(first.order.id).map(({ kind }) => kind), ["team", "customer"]);
+    assert.equal(db.prepare("SELECT COUNT(*) AS n FROM mail_outbox").get().n, 2);
 });

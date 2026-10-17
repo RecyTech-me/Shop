@@ -221,6 +221,11 @@ test("admin workflows cover login, settings, product creation, review moderation
 
     page = await client.request("/admin/settings");
     assert.equal(page.response.status, 200);
+    assert.match(page.text, /formaction="\/admin\/settings\/test-smtp" formenctype="application\/x-www-form-urlencoded"/);
+    result = await client.postForm("/admin/settings/test-smtp");
+    assert.equal(result.response.status, 302);
+    page = await client.follow(result);
+    assert.match(page.text, /Connexion SMTP impossible/);
     result = await client.postForm("/admin/settings", {
         store_name: "RecyTech Test Shop",
         tagline: "Quality gate covered",

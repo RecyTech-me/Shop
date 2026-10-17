@@ -9,6 +9,7 @@ function registerAdminCatalogRoutes(deps) {
         uploads,
         settings,
         products,
+        mail,
     } = deps;
     const { requireAdmin, render, getViewHelpers, setFlash, saveSessionAndRedirect } = http;
     const { normalizeText } = text;
@@ -163,9 +164,19 @@ function registerAdminCatalogRoutes(deps) {
         });
     });
 
+    app.post("/admin/settings/test-smtp", requireAdmin, async (req, res) => {
+        try {
+            await mail.verifyMailConnection(getSettings(db));
+            setFlash(req, "success", "Connexion et authentification SMTP réussies. Aucun e-mail n’a été envoyé.");
+        } catch {
+            setFlash(req, "error", "Connexion SMTP impossible. Vérifiez le serveur, le port, le chiffrement et les identifiants.");
+        }
+        return saveSessionAndRedirect(req, res, "/admin/settings");
+    });
+
     app.post("/admin/settings", requireAdmin, withSettingsUpload, (req, res) => {
         const currentSettings = getSettings(db);
-        const nextSmtpPassword = String(req.body.smtp_password || "").trim();
+        const nextSmtpPassword = String(req.body.smtp_password || "");
         try {
             saveSettings(db, {
                 store_name: String(req.body.store_name || "").trim(),

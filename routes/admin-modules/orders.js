@@ -197,6 +197,7 @@ function registerAdminOrderRoutes(deps) {
             orderStatusOptions: ORDER_STATUS_OPTIONS,
             contactMailto: buildOrderMailto(order),
             mailConfigured: isMailConfigured(settings),
+            emailDeliveries: mail.listForOrder(order.id),
             defaultEmailSubject: emailDraft.subject,
             defaultEmailMessage: emailDraft.message,
             canDeleteOrder: canDeleteOrder(order),
@@ -220,6 +221,14 @@ function registerAdminOrderRoutes(deps) {
             setFlash(req, "error", error.message);
             return saveSessionAndRedirect(req, res, `/admin/orders/${order.id}`);
         }
+    });
+
+    app.post("/admin/orders/:id/retry-emails", requireAdmin, (req, res) => {
+        const order = getOrderById(db, parseRouteInteger(req.params.id, Number.NaN));
+        if (!order) return res.status(404).render("not-found", { title: "Commande introuvable" });
+        mail.retryOrder(order.id);
+        setFlash(req, "success", "Les e-mails non envoyés ont été remis en attente.");
+        return saveSessionAndRedirect(req, res, `/admin/orders/${order.id}`);
     });
 
     app.post("/admin/orders/:id/send-email", requireAdmin, async (req, res) => {
@@ -249,8 +258,8 @@ function registerAdminOrderRoutes(deps) {
                 text: emailRequest.message,
             });
             setFlash(req, "success", "E-mail envoyé au client.");
-        } catch (error) {
-            setFlash(req, "error", `Échec de l'envoi : ${error.message}`);
+        } catch {
+            setFlash(req, "error", "Échec de l’envoi. Vérifiez la configuration SMTP et réessayez.");
         }
 
         return saveSessionAndRedirect(req, res, `/admin/orders/${order.id}`);

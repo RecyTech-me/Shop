@@ -185,6 +185,8 @@ function registerRoutes(overrides = {}) {
             ...overrides.orders,
         },
         mail: {
+            listForOrder: () => [],
+            retryOrder: (id) => calls.push(["retryOrder", id]),
             buildOrderEmailDraft: (order) => ({
                 subject: `Commande ${order.order_number}`,
                 message: "Bonjour",
@@ -416,4 +418,13 @@ test("test-order deletion failure keeps the operator on the order", async () => 
 
     assert.equal(res.redirectedTo, "/admin/orders/12");
     assert.ok(routes.calls.some((call) => call[0] === "flash" && call[1] === "error" && /refusée/.test(call[2])));
+});
+
+
+test("admin can retry automatic emails for an existing order", async () => {
+    const { handler, calls } = registerRoutes();
+    const res = createResponse();
+    await handler("POST", "/admin/orders/:id/retry-emails")(createRequest({ params: { id: "12" } }), res);
+    assert.ok(calls.some((call) => call[0] === "retryOrder" && call[1] === 12));
+    assert.equal(res.redirectedTo, "/admin/orders/12");
 });
