@@ -94,7 +94,7 @@
 
             <div class="full-span settings-subsection">
                 <h2>E-mail SMTP</h2>
-                <p class="muted">Utilisé pour envoyer des e-mails aux clients directement depuis l'administration des commandes.</p>
+                <p class="muted">Utilisé pour les confirmations aux clients, les notifications à l’équipe et les messages depuis l’administration. Les réglages SMTP enregistrés ici sont utilisés ensemble ; sans serveur renseigné, la configuration du serveur est utilisée.</p>
             </div>
 
             <label>
@@ -140,6 +140,8 @@
 
             <div class="full-span form-actions">
                 <button type="submit" class="button">Enregistrer</button>
+                <button type="submit" formaction="/admin/settings/test-smtp" formenctype="application/x-www-form-urlencoded" class="button button-secondary">Tester le SMTP enregistré</button>
+                <p class="muted">Enregistrez vos modifications avant le test. Ce test vérifie la connexion et les identifiants, sans envoyer de message.</p>
             </div>
         </form>
     </section>

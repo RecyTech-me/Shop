@@ -266,6 +266,26 @@
                     </div>
                 </div>
 
+                <% if (typeof emailDeliveries !== "undefined" && emailDeliveries.length) { %>
+                    <h3>Envois automatiques</h3>
+                    <ul>
+                        <% emailDeliveries.forEach((delivery) => { %>
+                            <li>
+                                <%= delivery.kind === "customer" ? "Confirmation au client" : "Notification à l’équipe" %> :
+                                <%= ({ pending: "En attente", processing: "En cours", sent: "Accepté par le serveur e-mail", failed: "Échec — action requise", cancelled: "Annulé" })[delivery.status] || delivery.status %>
+                                (<%= delivery.attempts %> tentative(s))
+                                <% if (delivery.last_error) { %> — <%= delivery.last_error %><% } %>
+                            </li>
+                        <% }); %>
+                    </ul>
+                    <% if (emailDeliveries.some((delivery) => ["pending", "failed"].includes(delivery.status))) { %>
+                        <form action="/admin/orders/<%= order.id %>/retry-emails" method="post">
+                            <%- include("../partials/csrf-field") %>
+                            <button type="submit" class="button button-secondary">Réessayer les envois en attente</button>
+                        </form>
+                    <% } %>
+                <% } %>
+
                 <% if (!order.customer_email) { %>
                     <p class="muted">Aucun e-mail client n'est renseigné pour cette commande.</p>
                 <% } else if (!mailConfigured) { %>

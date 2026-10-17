@@ -113,6 +113,8 @@ Logging:
 
 Production SMTP uses implicit TLS when `SMTP_SECURE=1`; otherwise it requires a successful STARTTLS upgrade. This prevents SMTP credentials and order/customer data from falling back to cleartext delivery.
 
+Automatic team notifications and customer order confirmations use a durable SQLite queue. Configure SMTP and the notification recipient in `/admin/settings`, save, then use “Tester le SMTP enregistré” to check connectivity and authentication without sending a message. When the admin SMTP host is blank, environment SMTP transport settings are used together. Each new checkout creates one confirmation and one team notification; failures are retried up to five times and shown on the order detail page, where unsent messages can be retried after fixing configuration. No emails are automatically created for historical orders. Confirmations acknowledge the order and describe payment status; they do not imply a pending payment has succeeded. Server acceptance does not guarantee inbox delivery; check spam folders and sender-domain configuration with your mail provider.
+
 Health monitoring:
 
 - `/healthz` returns JSON readiness status and verifies SQLite can answer a query.
