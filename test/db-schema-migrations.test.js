@@ -5,6 +5,8 @@ const path = require("node:path");
 const test = require("node:test");
 const Database = require("better-sqlite3");
 const { initializeDatabase } = require("../lib/db");
+const { getOrderByNumber, listOrders } = require("../lib/repositories/orders");
+const { createOrderViewTokenHelpers } = require("../lib/payments/order-view-token");
 
 function createOldProductSchema(databasePath) {
     const db = new Database(databasePath);
@@ -160,6 +162,60 @@ test("schema migrations add and backfill product price ranges on old databases",
         { category: "Ordinateurs", position: 0 },
         { category: "Promos", position: 1 },
     ]);
+});
+
+test("legacy order numbers remain searchable and older checkout links still work", (t) => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "recytech-order-migration-"));
+    const databasePath = path.join(directory, "shop.db");
+    const env = { NODE_ENV: "test", ADMIN_PASSWORD: "test-admin-password" };
+    t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+    createOldProductSchema(databasePath);
+    const oldDb = new Database(databasePath);
+    const insert = oldDb.prepare(`
+        INSERT INTO orders (order_number, provider, provider_reference, status, customer_name,
+                            customer_email, amount_cents, items_json, created_at, updated_at)
+        VALUES (?, 'stripe', ?, 'paid', 'Client', 'client@example.test', 1000, '[]',
+                '2026-06-01T00:00:00Z', '2026-06-01T00:00:00Z')
+    `);
+    const migratedNumbers = ["WC-302", "WP-12", "RCT-1234ABCD"];
+    const currentNumber = "RCT-0123456789ABCDEF";
+    for (const number of [...migratedNumbers, currentNumber]) {
+        insert.run(number, `payment-${number}`);
+    }
+    const { createOrderViewToken, verifyOrderViewToken } = createOrderViewTokenHelpers("test-secret");
+    const oldOrders = oldDb.prepare("SELECT * FROM orders").all();
+    oldDb.close();
+
+    for (let run = 0; run < 2; run++) {
+        const db = initializeDatabase(databasePath, env);
+        try {
+            for (const oldOrder of oldOrders) {
+                const order = getOrderByNumber(db, oldOrder.order_number);
+                assert.equal(order.id, oldOrder.id);
+                assert.equal(order.provider_reference, oldOrder.provider_reference);
+                assert.match(order.order_number, /^RCT-[0-9A-F]{16}$/);
+                assert.equal(order.legacy_order_number, oldOrder.order_number === currentNumber ? null : oldOrder.order_number);
+                assert.equal(getOrderByNumber(db, order.order_number).id, oldOrder.id);
+                assert.equal(listOrders(db, { query: oldOrder.order_number })[0].id, oldOrder.id);
+                assert.ok(verifyOrderViewToken(order, createOrderViewToken(oldOrder)));
+                assert.ok(verifyOrderViewToken(order, createOrderViewToken(order)));
+                assert.equal(verifyOrderViewToken(order, "invalid"), false);
+                if (run === 0) {
+                    oldOrder.expectedNumber = order.order_number;
+                }
+                assert.equal(order.order_number, oldOrder.expectedNumber);
+            }
+            const order = getOrderByNumber(db, currentNumber);
+            db.prepare("UPDATE orders SET metadata_json = ? WHERE id = ?")
+                .run(JSON.stringify({ merged_order_numbers: ["RCT-OTHER"] }), order.id);
+            const merged = getOrderByNumber(db, "RCT-OTHER");
+            assert.equal(merged.id, order.id);
+            assert.equal(listOrders(db, { query: "RCT-OTHER" })[0].id, order.id);
+            assert.ok(verifyOrderViewToken(merged, createOrderViewToken({ ...order, order_number: "RCT-OTHER" })));
+        } finally {
+            db.close();
+        }
+    }
 });
 
 test("catalog consistency migration repairs inherited prices and public product wording", (t) => {
