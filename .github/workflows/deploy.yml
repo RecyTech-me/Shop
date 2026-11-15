@@ -196,13 +196,13 @@ jobs:
             npm ci --omit=dev
 
             # Validate native dependencies with the server runtime before promotion.
-            DOTENV_CONFIG_PATH="$LIVE_DIR/.env" node -r dotenv/config <<'PROBE'
+            DOTENV_CONFIG_PATH="$LIVE_DIR/.env" node -r dotenv/config -e '
             const crypto = require("node:crypto");
             const { createApp } = require("./app");
             const app = createApp({ databasePath: ":memory:", startBackgroundTasks: false,
               env: { ...process.env, ADMIN_USERNAME: "runtime-probe", ADMIN_PASSWORD: crypto.randomBytes(32).toString("hex") } });
             Promise.resolve(app.locals.runtime.stop()).then(() => console.log("Application runtime probe passed"));
-            PROBE
+            '
 
             # Migrate documents before rsync removes their former tracked paths.
             node "$STAGING_DIR/scripts/migrate-association-documents.js" \
