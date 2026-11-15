@@ -4,7 +4,7 @@ Scope: public WebSite and Shop source, complete reachable Git history, npm lockf
 Actions workflows, and a small set of anonymous production HTTP requests. Tests use
 local fixtures; no customer data, real payment, SMTP send, or production brute-force
 attempt was used. Host OS, Hestia privileges, firewall, Cloudflare account settings,
-and installed server runtimes could not be inspected with the available access.
+and full server runtime inventory could not be inspected with the available access. Deployment logs report Node 24.18.0; its security patch level needs an administrator review/update.
 This is a point-in-time assessment, not proof that no vulnerabilities exist.
 
 ## Findings and changes
