@@ -215,10 +215,10 @@ After login, visitors return to the requested document. All current admin roles
 have access. Statutes remain public at
 `https://recytech.me/documents/statutes/statuts-recytech.pdf`.
 
-PDFs live in `private/association-documents`, outside Express's static root.
+PDFs live only in `storage/association-documents` on the server, outside Express's static root and Git. `ASSOCIATION_DOCUMENTS_PATH` can override this absolute storage path.
 Only the explicit document allowlist in `routes/association-documents.js` is
 served; private responses use `Cache-Control: private, no-store` and noindex.
-To add a document, add its private PDF and its allowlist entry together.
+To add a document, upload its PDF directly to private server storage and update its allowlist entry. Never commit private PDFs.
 Do not put association PDFs in `public/`, including uploads.
 
 Rollout spans both repositories: deploy this Shop change first, verify anonymous
@@ -232,3 +232,8 @@ Access control on the deployed sites does not remove historical copies from
 public Git repositories, search caches, or prior downloads. These documents were
 already published in the public WebSite history; making Git history private and
 handling external cached copies is a separate confidentiality task.
+
+The deploy workflow migrates and SHA-256-verifies the five existing live documents
+before replacing application files. Repeated deployments preserve storage. A
+missing or conflicting production document stops the release before promotion.
+The document directory must be readable by the `shopsite` service group.
