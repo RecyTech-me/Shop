@@ -124,7 +124,7 @@ jobs:
             --exclude '.github/' \
             --exclude '/.env' \
             --exclude 'node_modules/' \
-            --exclude '/storage/'
+            --exclude '/storage/' \
             --exclude '/private-documents/' \
             --exclude '/public/uploads/' \
             -e "ssh -i $HOME/.ssh/deploy_key -p $DEPLOY_PORT -o BatchMode=yes -o IdentitiesOnly=yes -o PasswordAuthentication=no -o StrictHostKeyChecking=yes" \
