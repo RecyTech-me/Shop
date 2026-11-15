@@ -102,6 +102,8 @@ test("account changes revoke document access through the same auth version", asy
 
 test("document return targets cannot redirect to arbitrary URLs or files", () => {
     assert.equal(getDocumentReturnTarget(pdf), pdf);
+    assert.equal(getDocumentReturnTarget(pdf.replace("%C3%A9", "%c3%a9")), pdf);
+    assert.equal(getDocumentReturnTarget("/association-documents/committee/%broken"), null);
     assert.equal(getDocumentReturnTarget(assembly), assembly);
     for (const target of [undefined, "https://evil.example", "//evil.example", `${committee}/../../.env`, `${committee}?next=https://evil.example`, "/admin", `${committee}/unknown.pdf`]) {
         assert.equal(getDocumentReturnTarget(target), null);
