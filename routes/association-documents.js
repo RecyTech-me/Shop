@@ -19,10 +19,20 @@ const GROUPS = {
 
 // Only known document destinations can survive session regeneration at login.
 function getDocumentReturnTarget(value) {
+    if (typeof value !== "string") return null;
+    let decoded;
+    try {
+        decoded = decodeURIComponent(value);
+    } catch (_error) {
+        return null;
+    }
     for (const [group, { documents }] of Object.entries(GROUPS)) {
         const base = `${PREFIX}/${group}`;
-        if (value === base || documents.some(([filename]) => value === `${base}/${encodeURIComponent(filename)}`)) {
-            return value;
+        if (decoded === base) return base;
+        for (const [filename] of documents) {
+            if (decoded === `${base}/${filename}`) {
+                return `${base}/${encodeURIComponent(filename)}`;
+            }
         }
     }
     return null;
