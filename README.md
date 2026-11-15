@@ -203,3 +203,32 @@ To restore, stop the app, copy the selected backup over `storage/shop.db`, keep 
 - `/admin/promo-codes`
 - `/webhooks/stripe`
 - `/webhooks/swiss-bitcoin-pay`
+
+## Private association documents
+
+The website links committee and general-meeting documents to
+`/association-documents/committee` and `/association-documents/general-meeting`.
+These pages and every PDF use the existing shop admin session and SQLite admins
+(the same usernames, passwords, auth-version revocation, CSRF-protected login,
+login throttling, and logout). No account copy or additional database is used.
+After login, visitors return to the requested document. All current admin roles
+have access. Statutes remain public at
+`https://recytech.me/documents/statutes/statuts-recytech.pdf`.
+
+PDFs live in `private/association-documents`, outside Express's static root.
+Only the explicit document allowlist in `routes/association-documents.js` is
+served; private responses use `Cache-Control: private, no-store` and noindex.
+To add a document, add its private PDF and its allowlist entry together.
+Do not put association PDFs in `public/`, including uploads.
+
+Rollout spans both repositories: deploy this Shop change first, verify anonymous
+PDF requests redirect to login and authenticated PDF requests succeed, then deploy
+the WebSite companion change. That change removes the old public PDF files using
+FTP synchronization, keeps statutes public, and redirects old links when Apache
+`.htaccess` is enabled. Confirm the old PDF URLs redirect or return 404, never 200
+with PDF content. Purge any CDN caches of the former public document URLs.
+
+Access control on the deployed sites does not remove historical copies from
+public Git repositories, search caches, or prior downloads. These documents were
+already published in the public WebSite history; making Git history private and
+handling external cached copies is a separate confidentiality task.
