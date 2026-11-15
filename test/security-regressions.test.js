@@ -197,3 +197,18 @@ test("multipart forms cannot bypass the normal field-size boundary", async (t) =
     assert.equal(result.headers.get("location"), "/admin/products/new");
     assert.equal(app.locals.runtime.db.prepare("SELECT COUNT(*) AS count FROM products").get().count, 0);
 });
+
+
+test("starting a new browser session cannot bypass Stripe intent creation limits", (t) => {
+    const { createInfrastructureContext } = require("../lib/app-infrastructure-context");
+    const context = createInfrastructureContext({
+        rootDir: path.join(__dirname, ".."), databasePath: ":memory:", startBackgroundTasks: false,
+        env: { NODE_ENV: "test", ADMIN_USERNAME: "admin", ADMIN_PASSWORD: "security-test-admin-password" },
+    });
+    t.after(() => context.stop());
+    for (let index = 0; index < 20; index++) {
+        context.rateLimiters.registerStripeIntentAttempt({ ip: "192.0.2.1", sessionID: `session-${index}` });
+    }
+    assert.ok(context.rateLimiters.getStripeIntentRateLimitState({ ip: "192.0.2.1", sessionID: "new-session" }).blockedUntil > Date.now());
+    assert.equal(context.rateLimiters.getStripeIntentRateLimitState({ ip: "192.0.2.2", sessionID: "new-session" }).blockedUntil, 0);
+});

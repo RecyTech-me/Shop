@@ -18,6 +18,7 @@ This is a point-in-time assessment, not proof that no vulnerabilities exist.
 | Multipart resource limits weaker than ordinary forms (low/medium; requires admin session) | Multipart text fields used default 1 MB with no field/part count limit; image conversion ran before CSRF rejection. | Bound fields, parts, names, text and files; defer conversion until CSRF validation; cap decoded image pixels; read only the image signature bytes instead of the whole file. |
 | FTP deployment did not require encryption (medium) | The website workflow omitted protocol; the action defaults to FTP. | Require strict FTPS and certificate verification. Upgrade checkout/deploy actions and pin immutable commits; limit token permissions and serialize releases. No insecure fallback. |
 | Exposed deployment metadata / missing website security headers (low / defense in depth) | Production `/.ftp-deploy-sync-state.json` returned 200 and website HTML lacked CSP/nosniff/framing restrictions. | Deny hidden files and backup formats, disable directory listings, add security headers. Validate under Apache and verify again on production because a front proxy can bypass `.htaccess`. |
+| Payment-provider rate-limit reset via fresh sessions (medium) | Stripe intent quotas were keyed by IP plus session; opening a new session reset the same IP’s quota. | Key intent quotas by IP independently of session and regression-test different session IDs. |
 | Production session security depended on proxy detection (defense in depth) | Session Secure used `auto`; the app itself accepted plain HTTP independently of its configured HTTPS origin. | Require Secure cookies in production and reject insecure writes/redirect insecure reads using Express's configured proxy trust. Host-only cookies are intentionally retained. |
 
 ## Dependency and tooling review
@@ -44,7 +45,7 @@ internal constants. This does not certify all possible paths or runtime inputs.
 
 ## Validation
 
-- Full Shop suite and coverage gate, syntax checks, ESLint, npm audit.
+- 275 Shop tests pass; coverage 89.84% lines, 74.43% branches, 90.56% functions; syntax, ESLint and npm audit pass.
 - HTTP regressions: CSRF, Host validation, private cache behavior, trusted-proxy
   handling, oversized multipart fields, existing admin flows, document access,
   revocation/logout, path traversal and private-file static-path bypasses.
