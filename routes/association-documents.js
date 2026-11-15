@@ -1,21 +1,7 @@
 const path = require("node:path");
 
 const PREFIX = "/association-documents";
-const GROUPS = {
-    committee: {
-        title: "Documents du comité",
-        documents: [
-            ["pv-comité-04.04.2025.pdf", "Procès-verbal du comité du 4 avril 2025"],
-            ["pv-comité-02.05.2025.pdf", "Procès-verbal du comité du 2 mai 2025"],
-            ["pv-comité-05.12.2025.pdf", "Procès-verbal du comité du 5 décembre 2025"],
-            ["pv-comité-09.05.2026.pdf", "Procès-verbal du comité du 9 mai 2026"],
-        ],
-    },
-    "general-meeting": {
-        title: "Documents des assemblées générales",
-        documents: [["pv-ag-constitutive.pdf", "Procès-verbal de l’assemblée générale constitutive"]],
-    },
-};
+const { GROUPS } = require("../lib/association-document-manifest");
 
 // Only known document destinations can survive session regeneration at login.
 function getDocumentReturnTarget(value) {
@@ -38,7 +24,7 @@ function getDocumentReturnTarget(value) {
     return null;
 }
 
-function registerAssociationDocumentRoutes({ app, http }) {
+function registerAssociationDocumentRoutes({ app, http, documentsDir }) {
     const { requireAdmin, saveSessionAndRedirect } = http;
     app.use(PREFIX, (req, res, next) => {
         res.set("Cache-Control", "private, no-store");
@@ -65,7 +51,7 @@ function registerAssociationDocumentRoutes({ app, http }) {
             if (!document) {
                 return res.status(404).render("not-found", { title: "Document introuvable" });
             }
-            const file = path.join(__dirname, "..", "private", "association-documents", group, document[0]);
+            const file = path.join(documentsDir, group, document[0]);
             res.sendFile(file, { cacheControl: false, acceptRanges: false, dotfiles: "deny" }, (error) => {
                 if (error) next(error);
             });
