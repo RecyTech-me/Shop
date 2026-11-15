@@ -4,9 +4,9 @@
 
 <main id="main-content" tabindex="-1" class="shell section-stack admin-page">
     <section class="auth-card">
-        <p class="eyebrow">Administration</p>
+        <p class="eyebrow"><%= typeof documentAccess !== "undefined" && documentAccess ? "Documents de l’association" : "Administration" %></p>
         <h1>Connexion</h1>
-        <p>Connectez-vous pour gérer la boutique.</p>
+        <p><%= typeof documentAccess !== "undefined" && documentAccess ? "Connectez-vous avec votre compte du shop pour consulter les documents du comité et des assemblées générales." : "Connectez-vous pour gérer la boutique." %></p>
         <form action="/admin/login" method="post" class="form-stack">
             <%- include("../partials/csrf-field") %>
             <label>Nom d'utilisateur

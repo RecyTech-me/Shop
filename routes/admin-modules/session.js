@@ -1,3 +1,4 @@
+const { getDocumentReturnTarget } = require("../association-documents");
 const { verifyPassword, verifyPasswordAsync } = require("../../lib/auth");
 const { parseInteger } = require("../../lib/input-utils");
 const logger = require("../../lib/logger");
@@ -37,11 +38,12 @@ function registerAdminSessionRoutes(deps) {
 
     app.get("/admin/login", (req, res) => {
         if (req.session.adminId) {
-            return res.redirect("/");
+            return res.redirect(getDocumentReturnTarget(req.session.documentsReturnTo) || "/");
         }
 
         render(res, "admin/login", {
             title: "Connexion",
+            documentAccess: Boolean(getDocumentReturnTarget(req.session.documentsReturnTo)),
         });
     });
 
@@ -66,6 +68,7 @@ function registerAdminSessionRoutes(deps) {
             return saveSessionAndRedirect(req, res, "/admin/login");
         }
 
+        const documentsReturnTo = getDocumentReturnTarget(req.session.documentsReturnTo);
         clearLoginAttempts(req);
         req.session.regenerate((error) => {
             if (error) {
@@ -77,7 +80,7 @@ function registerAdminSessionRoutes(deps) {
             req.session.adminAuthVersion = admin.auth_version;
             getOrCreateCsrfToken(req);
             setFlash(req, "success", "Connexion réussie.");
-            return saveSessionAndRedirect(req, res, "/");
+            return saveSessionAndRedirect(req, res, documentsReturnTo || "/");
         });
     });
 

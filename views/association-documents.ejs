@@ -1,0 +1,22 @@
+<%- include("partials/head", { title }) %>
+<%- include("partials/header") %>
+<%- include("partials/flash") %>
+<main id="main-content" tabindex="-1" class="shell section-stack admin-page">
+    <section class="panel section-stack">
+        <p class="eyebrow">Association RecyTech · Espace privé</p>
+        <h1><%= title %></h1>
+        <p>Accès avec votre compte du shop.</p>
+        <ul>
+            <% for (const document of documents) { %>
+                <li><a href="<%= document.href %>"><%= document.label %> (PDF)</a></li>
+            <% } %>
+        </ul>
+        <nav aria-label="Documents de l’association">
+            <a href="/association-documents/committee">Comité</a> ·
+            <a href="/association-documents/general-meeting">Assemblées générales</a> ·
+            <a href="https://recytech.me/documents/statutes/statuts-recytech.pdf">Statuts (publics)</a> ·
+            <a href="https://recytech.me/documents/">Retour au site</a>
+        </nav>
+    </section>
+</main>
+<%- include("partials/footer") %>
