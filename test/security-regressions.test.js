@@ -174,6 +174,9 @@ test("production enforces HTTPS and does not trust forwarded headers when proxy 
     assert.equal(page.statusCode, 308);
     assert.equal(page.headers.location, "https://shop.example.test/admin/login");
     assert.equal(page.headers["set-cookie"], undefined);
+    const health = await requestWithHost({ port, host: "shop.example.test", path: "/healthz" });
+    assert.equal(health.statusCode, 200);
+    assert.equal(health.headers["set-cookie"], undefined);
     const post = await requestWithHost({ port, host: "shop.example.test", path: "/admin/login", method: "POST", headers });
     assert.equal(post.statusCode, 400);
 });
