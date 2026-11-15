@@ -215,7 +215,7 @@ After login, visitors return to the requested document. All current admin roles
 have access. Statutes remain public at
 `https://recytech.me/documents/statutes/statuts-recytech.pdf`.
 
-PDFs live only in `storage/association-documents` on the server, outside Express's static root and Git. `ASSOCIATION_DOCUMENTS_PATH` can override this absolute storage path.
+PDFs live only in `private-documents` on the server, outside Express's static root and Git. `ASSOCIATION_DOCUMENTS_PATH` can override this absolute storage path.
 Only the explicit document allowlist in `routes/association-documents.js` is
 served; private responses use `Cache-Control: private, no-store` and noindex.
 To add a document, upload its PDF directly to private server storage and update its allowlist entry. Never commit private PDFs.
