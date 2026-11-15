@@ -12,6 +12,12 @@ const pdf = `${committee}/pv-comit%C3%A9-04.04.2025.pdf`;
 
 async function setup(t) {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "recytech-documents-"));
+    const documentsDir = path.join(tempDir, "documents");
+    for (const file of ["committee/pv-comité-04.04.2025.pdf", "general-meeting/pv-ag-constitutive.pdf"]) {
+        const destination = path.join(documentsDir, file);
+        fs.mkdirSync(path.dirname(destination), { recursive: true });
+        fs.writeFileSync(destination, "%PDF-1.4\nSynthetic test fixture only.\n");
+    }
     const app = createApp({
         rootDir: path.join(__dirname, ".."),
         databasePath: path.join(tempDir, "shop.db"),
@@ -19,6 +25,7 @@ async function setup(t) {
         env: {
             ...process.env,
             NODE_ENV: "test",
+            ASSOCIATION_DOCUMENTS_PATH: documentsDir,
             ADMIN_USERNAME: "admin",
             ADMIN_PASSWORD: "test-admin-password",
             SESSION_SECRET: "documents-test-session-secret",

@@ -6,3 +6,6 @@ storage/*.db-*
 storage/backups/
 public/uploads/
 *.log
+
+storage/association-documents/
+private/association-documents/
