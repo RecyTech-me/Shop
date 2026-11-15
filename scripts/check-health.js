@@ -111,6 +111,8 @@ async function checkHealth({
 if (require.main === module) {
     checkHealth().catch((error) => {
         console.error(error.message);
+        // Surface transport failures without dumping request headers or secrets.
+        if (error.cause) console.error(`Health transport failure: ${error.cause.code || error.cause.message || "unknown"}`);
         process.exitCode = 1;
     });
 }
