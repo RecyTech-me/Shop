@@ -51,14 +51,14 @@ function createTestServer(t, envOverrides = {}) {
     });
 }
 
-function requestWithHost({ port, host, path: requestPath = "/" }) {
+function requestWithHost({ port, host, path: requestPath = "/", method = "GET", headers = {} }) {
     return new Promise((resolve, reject) => {
         const request = http.request({
             host: "127.0.0.1",
             port,
             path: requestPath,
-            method: "GET",
-            headers: { Host: host },
+            method,
+            headers: { ...headers, Host: host },
         }, (response) => {
             response.resume();
             response.on("end", () => resolve(response));
@@ -145,4 +145,70 @@ test("stateless health and product API probes do not create sessions", async (t)
     const storefront = await fetch(`${baseUrl}/`);
     assert.ok(storefront.headers.get("set-cookie"));
     assert.equal(app.locals.runtime.db.prepare("SELECT COUNT(*) AS count FROM sessions").get().count, 1);
+});
+
+test("personalized HTML and private redirects cannot be stored by browsers or shared caches", async (t) => {
+    const { baseUrl } = await createTestServer(t);
+    for (const target of ["/", "/admin/login", "/admin/orders", "/checkout/success", "/cart", "/association-documents/committee"]) {
+        const response = await fetch(`${baseUrl}${target}`, { redirect: "manual" });
+        assert.equal(response.headers.get("cache-control"), "private, no-store", target);
+    }
+    const products = await fetch(`${baseUrl}/api/products`);
+    assert.equal(products.headers.get("cache-control"), "public, max-age=120");
+    const css = await fetch(`${baseUrl}/static/styles/main.css`);
+    assert.match(css.headers.get("cache-control"), /public/);
+});
+
+test("production enforces HTTPS and does not trust forwarded headers when proxy trust is disabled", async (t) => {
+    const { port } = await createTestServer(t, {
+        NODE_ENV: "production",
+        TRUST_PROXY: "false",
+        SHOP_PUBLIC_URL: "https://shop.example.test",
+        SESSION_SECRET: "security-test-session-secret-32-chars-minimum",
+        ORDER_VIEW_TOKEN_SECRET: "security-test-order-view-secret-32-chars-minimum",
+        ADMIN_PASSWORD: "test-admin-password-32-chars",
+        SWISS_BITCOIN_PAY_WEBHOOK_SECRET: "",
+    });
+    const headers = { host: "shop.example.test", "x-forwarded-proto": "https" };
+    const page = await requestWithHost({ port, host: "shop.example.test", path: "/admin/login", headers });
+    assert.equal(page.statusCode, 308);
+    assert.equal(page.headers.location, "https://shop.example.test/admin/login");
+    assert.equal(page.headers["set-cookie"], undefined);
+    const post = await requestWithHost({ port, host: "shop.example.test", path: "/admin/login", method: "POST", headers });
+    assert.equal(post.statusCode, 400);
+});
+
+test("multipart forms cannot bypass the normal field-size boundary", async (t) => {
+    const { app, baseUrl } = await createTestServer(t);
+    const page = await fetch(`${baseUrl}/admin/login`);
+    const csrf = (await page.text()).match(/name="csrf-token" content="([^"]+)"/)[1];
+    const login = await fetch(`${baseUrl}/admin/login`, {
+        method: "POST", redirect: "manual",
+        headers: { cookie: page.headers.getSetCookie()[0].split(";")[0], "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ _csrf: csrf, username: "admin", password: "test-admin-password" }),
+    });
+    const cookie = login.headers.getSetCookie()[0].split(";")[0];
+    const form = await fetch(`${baseUrl}/admin/products/new`, { headers: { cookie } });
+    const formCsrf = (await form.text()).match(/name="csrf-token" content="([^"]+)"/)[1];
+    const body = new FormData();
+    for (const [name, value] of Object.entries({ _csrf: formCsrf, name: "Oversized product", categories: "Portables", price_chf: "100", inventory: "1", description: "x".repeat(200 * 1024) })) body.set(name, value);
+    const result = await fetch(`${baseUrl}/admin/products/new`, { method: "POST", body, headers: { cookie }, redirect: "manual" });
+    assert.equal(result.status, 302);
+    assert.equal(result.headers.get("location"), "/admin/products/new");
+    assert.equal(app.locals.runtime.db.prepare("SELECT COUNT(*) AS count FROM products").get().count, 0);
+});
+
+
+test("starting a new browser session cannot bypass Stripe intent creation limits", (t) => {
+    const { createInfrastructureContext } = require("../lib/app-infrastructure-context");
+    const context = createInfrastructureContext({
+        rootDir: path.join(__dirname, ".."), databasePath: ":memory:", startBackgroundTasks: false,
+        env: { NODE_ENV: "test", ADMIN_USERNAME: "admin", ADMIN_PASSWORD: "security-test-admin-password" },
+    });
+    t.after(() => context.stop());
+    for (let index = 0; index < 20; index++) {
+        context.rateLimiters.registerStripeIntentAttempt({ ip: "192.0.2.1", sessionID: `session-${index}` });
+    }
+    assert.ok(context.rateLimiters.getStripeIntentRateLimitState({ ip: "192.0.2.1", sessionID: "new-session" }).blockedUntil > Date.now());
+    assert.equal(context.rateLimiters.getStripeIntentRateLimitState({ ip: "192.0.2.2", sessionID: "new-session" }).blockedUntil, 0);
 });

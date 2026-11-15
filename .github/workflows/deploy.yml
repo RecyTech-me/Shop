@@ -193,6 +193,14 @@ jobs:
             cd "$STAGING_DIR"
             npm ci --omit=dev
 
+            # Migrate documents before rsync removes their former tracked paths.
+            node "$STAGING_DIR/scripts/migrate-association-documents.js" \
+              "$LIVE_DIR/private/association-documents" "$LIVE_DIR/storage/association-documents" "$DEPLOY_SERVICE"
+            if [ -d "$LIVE_DIR/storage/association-documents" ]; then
+              chgrp -R shopsite "$LIVE_DIR/storage/association-documents"
+              chmod -R u=rwX,g=rX,o= "$LIVE_DIR/storage/association-documents"
+            fi
+
             test -d "$LIVE_DIR/storage"
             test -d "$LIVE_DIR/public/uploads/products"
             test -d "$LIVE_DIR/public/uploads/settings"
